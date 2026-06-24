@@ -1,0 +1,16 @@
+# ==============================================================================
+# Pushkaralu Drone/CCTV Monitor - Production Dependencies
+# ==============================================================================
+
+# Core Machine Learning & Computer Vision
+torch>=1.2.0
+torchvision>=0.4.0
+numpy>=1.16.5
+opencv-python>=4.1.0
+pillow>=6.2.2
+
+# Network Requests & External Integrations
+requests>=2.22.0
+
+# Video Downloader Utility
+yt-dlp>=2023.3.3

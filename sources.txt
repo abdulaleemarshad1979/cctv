@@ -1,0 +1,26 @@
+# ====================================================================
+# Pushkaralu Drone Monitor — Saved Sources
+# ====================================================================
+# Add one source per line. Lines starting with # are comments.
+# Format options:
+#
+#   rtsp://192.168.42.1/live                 ← paste any RTSP URL here
+#   rtsp://admin:pass@192.168.1.64:554/stream ← with credentials
+#   dji_mini3                                ← use a drone preset name
+#   dji_mavic3
+#   /path/to/video.mp4                       ← local video file
+#   0                                        ← USB webcam
+#
+# ====================================================================
+# Add your sources below this line:
+
+rtsp://192.168.42.1/live
+
+# More examples (uncomment to use):
+# rtsp://192.168.0.1:8554/live
+# dji_mini4pro
+ /home/user/Videos/mecca.mp4
+
+
+
+Videos/mecca.mp4

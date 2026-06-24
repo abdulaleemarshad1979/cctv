@@ -1,0 +1,17 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# VS Code settings
+.vscode/
+
+# Project-specific ignores
+Videos/
+outputs/
+**/pretrained_models/
+*.pth
+*.mp4
