@@ -152,6 +152,7 @@ class DroneState:
         self.name        = DRONE_NAMES[drone_id]
         self.altitude_m  = DRONE_ALTITUDES_M[drone_id]
         self.lock        = threading.Lock()
+        self.alert_first_shown = {}  # tracks when each alert was first shown
 
         # Frame
         self.frame_bgr   = None
@@ -250,6 +251,7 @@ class SwarmManager:
         self.states     = [DroneState(i) for i in range(self.n)]
         self._stop      = threading.Event()
         self._threads   = []
+        self._model_lock = threading.Semaphore(1)  # one inference at a time
 
         # Unified state (merged across all drones)
         self._unified_lock = threading.Lock()
@@ -263,6 +265,9 @@ class SwarmManager:
 
     def start(self):
         for i, src in enumerate(self.sources):
+            # Clear history on intentional startup
+            self.states[i].history.clear()
+
             p_t = threading.Thread(target=self._producer,
                                    args=(i, src), daemon=True,
                                    name=f"Swarm-D{i+1}-Producer")
@@ -333,12 +338,22 @@ class SwarmManager:
         from torchvision import transforms
 
         ds = self.states[idx]
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        
+        # Check if multi-GPU is available and model is not shared
+        if torch.cuda.is_available():
+            num_gpus = torch.cuda.device_count()
+            if num_gpus > 1 and self.model is None:
+                device = torch.device(f"cuda:{idx % num_gpus}")
+            else:
+                device = torch.device("cuda")
+        else:
+            device = torch.device("cpu")
 
         # Load model (if not shared — for multi-GPU setups)
         if self.model is not None:
             mdl = self.model
         else:
+            print(f"[SWARM] WARNING: no shared model passed to drone {idx+1}. Loading own copy.")
             from dm_count.models import vgg19
             ckpt = torch.load(config.WEIGHTS_PATH, map_location=device)
             if isinstance(ckpt, dict):
@@ -372,8 +387,13 @@ class SwarmManager:
             tensor = tfm(Image.fromarray(rgb)).unsqueeze(0).to(device)
 
             # Infer
-            with torch.inference_mode():
-                out = mdl(tensor)
+            if self.model is not None:
+                with self._model_lock:
+                    with torch.inference_mode():
+                        out = mdl(tensor)
+            else:
+                with torch.inference_mode():
+                    out = mdl(tensor)
             dmap_t  = out[0] if isinstance(out, (tuple, list)) else out
             dmap_np = dmap_t.squeeze().detach().float().cpu().numpy()
 
@@ -407,6 +427,13 @@ class SwarmManager:
             disp = cv2.resize(frame, (config.DISPLAY_WIDTH, config.DISPLAY_HEIGHT),
                               interpolation=cv2.INTER_AREA)
             speed_grid, motion_speed, turbulence = ds.motion_anal.analyze_motion(disp)
+
+            # Zero out motion in cells with no detected people (water / noise filter)
+            if scores is not None:
+                for r in range(3):
+                    for c in range(3):
+                        if scores[r, c] < 5.0:
+                            speed_grid[r, c] = 0.0
 
             # ── Opposing flow ─────────────────────────────────
             last_flow = getattr(ds.motion_anal, 'last_flow', None)

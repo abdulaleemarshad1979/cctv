@@ -16,16 +16,16 @@ class ZoneMonitor:
             return np.zeros((self.rows, self.cols)), np.zeros((self.rows, self.cols))
 
         h, w = dmap_np.shape[:2]
-        cell_h = h // self.rows
         cell_w = w // self.cols
+        ROW_BOUNDARIES = [0.0, 0.30, 0.62, 1.0]
 
         scores = np.zeros((self.rows, self.cols))
         normalized_scores = np.zeros((self.rows, self.cols))
 
         for r in range(self.rows):
+            r_start = int(ROW_BOUNDARIES[r] * h)
+            r_end = int(ROW_BOUNDARIES[r+1] * h) if r < self.rows - 1 else h
             for c in range(self.cols):
-                r_start = r * cell_h
-                r_end = (r + 1) * cell_h if r < self.rows - 1 else h
                 c_start = c * cell_w
                 c_end = (c + 1) * cell_w if c < self.cols - 1 else w
 

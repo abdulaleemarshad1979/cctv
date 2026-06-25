@@ -310,7 +310,7 @@ class DroneStreamHandler:
 
     def _open_rtsp(self) -> cv2.VideoCapture:
         opts = _ffmpeg_opts(self.transport)
-        os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = opts
+        os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = opts + "|hwaccel;auto"
 
         src_str  = str(self.source)
         safe_url = self._safe_url(src_str)

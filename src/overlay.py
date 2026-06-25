@@ -135,33 +135,37 @@ def draw_grid_3x3(
     # Grid lives BELOW the banner
     grid_y0 = BANNER_H
     grid_h  = h - BANNER_H - 30   # leave 30px for alert ticker at bottom
-    cell_h  = grid_h // 3
     cell_w  = w // 3
     labels  = ["A", "B", "C"]
+    ROW_BOUNDARIES = [0.0, 0.30, 0.62, 1.0]
 
     # ── tinted cell backgrounds ──
     overlay_layer = frame.copy()
     for r in range(3):
+        y0 = grid_y0 + int(ROW_BOUNDARIES[r] * grid_h)
+        y1 = grid_y0 + int(ROW_BOUNDARIES[r+1] * grid_h) if r < 2 else (h - 30)
         for c in range(3):
-            y0 = grid_y0 + r * cell_h
-            y1 = grid_y0 + (r + 1) * cell_h if r < 2 else (h - 30)
             x0 = c * cell_w
             x1 = (c + 1) * cell_w if c < 2 else w
             density  = float(zone_scores[r][c]) if zone_scores is not None else 0.0
             pressure = min(1.0, density / max_capacity)
-            cv2.rectangle(overlay_layer, (x0, y0), (x1, y1), _pressure_color(pressure), -1)
+            color = _pressure_color(pressure)
+            if color != C_GREEN:
+                cv2.rectangle(overlay_layer, (x0, y0), (x1, y1), color, -1)
 
     cv2.addWeighted(overlay_layer, 0.15, frame, 0.85, 0, frame)
 
     # ── grid lines ──
     for i in range(1, 3):
-        cv2.line(frame, (0, grid_y0 + i * cell_h), (w, grid_y0 + i * cell_h), C_WHITE, 1)
+        y_line = grid_y0 + int(ROW_BOUNDARIES[i] * grid_h)
+        cv2.line(frame, (0, y_line), (w, y_line), C_WHITE, 1)
         cv2.line(frame, (i * cell_w, grid_y0), (i * cell_w, h - 30), C_WHITE, 1)
 
     # ── per-cell labels ──
     for r in range(3):
+        cy0 = grid_y0 + int(ROW_BOUNDARIES[r] * grid_h)
+        cy1 = grid_y0 + int(ROW_BOUNDARIES[r+1] * grid_h) if r < 2 else (h - 30)
         for c in range(3):
-            cy0 = grid_y0 + r * cell_h
             cx0 = c * cell_w
 
             density = float(zone_scores[r][c])   if zone_scores  is not None else 0.0
@@ -189,14 +193,14 @@ def draw_grid_3x3(
             # Opposing flow hatch
             if opposing_danger is not None and opposing_danger[r, c]:
                 x1 = (cx0 + cell_w) if c < 2 else w
-                y1 = (cy0 + cell_h) if r < 2 else (h - 30)
+                y1 = cy1
                 _draw_hatch(frame, cx0, cy0, x1, y1)
 
     # ── hotspot highlight ──
     if zone_scores is not None and np.max(zone_scores) > 0.0:
         max_r, max_c = divmod(int(np.argmax(zone_scores)), 3)
-        hy0 = grid_y0 + max_r * cell_h
-        hy1 = grid_y0 + (max_r + 1) * cell_h if max_r < 2 else (h - 30)
+        hy0 = grid_y0 + int(ROW_BOUNDARIES[max_r] * grid_h)
+        hy1 = grid_y0 + int(ROW_BOUNDARIES[max_r + 1] * grid_h) if max_r < 2 else (h - 30)
         hx0 = max_c * cell_w
         hx1 = (max_c + 1) * cell_w if max_c < 2 else w
 
@@ -293,7 +297,7 @@ def draw_stampede_panel(frame, predictor_result: dict):
 
 # ─── alert ticker ─────────────────────────────────────────────────────
 
-def draw_alert_ticker(frame, alerts: list):
+def draw_alert_ticker(frame, alerts: list, alert_first_shown_times: dict = None, current_time: float = None):
     """
     Single-line coloured alert bar pinned to the BOTTOM of the frame.
     Priority: CRITICAL > HIGH/EXPANDING > WATCH > stable.
@@ -316,7 +320,18 @@ def draw_alert_ticker(frame, alerts: list):
     if not chosen:
         return
 
-    if "CRITICAL" in chosen or "EVACUATE" in chosen or "STAMPEDE" in chosen:
+    is_repeated = False
+    if alert_first_shown_times is not None and current_time is not None and chosen in alert_first_shown_times:
+        first_shown = alert_first_shown_times[chosen]
+        elapsed = current_time - first_shown
+        if elapsed > 30.0:  # remove repeats after 30 seconds
+            return
+        elif elapsed > 10.0:  # dim repeated alerts after 10 seconds
+            is_repeated = True
+
+    if is_repeated:
+        bg, fg = C_DGRAY, C_GRAY
+    elif "CRITICAL" in chosen or "EVACUATE" in chosen or "STAMPEDE" in chosen:
         bg, fg = C_RED, C_WHITE
     elif "HIGH" in chosen or "EXPANDING" in chosen or "OPPOSING" in chosen:
         bg, fg = C_ORANGE, C_BLACK

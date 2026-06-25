@@ -3,12 +3,12 @@ stampede_predictor.py
 Combines density, motion, turbulence, hotspot growth, and opposing flow
 into a single stampede probability score.
 
-Formula (all terms normalised to [0, 1]):
-    P = 0.30 * density_term
-      + 0.20 * motion_term
-      + 0.20 * turbulence_term
-      + 0.20 * growth_term          ← rate-of-change of density
-      + 0.10 * opposing_flow_term
+# Formula (all terms normalised to [0, 1]):
+#     P = 0.20 * density_term           ← was 0.30
+#       + 0.20 * motion_term
+#       + 0.20 * turbulence_term
+#       + 0.20 * growth_term            ← rate-of-change of density
+#       + 0.20 * opposing_flow_term     ← was 0.10
 
 Output probability is smoothed with an EMA to avoid jitter.
 """
@@ -92,11 +92,11 @@ class StampedePredictor:
 
         # Weighted sum
         raw_prob = (
-            0.30 * density_term
+            0.20 * density_term      # was 0.30
             + 0.20 * motion_term
             + 0.20 * turb_term
             + 0.20 * growth_term
-            + 0.10 * opposing_term
+            + 0.20 * opposing_term   # was 0.10
         )
         raw_prob = float(np.clip(raw_prob, 0.0, 1.0))
 

@@ -18,6 +18,8 @@ Keys:
 import os, sys, cv2, time, threading
 import numpy as np
 import torch
+from http.server import HTTPServer, BaseHTTPRequestHandler
+import json
 
 import config
 from src import overlay, geo_alert
@@ -51,6 +53,24 @@ model = _load_model()
 # ── Start swarm ───────────────────────────────────────────────────────
 swarm = SwarmManager(sources=DRONE_SOURCES[:SWARM_DRONE_COUNT], model=model)
 swarm.start()
+
+class StatusHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        state = swarm.get_unified_state()
+        body = json.dumps(state).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        self.wfile.write(body)
+    def log_message(self, *a): pass  # silence access logs
+
+threading.Thread(
+    target=lambda: HTTPServer(("0.0.0.0", 8080), StatusHandler).serve_forever(),
+    daemon=True,
+    name="HTTPStatusAPI"
+).start()
+print("[SWARM-INFER] HTTP status API server running on http://0.0.0.0:8080")
 
 # ── Display window ────────────────────────────────────────────────────
 MOSAIC_W = config.DISPLAY_WIDTH
@@ -86,7 +106,17 @@ while True:
                                       panel_visible=True)
                 overlay.draw_stampede_panel(disp, ds.sp_result)
                 alerts = ds.get_alerts()
-                overlay.draw_alert_ticker(disp, alerts)
+                
+                # Track alert first shown times
+                now = time.monotonic()
+                for a in list(ds.alert_first_shown.keys()):
+                    if a not in alerts:
+                        del ds.alert_first_shown[a]
+                for a in alerts:
+                    if a not in ds.alert_first_shown:
+                        ds.alert_first_shown[a] = now
+
+                overlay.draw_alert_ticker(disp, alerts, ds.alert_first_shown, now)
             else:
                 disp = np.zeros((MOSAIC_H, MOSAIC_W, 3), dtype=np.uint8)
                 cv2.putText(disp, f"Drone {focus_drone+1}: {DRONE_NAMES[focus_drone]} — NO SIGNAL",

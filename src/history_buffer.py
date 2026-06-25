@@ -58,6 +58,10 @@ class HistoryBuffer:
     def is_empty(self) -> bool:
         return len(self._buf) == 0
 
+    def clear(self) -> None:
+        """Clear all historical buffer records."""
+        self._buf.clear()
+
     def latest(self) -> dict | None:
         return self._buf[-1] if self._buf else None
 

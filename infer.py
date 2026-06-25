@@ -237,6 +237,8 @@ hs_tracker  = HotspotTracker(history)
 opp_det     = OpposingFlowDetector()
 stamp_pred  = StampedePredictor(history)
 video_writer = None
+alert_first_shown_times = {}
+last_cap_ts = 0.0
 
 # ── display loop ──────────────────────────────────────────────────────
 while not _stop.is_set():
@@ -259,6 +261,11 @@ while not _stop.is_set():
         time.sleep(0.005); continue
 
     frame, cap_ts = fd
+    if cap_ts == last_cap_ts:
+        time.sleep(0.002)
+        continue
+    last_cap_ts = cap_ts
+
     age = time.monotonic() - cap_ts
 
     # Resize to display resolution
@@ -271,6 +278,13 @@ while not _stop.is_set():
 
     # Motion (uses median, noise-floored)
     speed_grid, motion_speed, turbulence = motion_anal.analyze_motion(disp)
+
+    # Zero out motion in cells with no detected people (water / noise filter)
+    if zone_scores is not None:
+        for r in range(3):
+            for c in range(3):
+                if zone_scores[r, c] < 5.0:
+                    speed_grid[r, c] = 0.0
 
     # Opposing flow
     last_flow  = getattr(motion_anal, "last_flow", None)
@@ -330,7 +344,17 @@ while not _stop.is_set():
         opp_result.get("alert_text", ""),
         sp_result.get("alert_text", ""),
     ] if a]
-    overlay.draw_alert_ticker(disp, alerts)
+    
+    # Track alert first shown times
+    now = time.monotonic()
+    for a in list(alert_first_shown_times.keys()):
+        if a not in alerts:
+            del alert_first_shown_times[a]
+    for a in alerts:
+        if a not in alert_first_shown_times:
+            alert_first_shown_times[a] = now
+
+    overlay.draw_alert_ticker(disp, alerts, alert_first_shown_times, now)
 
     # ── recording ─────────────────────────────────────────────────
     if recording:

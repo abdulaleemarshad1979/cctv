@@ -54,8 +54,14 @@ CSV_LOG_PATH         = os.path.join(BASE_DIR, "outputs", "crowd_log.csv")
 # ─── Display / inference ──────────────────────────────────────────────
 DISPLAY_WIDTH  = 960
 DISPLAY_HEIGHT = 540
-INFER_WIDTH    = 768
-INFER_HEIGHT   = 432
+
+import torch
+if torch.cuda.is_available():
+    INFER_WIDTH  = 1024
+    INFER_HEIGHT = 576
+else:
+    INFER_WIDTH  = 768
+    INFER_HEIGHT = 432
 
 # ─── Adaptive stride ──────────────────────────────────────────────────
 INITIAL_INFERENCE_STRIDE = 12
