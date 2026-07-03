@@ -52,7 +52,35 @@ else:
 print(f"[INFO] Device: {device}")
 
 
+class ONNXModelWrapper:
+    def __init__(self, onnx_path):
+        import onnxruntime as ort
+        providers = ['CPUExecutionProvider']
+        if torch.cuda.is_available():
+            providers = ['CUDAExecutionProvider', 'CPUExecutionProvider']
+        self.session = ort.InferenceSession(onnx_path, providers=providers)
+        print(f"[ONNX] Model loaded on providers: {self.session.get_providers()}")
+
+    def __call__(self, tensor):
+        input_data = tensor.cpu().numpy()
+        outputs = self.session.run(None, {'input': input_data})
+        return torch.from_numpy(outputs[0]), torch.from_numpy(outputs[1])
+
+    def to(self, device):
+        return self
+
+    def eval(self):
+        return self
+
+
 def _load_model():
+    if getattr(config, "INFERENCE_BACKEND", "torch") == "onnx":
+        onnx_path = config.WEIGHTS_PATH.replace(".pth", ".onnx")
+        if not os.path.exists(onnx_path):
+            raise FileNotFoundError(f"ONNX model not found at {onnx_path}. Run tools/export_onnx.py first.")
+        print(f"[INFO] Loading ONNX model from {onnx_path}...")
+        return ONNXModelWrapper(onnx_path)
+
     if not os.path.exists(config.WEIGHTS_PATH):
         raise FileNotFoundError(config.WEIGHTS_PATH)
     ckpt = torch.load(config.WEIGHTS_PATH, map_location=device)
@@ -75,7 +103,18 @@ def _load_model():
     return m
 
 
-model = _load_model()
+model = None
+model_loaded = threading.Event()
+
+def async_load_model():
+    global model
+    try:
+        model = _load_model()
+        model_loaded.set()
+    except Exception as e:
+        print(f"[ERROR] Failed to load model asynchronously: {e}")
+
+threading.Thread(target=async_load_model, daemon=True, name="ModelLoader").start()
 
 _tfm = transforms.Compose([
     transforms.ToTensor(),
@@ -139,6 +178,7 @@ _zone_scores   = None          # np (3,3)
 _is_live       = False
 
 _frame_q = queue.Queue(maxsize=1)
+_health_stats = {"reconnects": 0, "drop_rate_%": 0.0, "live_fps": 0.0}
 
 
 def _clear_q(q):
@@ -187,9 +227,16 @@ def _producer():
 
             idx += 1
             ts  = time.monotonic()
+            health = sh.health_report()
             with _lock:
                 _frame_data = (frame, ts)
                 stride = _stride
+                global _health_stats
+                _health_stats = {
+                    "reconnects": health["reconnects"],
+                    "drop_rate_%": health["drop_rate_%"],
+                    "live_fps": health["live_fps"]
+                }
 
             if idx % stride == 0:
                 if _frame_q.full(): _clear_q(_frame_q)
@@ -212,6 +259,9 @@ def _producer():
 def _inference_worker():
     global _dmap, _density_score, _peak_density, _hotspot_ratio
     global _risk_score, _zone, _zone_color, _infer_t, _stride, _proc_fps, _zone_scores
+
+    # Wait for the asynchronously loaded model to be ready
+    model_loaded.wait()
 
     last_t   = time.perf_counter()
     zm       = zone_monitor.ZoneMonitor()
@@ -296,6 +346,8 @@ stamp_pred  = StampedePredictor(history)
 video_writer = None
 alert_first_shown_times = {}
 last_cap_ts = 0.0
+last_metrics_log_time = 0.0
+heatmap_state = {}
 
 # ── display loop ──────────────────────────────────────────────────────
 source = drone_stream.resolve_source(config.VIDEO_SOURCE)
@@ -314,6 +366,8 @@ while not _stop.is_set():
         proc_fps      = _proc_fps
         cur_stride    = _stride
         zone_scores   = _zone_scores
+        health_stats  = _health_stats
+        is_live_val   = _is_live
 
     if fd is None:
         # Render a clean, animated "Connecting / Camera Offline" window instead of a frozen screen!
@@ -346,7 +400,7 @@ while not _stop.is_set():
 
     # Heatmap
     if heatmap_enabled:
-        disp = heatmap_generator.apply_heatmap(disp, dmap, alpha=config.HEATMAP_ALPHA)
+        disp = heatmap_generator.apply_heatmap(disp, dmap, alpha=config.HEATMAP_ALPHA, state=heatmap_state)
 
     # Motion (uses median, noise-floored)
     speed_grid, motion_speed, turbulence = motion_anal.analyze_motion(disp)
@@ -495,6 +549,23 @@ while not _stop.is_set():
                       peak_density, hotspot_ratio, infer_t, age, cur_stride)
 
     cv2.imshow(config.WINDOW_NAME, disp)
+    
+    # Log performance metrics once per second
+    now_m = time.monotonic()
+    if now_m - last_metrics_log_time >= 1.0:
+        last_metrics_log_time = now_m
+        if fd is not None:
+            from src.perf_metrics import log_drone_metrics
+            log_drone_metrics(
+                drone_id=0,
+                drone_name="Single Drone",
+                cap_to_disp_s=now_m - cap_ts,
+                infer_time_s=infer_t,
+                reconnect_count=health_stats["reconnects"],
+                drop_rate_pct=health_stats["drop_rate_%"],
+                fps=health_stats["live_fps"]
+            )
+
     key = cv2.waitKey(1) & 0xFF
 
     if   key == ord("q"): _stop.set(); break

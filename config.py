@@ -60,13 +60,27 @@ DISPLAY_HEIGHT = int(os.environ.get("DISPLAY_HEIGHT", "720"))
 CAPTURE_WIDTH  = int(os.environ.get("CAPTURE_WIDTH", "1280"))
 CAPTURE_HEIGHT = int(os.environ.get("CAPTURE_HEIGHT", "720"))
 
-import torch
-if torch.cuda.is_available():
-    INFER_WIDTH  = 1024
-    INFER_HEIGHT = 576
-else:
-    INFER_WIDTH  = 768
-    INFER_HEIGHT = 432
+def is_cuda_available():
+    try:
+        import torch
+        return torch.cuda.is_available()
+    except ImportError:
+        return False
+
+def get_infer_resolution():
+    if not hasattr(get_infer_resolution, "_cached"):
+        if is_cuda_available():
+            get_infer_resolution._cached = (1024, 576)
+        else:
+            get_infer_resolution._cached = (768, 432)
+    return get_infer_resolution._cached
+
+def __getattr__(name):
+    if name == "INFER_WIDTH":
+        return get_infer_resolution()[0]
+    elif name == "INFER_HEIGHT":
+        return get_infer_resolution()[1]
+    raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
 
 # ─── Adaptive stride ──────────────────────────────────────────────────
 INITIAL_INFERENCE_STRIDE = 12
@@ -83,6 +97,8 @@ WINDOW_NAME   = "Pushkaralu Crowd Risk"
 # windows, and other static background texture.
 CLEAN_INPUT_OVERLAYS = os.environ.get("CLEAN_INPUT_OVERLAYS", "1").lower() in ("1", "true", "yes", "on")
 DENSITY_SPECKLE_RATIO = float(os.environ.get("DENSITY_SPECKLE_RATIO", "0.015"))
+INFERENCE_BACKEND = os.environ.get("INFERENCE_BACKEND", "torch").lower()
+SWARM_BATCH_INFERENCE = os.environ.get("SWARM_BATCH_INFERENCE", "1" if is_cuda_available() else "0").lower() in ("1", "true", "yes", "on")
 
 # ─── Risk thresholds ──────────────────────────────────────────────────
 SAFE_THRESHOLD  = 0.25
@@ -100,10 +116,10 @@ DRONE_CORRECT_DISTORTION = False
 SWARM_DRONE_COUNT = 4
 
 DRONE_SOURCES = [
-    'rtsp://127.0.0.1:8554/live/drone1',
-    'rtsp://127.0.0.1:8554/live/drone2',
-    'rtsp://127.0.0.1:8554/live/drone3',
-    'rtsp://127.0.0.1:8554/live/drone4',
+    os.environ.get("CCTV_SOURCE_1", 'rtsp://127.0.0.1:8554/live/drone1'),
+    os.environ.get("CCTV_SOURCE_2", 'rtsp://127.0.0.1:8554/live/drone2'),
+    os.environ.get("CCTV_SOURCE_3", 'rtsp://127.0.0.1:8554/live/drone3'),
+    os.environ.get("CCTV_SOURCE_4", 'rtsp://127.0.0.1:8554/live/drone4'),
 ]
 
 DRONE_NAMES = [

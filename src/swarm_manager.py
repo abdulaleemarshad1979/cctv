@@ -192,6 +192,9 @@ class DroneState:
         self.drop_rate_pct   = 0.0
         self.reconnect_count = 0
         self.last_frame_age_s = 0.0
+        self.infer_time      = 0.0
+        self.live_fps        = 0.0
+        self.heatmap_state   = {}
 
         # Analysis objects
         self.history     = HistoryBuffer(max_seconds=30.0, fps_estimate=5.0)
@@ -254,6 +257,7 @@ class SwarmManager:
         self._stop      = threading.Event()
         self._threads   = []
         self._model_lock = threading.Semaphore(1)  # one inference at a time
+        self.batch_queue = queue.Queue()
 
         # Unified state (merged across all drones)
         self._unified_lock = threading.Lock()
@@ -266,6 +270,21 @@ class SwarmManager:
         }
 
     def start(self):
+        self.thread_specs = {}
+
+        if getattr(config, "SWARM_BATCH_INFERENCE", True):
+            d_t = threading.Thread(target=self._inference_dispatcher,
+                                   daemon=True,
+                                   name="Swarm-Inference-Dispatcher")
+            self._threads.append(d_t)
+            d_t.start()
+            self.thread_specs["Swarm-Inference-Dispatcher"] = {
+                "thread": d_t,
+                "target": self._inference_dispatcher,
+                "args": ()
+            }
+            print("[SWARM] Started batch inference dispatcher thread.")
+
         for i, src in enumerate(self.sources):
             # Clear history on intentional startup
             self.states[i].history.clear()
@@ -279,10 +298,37 @@ class SwarmManager:
             h_t = threading.Thread(target=self._health_monitor,
                                    args=(i,), daemon=True,
                                    name=f"Swarm-D{i+1}-Health")
+            
+            p_t.start()
+            i_t.start()
+            h_t.start()
+
             for t in (p_t, i_t, h_t):
                 self._threads.append(t)
-                t.start()
-        print(f"[SWARM] Started {self.n} drone pipelines.")
+
+            self.thread_specs[f"Swarm-D{i+1}-Producer"] = {
+                "thread": p_t,
+                "target": self._producer,
+                "args": (i, src)
+            }
+            self.thread_specs[f"Swarm-D{i+1}-Inference"] = {
+                "thread": i_t,
+                "target": self._inference_worker,
+                "args": (i,)
+            }
+            self.thread_specs[f"Swarm-D{i+1}-Health"] = {
+                "thread": h_t,
+                "target": self._health_monitor,
+                "args": (i,)
+            }
+
+        # Start watchdog
+        w_t = threading.Thread(target=self._watchdog_loop,
+                               daemon=True,
+                               name="Swarm-Watchdog")
+        self._threads.append(w_t)
+        w_t.start()
+        print(f"[SWARM] Started {self.n} drone pipelines under Watchdog supervision.")
 
     def stop(self):
         self._stop.set()
@@ -336,6 +382,7 @@ class SwarmManager:
                     health       = handler.health_report()
                     ds.drop_rate_pct   = health["drop_rate_%"]
                     ds.reconnect_count = health["reconnects"]
+                    ds.live_fps        = health["live_fps"]
 
                 # Push to inference queue (drop old frame if full)
                 if frame_no % getattr(config, 'INITIAL_INFERENCE_STRIDE', 12) == 0:
@@ -343,7 +390,7 @@ class SwarmManager:
                     if q.full():
                         try: q.get_nowait()
                         except queue.Empty: pass
-                    q.put_nowait(frame.copy())
+                    q.put_nowait((frame.copy(), ts))
 
                 if not handler.is_live:
                     nft += 1.0 / src_fps
@@ -379,8 +426,8 @@ class SwarmManager:
         # Load model (if not shared — for multi-GPU setups)
         if self.model is not None:
             mdl = self.model
-        else:
-            print(f"[SWARM] WARNING: no shared model passed to drone {idx+1}. Loading own copy.")
+        elif torch.cuda.is_available() and torch.cuda.device_count() > 1:
+            print(f"[SWARM] Drone {idx+1} loading own model copy on device {device}...")
             from dm_count.models import vgg19
             ckpt = torch.load(config.WEIGHTS_PATH, map_location=device)
             if isinstance(ckpt, dict):
@@ -394,6 +441,11 @@ class SwarmManager:
             except RuntimeError: mdl.load_state_dict(sd, strict=False)
             mdl.to(device).eval()
             print(f"[SWARM] Drone {idx+1} model ready on {device}.")
+        else:
+            print(f"[SWARM] Drone {idx+1} waiting for shared model to load...")
+            while self.model is None and not self._stop.is_set():
+                time.sleep(0.1)
+            mdl = self.model
 
         tfm = transforms.Compose([
             transforms.ToTensor(),
@@ -403,11 +455,12 @@ class SwarmManager:
 
         while not self._stop.is_set():
             try:
-                frame = ds.frame_q.get(timeout=0.5)
+                frame, cap_ts = ds.frame_q.get(timeout=0.5)
             except queue.Empty:
                 continue
 
             # Preprocess
+            t0 = time.perf_counter()
             if getattr(config, "CLEAN_INPUT_OVERLAYS", True):
                 frame_for_infer = density_filter.suppress_broadcast_overlays(frame)
             else:
@@ -418,15 +471,30 @@ class SwarmManager:
             tensor = tfm(Image.fromarray(rgb)).unsqueeze(0).to(device)
 
             # Infer
-            if self.model is not None:
-                with self._model_lock:
+            dmap_np = None
+            if getattr(config, "SWARM_BATCH_INFERENCE", True):
+                done_event = threading.Event()
+                result_container = {}
+                self.batch_queue.put((idx, tensor, done_event, result_container))
+                if done_event.wait(timeout=15.0) and "dmap_np" in result_container:
+                    dmap_np = result_container["dmap_np"]
+                    infer_time = time.perf_counter() - t0
+                else:
+                    print(f"[SWARM] Drone {idx+1} batch request timeout/failure, falling back to sequential.")
+
+            if dmap_np is None:
+                # Fallback to sequential
+                if self.model is not None:
+                    with self._model_lock:
+                        with torch.inference_mode():
+                            out = mdl(tensor)
+                else:
                     with torch.inference_mode():
                         out = mdl(tensor)
-            else:
-                with torch.inference_mode():
-                    out = mdl(tensor)
-            dmap_t  = out[0] if isinstance(out, (tuple, list)) else out
-            dmap_np = dmap_t.squeeze().detach().float().cpu().numpy()
+                dmap_t  = out[0] if isinstance(out, (tuple, list)) else out
+                dmap_np = dmap_t.squeeze().detach().float().cpu().numpy()
+                infer_time = time.perf_counter() - t0
+            
             dmap_np = density_filter.clean_density_map(
                 dmap_np,
                 source_frame_bgr=frame,
@@ -561,6 +629,13 @@ class SwarmManager:
                 ds.sp_result      = sp_res
                 ds.opp_result     = opp_res
                 ds.gps_alerts     = gps_alerts
+                ds.infer_time     = infer_time
+
+            from src.perf_metrics import log_drone_metrics
+            log_drone_metrics(
+                idx, ds.name, time.monotonic() - cap_ts, infer_time,
+                ds.reconnect_count, ds.drop_rate_pct, ds.live_fps
+            )
 
             self._update_unified()
 
@@ -616,6 +691,9 @@ class SwarmManager:
                     f"press={ds.pressure_smooth:.0f} | "
                     f"stamp={ds.sp_result.get('label','?')}"
                 )
+            if idx == 0:
+                from .perf_metrics import print_metrics_summary
+                print_metrics_summary()
 
     # ── Per-Drone Display Frame ─────────────────────────────────────
 
@@ -653,7 +731,7 @@ class SwarmManager:
                           interpolation=cv2.INTER_AREA)
 
         if dmap is not None:
-            disp = heatmap_generator.apply_heatmap(disp, dmap, alpha=config.HEATMAP_ALPHA)
+            disp = heatmap_generator.apply_heatmap(disp, dmap, alpha=config.HEATMAP_ALPHA, state=ds.heatmap_state)
 
         # Sleek mini header overlay
         h2, w2 = disp.shape[:2]
@@ -696,6 +774,82 @@ class SwarmManager:
         top    = np.hstack(frames[:2])
         bottom = np.hstack(frames[2:4])
         return np.vstack([top, bottom])
+
+    def _inference_dispatcher(self):
+        """Batch dispatcher thread running inference across active queues."""
+        print("[SWARM-DISPATCHER] Waiting for shared model to load...")
+        while self.model is None and not self._stop.is_set():
+            time.sleep(0.1)
+        if self._stop.is_set():
+            return
+        
+        mdl = self.model
+        print("[SWARM-DISPATCHER] Model ready. Starting dispatcher loop.")
+        
+        import torch
+        
+        while not self._stop.is_set():
+            try:
+                # Wait for the first request
+                req = self.batch_queue.get(timeout=0.5)
+            except queue.Empty:
+                continue
+
+            requests = [req]
+            start_time = time.perf_counter()
+            # 15ms aggregation window
+            timeout = 0.015
+            
+            while time.perf_counter() - start_time < timeout and len(requests) < self.n:
+                try:
+                    next_req = self.batch_queue.get_nowait()
+                    requests.append(next_req)
+                except queue.Empty:
+                    time.sleep(0.001)
+
+            tensors = [r[1] for r in requests]
+            if len(tensors) == 1:
+                batched_tensor = tensors[0]
+            else:
+                batched_tensor = torch.cat(tensors, dim=0)
+
+            try:
+                with torch.inference_mode():
+                    out = mdl(batched_tensor)
+                dmap_batch = out[0] if isinstance(out, (tuple, list)) else out
+                
+                # Split and scatter back
+                for i, r in enumerate(requests):
+                    idx, _, done_event, result_container = r
+                    # Slice from the batch output
+                    single_dmap = dmap_batch[i]
+                    result_container["dmap_np"] = single_dmap.squeeze().detach().float().cpu().numpy()
+                    done_event.set()
+            except Exception as e:
+                print(f"[SWARM-DISPATCHER] Error during batched inference: {e}")
+                for r in requests:
+                    r[2].set()
+
+    def _watchdog_loop(self):
+        """Watchdog loop checking and restarting exited daemon threads."""
+        print("[SWARM-WATCHDOG] Thread supervisor started.")
+        while not self._stop.is_set():
+            time.sleep(5.0)
+            if self._stop.is_set():
+                break
+
+            for name, spec in list(self.thread_specs.items()):
+                t = spec.get("thread")
+                if t is None or not t.is_alive():
+                    if self._stop.is_set():
+                        break
+                    print(f"[SWARM-WATCHDOG] Warning: Thread '{name}' died unexpectedly! Restarting...")
+                    target = spec["target"]
+                    args = spec["args"]
+                    new_t = threading.Thread(target=target, args=args, daemon=True, name=name)
+                    spec["thread"] = new_t
+                    new_t.start()
+                    self._threads.append(new_t)
 
 
 if __name__ == "__main__":

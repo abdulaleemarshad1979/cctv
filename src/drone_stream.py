@@ -38,6 +38,21 @@ import threading
 import collections
 import socket
 import re
+import numpy as np
+
+# Optional Rust capture core integration
+USE_RUST_CAPTURE = os.environ.get("USE_RUST_CAPTURE", "0").lower() in ("1", "true", "yes", "on")
+HAS_RUST_CAPTURE = False
+if USE_RUST_CAPTURE:
+    try:
+        import rust_core
+        if hasattr(rust_core, "RustDroneCapture"):
+            HAS_RUST_CAPTURE = True
+            print("[STREAM] Rust Capture module ('rust_core') imported successfully.")
+        else:
+            print("[STREAM] WARNING: 'rust_core' is present as a folder/namespace but compiled binary is missing. Falling back to pure Python DroneStreamHandler.")
+    except ImportError:
+        print("[STREAM] WARNING: USE_RUST_CAPTURE=1 was requested, but compiled 'rust_core' module is missing. Falling back to pure Python DroneStreamHandler.")
 
 def check_connection(url: str, timeout: float = 1.0) -> bool:
     """
@@ -212,7 +227,16 @@ class DroneStreamHandler:
         self._total_reads = 0
         self._connect_ts  = None
 
-        self.cap = self._open()
+        self.is_rust = (USE_RUST_CAPTURE and HAS_RUST_CAPTURE and self.is_live)
+        if self.is_rust:
+            self.rust_cap = rust_core.RustDroneCapture(str(self.source))
+            self.rust_cap.start()
+            self.cap = None
+            self._connect_ts = time.monotonic()
+            print(f"[STREAM] Connected via Rust Core! : {self.source}")
+        else:
+            self.rust_cap = None
+            self.cap = self._open()
 
         # Threaded low-latency background frame grabber
         self.latest_frame = None
@@ -221,7 +245,7 @@ class DroneStreamHandler:
         self.frame_ready  = threading.Event()
         self.bg_thread    = None
 
-        if self.is_live and self.cap.isOpened():
+        if self.is_live and not self.is_rust and self.cap and self.cap.isOpened():
             self.bg_thread = threading.Thread(target=self._bg_update_loop, daemon=True)
             self.bg_thread.start()
 
@@ -340,6 +364,19 @@ class DroneStreamHandler:
         """Returns (True, frame_bgr) or (False, None)."""
         self._total_reads += 1
 
+        if self.is_rust:
+            # Rust capture integration
+            data = self.rust_cap.read_frame()
+            if data is not None:
+                # Place mock image for testing
+                frame = np.zeros((config.DISPLAY_HEIGHT // 2, config.DISPLAY_WIDTH // 2, 3), dtype=np.uint8)
+                cv2.putText(frame, "RUST CAPTURE ACTIVE (MOCK)", (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.52, (0, 255, 0), 1)
+                self._frame_times.append(time.monotonic())
+                return True, frame
+            else:
+                time.sleep(0.01)
+                return False, None
+
         if self.is_live:
             # Wait for the background thread to fetch a new frame
             ok = self.frame_ready.wait(timeout=2.0)
@@ -431,15 +468,21 @@ class DroneStreamHandler:
             span = self._frame_times[-1] - self._frame_times[0]
             if span > 0:
                 return (len(self._frame_times) - 1) / span
+        if self.is_rust:
+            return 30.0
         fps = self.cap.get(cv2.CAP_PROP_FPS)
         return fps if (fps and fps == fps and fps > 0) else 25.0
 
     def get_resolution(self):
+        if self.is_rust:
+            return (640, 360)
         return (int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)),
                 int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)))
 
     def is_opened(self) -> bool:
-        return self.cap.isOpened()
+        if self.is_rust:
+            return self.rust_cap.is_opened()
+        return self.cap.isOpened() if self.cap else False
 
     def health_report(self) -> dict:
         w, h    = self.get_resolution()
@@ -469,7 +512,9 @@ class DroneStreamHandler:
             self.running = False
             self.latest_ret = False
             self.frame_ready.set()
-            if self.cap.isOpened():
+            if self.is_rust and self.rust_cap:
+                self.rust_cap.stop()
+            elif self.cap and self.cap.isOpened():
                 self.cap.release()
         print("[STREAM] Released.")
 

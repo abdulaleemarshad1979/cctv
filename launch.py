@@ -193,6 +193,59 @@ def launch_infer(source: str):
         print(f"        Make sure launch.py is in the same folder as infer.py.")
 
 
+def launch_swarm(sources: list[str], dry_run: bool = False):
+    """Resolve, validate, and launch swarm_infer.py as a subprocess."""
+    import config
+    default_sources = config.DRONE_SOURCES
+    resolved_sources = []
+    
+    for i in range(4):
+        if i < len(sources):
+            resolved_sources.append(resolve_to_url(sources[i]))
+        else:
+            resolved_sources.append(default_sources[i])
+
+    print(f"\n{GRN}{BOLD}[LAUNCH-SWARM] Starting 4-drone Swarm Command Center...{RESET}")
+    for i, src in enumerate(resolved_sources):
+        print(f"  Drone {i+1} Source : {describe_source(src)}")
+
+    if dry_run:
+        print(f"\n{YLW}[DRY-RUN] Validating connections to all 4 drone streams...{RESET}")
+        from src.drone_stream import check_connection
+        all_ok = True
+        for i, src in enumerate(resolved_sources):
+            url = resolve_to_url(src)
+            ok = check_connection(url, timeout=1.5)
+            status = f"{GRN}REACHABLE{RESET}" if ok else f"{RED}UNREACHABLE / OFFLINE{RESET}"
+            print(f"  Drone {i+1}: {describe_source(src)} -> {status}")
+            if not ok:
+                all_ok = False
+        if not all_ok:
+            print(f"\n{RED}[WARN] One or more sources are unreachable. Swarm may start with offline tiles.{RESET}")
+        else:
+            print(f"\n{GRN}[SUCCESS] All 4 sources are reachable!{RESET}")
+        return
+
+    # Build environment overrides
+    env = os.environ.copy()
+    for i, src in enumerate(resolved_sources):
+        env[f"CCTV_SOURCE_{i+1}"] = resolve_to_url(src)
+
+    print(f"  Script : swarm_infer.py")
+    print(f"\n{DIM}Press Q inside the video window to stop.{RESET}\n")
+    time.sleep(0.8)
+
+    cmd = [sys.executable, "swarm_infer.py"]
+    try:
+        result = subprocess.run(cmd, env=env, cwd=str(BASE_DIR))
+        if result.returncode != 0:
+            print(f"\n{YLW}[INFO] swarm_infer.py exited with code {result.returncode}.{RESET}")
+    except KeyboardInterrupt:
+        print(f"\n{YLW}[STOPPED] Launcher interrupted.{RESET}")
+    except FileNotFoundError:
+        print(f"{RED}[ERROR] swarm_infer.py not found.{RESET}")
+
+
 # ═════════════════════════════════════════════════════════════════════
 #  MENU
 # ═════════════════════════════════════════════════════════════════════
@@ -226,12 +279,14 @@ def main_menu():
         show_saved_sources_menu(sources)
         print(f"  Enter a {BOLD}number{RESET} to use a saved source,")
         print(f"  or {BOLD}paste any RTSP URL / drone name{RESET} to use it directly.")
+        print(f"  Type {CYN}swarm{RESET} to start the 4-drone Swarm Command Center,")
         print(f"  Type {CYN}edit{RESET} to open sources.txt,")
         print(f"  or   {CYN}list{RESET} to see all drone preset names.\n")
     else:
         print(f"  {YLW}No saved sources yet.{RESET}")
         print(f"  {BOLD}Paste your RTSP URL or drone name below.{RESET}")
         print(f"  (It will be saved automatically.)\n")
+        print(f"  Type {CYN}swarm{RESET} to start the 4-drone Swarm Command Center,")
         print(f"  Type {CYN}list{RESET} to see all drone preset names.\n")
 
     # ── prompt ────────────────────────────────────────────────────────
@@ -246,6 +301,13 @@ def main_menu():
         sys.exit(0)
 
     # ── commands ──────────────────────────────────────────────────────
+    if raw.lower() in ("swarm", "s"):
+        launch_swarm([])
+        print(f"\n{CYN}[DONE] Swarm closed. Returning to launcher...{RESET}")
+        time.sleep(1.5)
+        main_menu()
+        return
+
     if raw.lower() in ("list", "--list", "-l"):
         print()
         for name, url in DRONE_PRESETS.items():
@@ -330,9 +392,46 @@ def run_direct(source: str):
 # ═════════════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
-    if len(sys.argv) > 1:
-        # Direct mode: python launch.py <source>
-        run_direct(" ".join(sys.argv[1:]))
+    # Enable ANSI escape sequences on Windows Command Prompt
+    if os.name == "nt":
+        try:
+            import ctypes
+            kernel32 = ctypes.windll.kernel32
+            kernel32.SetConsoleMode(kernel32.GetStdHandle(-11), 7)
+        except Exception:
+            pass
+
+    args = sys.argv[1:]
+    swarm_mode = False
+    dry_run = False
+    
+    # Process flags
+    filtered_args = []
+    for arg in args:
+        if arg.lower() == "--swarm":
+            swarm_mode = True
+        elif arg.lower() == "--dry-run":
+            dry_run = True
+        else:
+            filtered_args.append(arg)
+            
+    if swarm_mode:
+        launch_swarm(filtered_args, dry_run=dry_run)
+    elif dry_run:
+        # Dry-run check for a single source
+        if not filtered_args:
+            print(f"{RED}[ERROR] No source specified for dry-run.{RESET}")
+            sys.exit(1)
+        source = filtered_args[0]
+        banner()
+        print(f"{YLW}[DRY-RUN] Checking connection for single source...{RESET}")
+        print(f"  Source : {describe_source(source)}")
+        from src.drone_stream import check_connection
+        url = resolve_to_url(source)
+        ok = check_connection(url, timeout=1.5)
+        status = f"{GRN}REACHABLE{RESET}" if ok else f"{RED}UNREACHABLE / OFFLINE{RESET}"
+        print(f"  Status : {status}")
+    elif filtered_args:
+        run_direct(" ".join(filtered_args))
     else:
-        # Interactive menu
         main_menu()

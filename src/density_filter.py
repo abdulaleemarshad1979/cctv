@@ -51,7 +51,9 @@ def clean_density_map(
         return dmap
 
     if speckle_ratio > 0.0:
-        dmap[dmap < peak * speckle_ratio] = 0.0
+        # absolute floor = 0.002, absolute cap = 0.05
+        threshold = max(0.002, min(peak * speckle_ratio, 0.05))
+        dmap[dmap < threshold] = 0.0
 
     if source_frame_bgr is None or source_frame_bgr.size == 0:
         return dmap

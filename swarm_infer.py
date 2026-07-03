@@ -35,7 +35,35 @@ if device.type == "cpu":
     print(f"[SWARM-INFER] CPU Thread count set to {torch.get_num_threads()} to prevent core saturation.")
 print(f"[SWARM-INFER] Device: {device}  |  Drones: {SWARM_DRONE_COUNT}")
 
+class ONNXModelWrapper:
+    def __init__(self, onnx_path):
+        import onnxruntime as ort
+        providers = ['CPUExecutionProvider']
+        if torch.cuda.is_available():
+            providers = ['CUDAExecutionProvider', 'CPUExecutionProvider']
+        self.session = ort.InferenceSession(onnx_path, providers=providers)
+        print(f"[ONNX] Model loaded on providers: {self.session.get_providers()}")
+
+    def __call__(self, tensor):
+        input_data = tensor.cpu().numpy()
+        outputs = self.session.run(None, {'input': input_data})
+        return torch.from_numpy(outputs[0]), torch.from_numpy(outputs[1])
+
+    def to(self, device):
+        return self
+
+    def eval(self):
+        return self
+
+
 def _load_model():
+    if getattr(config, "INFERENCE_BACKEND", "torch") == "onnx":
+        onnx_path = config.WEIGHTS_PATH.replace(".pth", ".onnx")
+        if not os.path.exists(onnx_path):
+            raise FileNotFoundError(f"ONNX model not found at {onnx_path}. Run tools/export_onnx.py first.")
+        print(f"[INFO] Loading ONNX model from {onnx_path}...")
+        return ONNXModelWrapper(onnx_path)
+
     if not os.path.exists(config.WEIGHTS_PATH):
         raise FileNotFoundError(f"Model not found: {config.WEIGHTS_PATH}")
     ckpt = torch.load(config.WEIGHTS_PATH, map_location=device)
@@ -52,7 +80,17 @@ def _load_model():
     print("[SWARM-INFER] Model loaded.")
     return m
 
-model = _load_model()
+model = None
+model_loaded = threading.Event()
+
+def async_load_model():
+    global model
+    try:
+        model = _load_model()
+        swarm.model = model
+        model_loaded.set()
+    except Exception as e:
+        print(f"[SWARM-INFER] Failed to load model: {e}")
 
 # ── Start swarm ───────────────────────────────────────────────────────
 swarm_sources = DRONE_SOURCES[:SWARM_DRONE_COUNT]
@@ -71,13 +109,40 @@ if use_videos:
     else:
         print("[SWARM-INFER] Warning: No test videos found in Videos/ directory.")
 
-swarm = SwarmManager(sources=swarm_sources, model=model)
+swarm = SwarmManager(sources=swarm_sources, model=None)
 swarm.start()
+
+# Load model in parallel
+threading.Thread(target=async_load_model, daemon=True, name="SwarmModelLoader").start()
 
 class StatusHandler(BaseHTTPRequestHandler):
     def do_GET(self):
-        state = swarm.get_unified_state()
-        body = json.dumps(state).encode()
+        if self.path == "/health":
+            report = {
+                "timestamp": time.time(),
+                "worst_zone": swarm.get_unified_state()["worst_zone"],
+                "drones": []
+            }
+            for i in range(swarm.n):
+                ds = swarm.states[i]
+                with ds.lock:
+                    report["drones"].append({
+                        "id": i,
+                        "name": ds.name,
+                        "online": ds.online,
+                        "uptime_s": ds.uptime_s,
+                        "drop_rate_pct": ds.drop_rate_pct,
+                        "reconnect_count": ds.reconnect_count,
+                        "live_fps": ds.live_fps,
+                        "infer_time_ms": ds.infer_time * 1000.0,
+                        "density_score": ds.density_score,
+                        "comp_zone": ds.comp_zone
+                    })
+            body = json.dumps(report).encode()
+        else:
+            state = swarm.get_unified_state()
+            body = json.dumps(state).encode()
+
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.send_header("Access-Control-Allow-Origin", "*")
@@ -110,6 +175,7 @@ cv2.namedWindow("Pushkaralu 2027 | Swarm Command Center", cv2.WINDOW_NORMAL)
 cv2.resizeWindow("Pushkaralu 2027 | Swarm Command Center", MOSAIC_W, MOSAIC_H)
 
 focus_drone = -1   # -1 = mosaic; 0-3 = single drone
+last_metrics_log_times = [0.0] * SWARM_DRONE_COUNT
 
 print("[SWARM-INFER] Keys: q=quit  1-4=focus drone  f=mosaic  h=heatmap  s=stampede")
 
@@ -126,7 +192,7 @@ while True:
                                   (MOSAIC_W, MOSAIC_H), interpolation=cv2.INTER_AREA)
                 if ds.dmap_np is not None:
                     from src import heatmap_generator
-                    disp = heatmap_generator.apply_heatmap(disp, ds.dmap_np, alpha=config.HEATMAP_ALPHA)
+                    disp = heatmap_generator.apply_heatmap(disp, ds.dmap_np, alpha=config.HEATMAP_ALPHA, state=ds.heatmap_state)
                 overlay.draw_top_banner(disp, ds.comp_zone, ds.comp_color, ds.pressure_smooth)
                 overlay.draw_grid_3x3(disp,
                                       zone_scores=ds.zone_scores,

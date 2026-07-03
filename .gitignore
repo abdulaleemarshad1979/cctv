@@ -15,3 +15,10 @@ outputs/
 **/pretrained_models/
 *.pth
 *.mp4
+
+# Rust
+target/
+Cargo.lock
+
+# Compiled binaries
+*.pyd

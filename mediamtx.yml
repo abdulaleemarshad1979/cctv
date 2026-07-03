@@ -28,3 +28,17 @@ readTimeout: 5s
 writeTimeout: 5s
 runOnPublish: ""
 runOnPublishRestart: no
+
+paths:
+  live/drone1:
+    readTimeout: 5s
+    sourceOnDemand: no
+  live/drone2:
+    readTimeout: 5s
+    sourceOnDemand: no
+  live/drone3:
+    readTimeout: 5s
+    sourceOnDemand: no
+  live/drone4:
+    readTimeout: 5s
+    sourceOnDemand: no
