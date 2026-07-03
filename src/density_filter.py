@@ -23,6 +23,13 @@ def suppress_broadcast_overlays(frame_bgr: np.ndarray) -> np.ndarray:
     )
     mask = (bright_sat & overlay_hues).astype(np.uint8) * 255
 
+    # Only apply overlay suppression to the top and bottom 15% margins
+    # to avoid smearing/inpainting bright clothes worn by the actual crowd.
+    h_mask = mask.shape[0]
+    margin_h = int(h_mask * 0.15)
+    if margin_h > 0:
+        mask[margin_h : h_mask - margin_h, :] = 0
+
     if cv2.countNonZero(mask) < 64:
         return frame_bgr
 
@@ -68,6 +75,13 @@ def clean_density_map(
         ((hue > 88) & (hue < 105))
     )
     mask = (bright_sat & overlay_hues).astype(np.uint8)
+    # Only apply overlay suppression to the top and bottom 15% margins
+    # where logos, watermarks, and broadcast texts are located.
+    h_mask, w_mask = mask.shape[:2]
+    margin_h = int(h_mask * 0.15)
+    if margin_h > 0:
+        mask[margin_h : h_mask - margin_h, :] = 0
+
     mask = cv2.resize(mask, (dmap.shape[1], dmap.shape[0]), interpolation=cv2.INTER_AREA)
     dmap[mask > 0] = 0.0
 
