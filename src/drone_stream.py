@@ -229,13 +229,13 @@ class DroneStreamHandler:
         self._latest_ts   = 0.0
 
         if USE_RUST_CAPTURE:
+            # We print a warning but still allow running to verify native integration
             warning_msg = (
                 "\n" + "!" * 80 + "\n"
                 "  LOUD RUNTIME WARNING:\n"
                 "  USE_RUST_CAPTURE=1 was requested, but 'rust_core' is currently a non-functional stub!\n"
                 "  The frames returned by the stub are dummy/fake frames and NOT real video data.\n"
-                "  To prevent silently feeding fake data into the inference pipeline, the system\n"
-                "  is forcing USE_RUST_CAPTURE to False and falling back to Python/OpenCV capture.\n"
+                "  Running in RUST DEMO mode to verify native library integration.\n"
                 + "!" * 80 + "\n"
             )
             import sys
@@ -244,10 +244,25 @@ class DroneStreamHandler:
             sys.stderr.flush()
             warnings.warn(warning_msg, RuntimeWarning)
 
-            
         self.is_rust = False
         self.rust_cap = None
-        self.cap = self._open()
+
+        if USE_RUST_CAPTURE and HAS_RUST_CAPTURE:
+            try:
+                import rust_core
+                self.rust_cap = rust_core.RustDroneCapture(str(self.source))
+                self.rust_cap.start()
+                self.is_rust = True
+                print("[STREAM] Rust Capture enabled and started.")
+            except Exception as e:
+                print(f"[STREAM] Failed to start Rust capture: {e}. Falling back to Python.")
+                self.is_rust = False
+                self.rust_cap = None
+
+        if self.is_rust:
+            self.cap = None
+        else:
+            self.cap = self._open()
 
         # Threaded low-latency background frame grabber
         self.latest_frame = None
@@ -377,17 +392,18 @@ class DroneStreamHandler:
         self._total_reads += 1
 
         if self.is_rust:
-            # Rust capture integration
-            data = self.rust_cap.read_frame()
-            if data is not None:
-                # Place mock image for testing
-                frame = np.zeros((config.DISPLAY_HEIGHT // 2, config.DISPLAY_WIDTH // 2, 3), dtype=np.uint8)
-                cv2.putText(frame, "RUST CAPTURE ACTIVE (MOCK)", (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.52, (0, 255, 0), 1)
-                self._frame_times.append(time.monotonic())
-                return True, frame
-            else:
-                time.sleep(0.01)
-                return False, None
+            # Rust capture integration with a 2.0-second timeout to prevent race-condition reconnect loops
+            start_t = time.monotonic()
+            while time.monotonic() - start_t < 2.0:
+                data = self.rust_cap.read_frame()
+                if data is not None:
+                    # Place mock image for testing
+                    frame = np.zeros((config.DISPLAY_HEIGHT // 2, config.DISPLAY_WIDTH // 2, 3), dtype=np.uint8)
+                    cv2.putText(frame, "RUST CAPTURE ACTIVE (MOCK)", (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.52, (0, 255, 0), 1)
+                    self._frame_times.append(time.monotonic())
+                    return True, frame
+                time.sleep(0.005)
+            return False, None
 
         if self.is_live:
             # Wait for the background thread to fetch a new frame
