@@ -193,7 +193,7 @@ def _resize_for_display(frame):
     target = (config.DISPLAY_WIDTH, config.DISPLAY_HEIGHT)
     if (w, h) == target:
         return frame.copy()
-    return cv2.resize(frame, target, interpolation=cv2.INTER_LINEAR)
+    return cv2.resize(frame, target, interpolation=cv2.INTER_CUBIC)
 
 
 # ── shared state ──────────────────────────────────────────────────────
