@@ -71,25 +71,24 @@ def apply_heatmap(display_frame, dmap_np, alpha=0.45, state=None):
         _cached_dmap_norm = dmap_norm_small
 
     # 1. Resize display_frame to the small working resolution
-    small_frame = cv2.resize(display_frame, (w_small, h_small), interpolation=cv2.INTER_AREA)
-
+    small_frame = cv2.resize(display_frame, (w_small, h_small), interpolation=cv2.INTER_LINEAR)
+ 
     # 2. Perform alpha blending at the low resolution
     w_blend = (dmap_norm_small * alpha)[..., np.newaxis]
     diff = heatmap_bgr_small.astype(np.float32) - small_frame
     diff *= w_blend
     blended_small = cv2.convertScaleAbs(small_frame + diff)
-
+ 
     # 3. Create a mask of where the heatmap is active
     active_mask_small = (dmap_norm_small > 0.01).astype(np.uint8) * 255
-
+ 
     # 4. Resize blended image and active mask back to original resolution
     blended_large = cv2.resize(blended_small, (w, h), interpolation=cv2.INTER_LINEAR)
     active_mask_large = cv2.resize(active_mask_small, (w, h), interpolation=cv2.INTER_NEAREST)
-
+ 
     # 5. Overlay only the active heatmap region on the original high-quality frame
     out_frame = display_frame.copy()
-    mask_bool = active_mask_large > 0
-    out_frame[mask_bool] = blended_large[mask_bool]
+    np.copyto(out_frame, blended_large, where=(active_mask_large[..., np.newaxis] > 0))
 
     if state is not None and state.get("degraded_alert"):
         cv2.putText(out_frame, "SIGNAL DEGRADED (HEATMAP STALE)", (10, h - 20),
