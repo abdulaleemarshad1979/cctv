@@ -39,6 +39,7 @@ import collections
 import socket
 import re
 import numpy as np
+import config
 
 # Optional Rust capture core integration
 USE_RUST_CAPTURE = os.environ.get("USE_RUST_CAPTURE", "0").lower() in ("1", "true", "yes", "on")
