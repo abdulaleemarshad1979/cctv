@@ -16,7 +16,7 @@ Output probability is smoothed with an EMA to avoid jitter.
 import numpy as np
 from .history_buffer import HistoryBuffer
 
-MIN_CROWD_DENSITY = 5.0
+MIN_CROWD_DENSITY = 100.0
 
 
 # Probability thresholds → labels

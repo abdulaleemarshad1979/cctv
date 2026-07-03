@@ -22,6 +22,12 @@ C_YELLOW  = (0,   255, 255)
 C_ORANGE  = (0,   165, 255)
 C_RED     = (0,     0, 255)
 C_WHITE   = (255, 255, 255)
+
+C_GREEN   = (0,   255,   0)
+C_YELLOW  = (0,   255, 255)
+C_ORANGE  = (0,   165, 255)
+C_RED     = (0,     0, 255)
+C_WHITE   = (255, 255, 255)
 C_BLACK   = (0,     0,   0)
 C_GRAY    = (100, 100, 100)
 C_DGRAY   = (40,   40,  40)
@@ -127,10 +133,14 @@ def draw_grid_3x3(
     zone_motions   = None,   # np (3,3) motion speed
     trend_matrix   = None,   # np (3,3) str  STABLE/GROWING/EASING/CRITICAL
     opposing_danger= None,   # np (3,3) bool
-    max_capacity   : float = 50.0,
+    capacity_grid  = None,   # 3x3 array or list of capacities
     panel_visible  : bool  = False,  # True → shrink col 3 text to avoid panel
 ):
     h, w = frame.shape[:2]
+    import config
+    if capacity_grid is None:
+        capacity_grid = config.ZONE_CAPACITY[0]
+    cap_grid = np.array(capacity_grid, dtype=float)
 
     # Grid lives BELOW the banner
     grid_y0 = BANNER_H
@@ -152,7 +162,8 @@ def draw_grid_3x3(
             x0 = grid_x0 + c * cell_w
             x1 = grid_x0 + (c + 1) * cell_w if c < 2 else grid_x1
             density  = float(zone_scores[r][c]) if zone_scores is not None else 0.0
-            pressure = min(1.0, density / max_capacity)
+            cell_cap = float(cap_grid[r, c])
+            pressure = min(1.0, density / max(cell_cap, 1.0))
             color = _pressure_color(pressure)
             if color != C_GREEN:
                 cv2.rectangle(overlay_layer, (x0, y0), (x1, y1), color, -1)
@@ -202,26 +213,29 @@ def draw_grid_3x3(
                 _draw_opposing_marker(frame, cx0, cy0, cx1, cy1)
 
     # ── hotspot highlight ──
-    if zone_scores is not None and np.max(zone_scores) >= 5.0:
-        max_r, max_c = divmod(int(np.argmax(zone_scores)), 3)
-        hy0 = grid_y0 + max_r * cell_h
-        hy1 = grid_y0 + (max_r + 1) * cell_h if max_r < 2 else grid_y1
-        hx0 = grid_x0 + max_c * cell_w
-        hx1 = grid_x0 + (max_c + 1) * cell_w if max_c < 2 else grid_x1
+    if zone_scores is not None:
+        max_idx = np.argmax(zone_scores)
+        max_r, max_c = divmod(int(max_idx), 3)
+        max_val = float(zone_scores[max_r, max_c])
+        max_cap = float(cap_grid[max_r, max_c])
+        if max_val / max(max_cap, 1.0) >= 0.30:  # Highlight only if cell is at least 30% full
+            hy0 = grid_y0 + max_r * cell_h
+            hy1 = grid_y0 + (max_r + 1) * cell_h if max_r < 2 else grid_y1
+            hx0 = grid_x0 + max_c * cell_w
+            hx1 = grid_x0 + (max_c + 1) * cell_w if max_c < 2 else grid_x1
 
-        cv2.rectangle(frame, (hx0 + 3, hy0 + 3), (hx1 - 3, hy1 - 3), C_RED, 3)
-        # Small "HOTSPOT" badge
-        bx, by = max(hx1 - 98, hx0 + 5), hy0 + 5
-        cv2.rectangle(frame, (bx, by), (bx + 90, by + 22), C_RED, -1)
-        cv2.putText(frame, "HOTSPOT", (bx + 5, by + 16),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.42, C_WHITE, 1, cv2.LINE_AA)
+            cv2.rectangle(frame, (hx0 + 3, hy0 + 3), (hx1 - 3, hy1 - 3), C_RED, 3)
+            # Small "HOTSPOT" badge
+            bx, by = max(hx1 - 98, hx0 + 5), hy0 + 5
+            cv2.rectangle(frame, (bx, by), (bx + 90, by + 22), C_RED, -1)
+            cv2.putText(frame, "HOTSPOT", (bx + 5, by + 16),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.42, C_WHITE, 1, cv2.LINE_AA)
 
 
 def _draw_opposing_marker(img, x0, y0, x1, y1, color=C_MAGENTA):
     """Mark opposing flow without visually filling the whole cell."""
     cv2.rectangle(img, (x0 + 4, y0 + 4), (x1 - 4, y1 - 4), color, 2)
     _text(img, "OPPOSING", x0 + 8, y1 - 12, color, 0.34, 1)
-
 
 # ─── stampede panel ───────────────────────────────────────────────────
 

@@ -226,17 +226,28 @@ class DroneStreamHandler:
         self._drop_count  = 0
         self._total_reads = 0
         self._connect_ts  = None
+        self._latest_ts   = 0.0
 
-        self.is_rust = (USE_RUST_CAPTURE and HAS_RUST_CAPTURE and self.is_live)
-        if self.is_rust:
-            self.rust_cap = rust_core.RustDroneCapture(str(self.source))
-            self.rust_cap.start()
-            self.cap = None
-            self._connect_ts = time.monotonic()
-            print(f"[STREAM] Connected via Rust Core! : {self.source}")
-        else:
-            self.rust_cap = None
-            self.cap = self._open()
+        if USE_RUST_CAPTURE:
+            warning_msg = (
+                "\n" + "!" * 80 + "\n"
+                "  LOUD RUNTIME WARNING:\n"
+                "  USE_RUST_CAPTURE=1 was requested, but 'rust_core' is currently a non-functional stub!\n"
+                "  The frames returned by the stub are dummy/fake frames and NOT real video data.\n"
+                "  To prevent silently feeding fake data into the inference pipeline, the system\n"
+                "  is forcing USE_RUST_CAPTURE to False and falling back to Python/OpenCV capture.\n"
+                + "!" * 80 + "\n"
+            )
+            import sys
+            import warnings
+            sys.stderr.write(warning_msg)
+            sys.stderr.flush()
+            warnings.warn(warning_msg, RuntimeWarning)
+
+            
+        self.is_rust = False
+        self.rust_cap = None
+        self.cap = self._open()
 
         # Threaded low-latency background frame grabber
         self.latest_frame = None
@@ -337,6 +348,7 @@ class DroneStreamHandler:
             # Return an unopened VideoCapture object
             return cv2.VideoCapture()
 
+        # Open the capture using FFMPEG backend and set options via cap.set()
         cap = cv2.VideoCapture(src_str, cv2.CAP_FFMPEG)
         cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
         cap.set(cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 3000)
@@ -412,10 +424,12 @@ class DroneStreamHandler:
             if ret:
                 ok, frame = self.cap.retrieve()
                 if ok and frame is not None:
+                    ts = time.monotonic()
                     with self._lock:
                         self.latest_frame = frame
                         self.latest_ret   = True
-                        self._frame_times.append(time.monotonic())
+                        self._latest_ts   = ts
+                        self._frame_times.append(ts)
                         self.frame_ready.set()
                 else:
                     self._handle_bg_reconnect()
@@ -445,11 +459,13 @@ class DroneStreamHandler:
                 if ok:
                     ok2, frame = new_cap.retrieve()
                     if ok2 and frame is not None:
+                        ts = time.monotonic()
                         with self._lock:
                             self.cap = new_cap
                             self.latest_frame = frame
                             self.latest_ret   = True
-                            self._frame_times.append(time.monotonic())
+                            self._latest_ts   = ts
+                            self._frame_times.append(ts)
                             self.frame_ready.set()
                         print(f"[STREAM] Reconnected after {attempt} attempt(s).")
                         return
@@ -462,6 +478,11 @@ class DroneStreamHandler:
             self.frame_ready.set()
 
     # ── info ─────────────────────────────────────────────────────────
+
+    @property
+    def latest_frame_ts(self) -> float:
+        with self._lock:
+            return self._latest_ts
 
     def get_fps(self) -> float:
         if len(self._frame_times) >= 2:

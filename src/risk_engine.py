@@ -1,6 +1,6 @@
 import numpy as np
 
-MIN_CROWD_DENSITY = 5.0
+MIN_CROWD_DENSITY = 100.0
 
 class RiskEngineTracker:
     def __init__(self):
@@ -67,7 +67,7 @@ def compute_pressure_metrics(dmap_np):
 
     # Smooth, bounded risk score in [0, 1]
     density_term = 1.0 - np.exp(-density_score / 1200.0)
-    peak_term = peak_density / (peak_density + 1.0)
+    peak_term = peak_density / (peak_density + 300.0)
     hotspot_term = min(1.0, hotspot_ratio * 4.0)
 
     risk_score = float(

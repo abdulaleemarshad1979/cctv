@@ -11,7 +11,7 @@ import numpy as np
 
 # How much of a cell must move in "opposite" direction to count
 OPPOSING_RATIO_THRESHOLD = 0.20   # 20 % of pixels moving against majority
-MIN_CELL_DENSITY         = 5.0
+MIN_CELL_DENSITY         = 30.0
 MIN_ACTIVE_RATIO         = 0.08
 OPPOSING_DANGER_RATIO    = 0.35   # 35 % → dangerous
 

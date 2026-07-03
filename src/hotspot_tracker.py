@@ -31,7 +31,7 @@ class HotspotTracker:
         growth_threshold: float = 0.015,   # normalised growth/sample to flag GROWING
         critical_threshold: float = 0.04,  # to flag CRITICAL
         trend_window: float = 8.0,         # seconds of history for trend
-        min_density: float = 5.0,          # ignore tiny model noise
+        min_density: float = 30.0,          # ignore tiny model noise
     ):
         self.history          = history
         self.top_n            = top_n

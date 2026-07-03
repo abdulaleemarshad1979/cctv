@@ -73,7 +73,7 @@ def _load_model():
                 ckpt = ckpt[k]; break
     sd = {k.replace("module.", "").replace("model.", ""): v
           for k, v in ckpt.items() if isinstance(v, torch.Tensor)}
-    m = vgg19()
+    m = vgg19(pretrained=False)
     try:   m.load_state_dict(sd, strict=True)
     except RuntimeError: m.load_state_dict(sd, strict=False)
     m.to(device).eval()

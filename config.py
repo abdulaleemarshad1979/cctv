@@ -33,7 +33,7 @@ DMCOUNT_DIR = os.path.join(BASE_DIR, "dm_count")
 # Priority: DRONE env var → CCTV_SOURCE env var → this file path
 VIDEO_SOURCE = os.environ.get(
     "CCTV_SOURCE",
-    os.path.join(BASE_DIR, "Videos", "mecca.mp4")
+    os.path.join(BASE_DIR, "Videos", "Kumbh.mp4")
 )
 
 # ─── RTSP transport ───────────────────────────────────────────────────
@@ -72,7 +72,7 @@ def get_infer_resolution():
         if is_cuda_available():
             get_infer_resolution._cached = (1024, 576)
         else:
-            get_infer_resolution._cached = (768, 432)
+            get_infer_resolution._cached = (512, 288)
     return get_infer_resolution._cached
 
 def __getattr__(name):
@@ -87,10 +87,15 @@ INITIAL_INFERENCE_STRIDE = 12
 MIN_INFERENCE_STRIDE     = 6
 MAX_INFERENCE_STRIDE     = 24
 
+# ─── Optical flow stride ──────────────────────────────────────────────
+# Stride for running optical flow in display loop (1 = every frame)
+OPTICAL_FLOW_STRIDE = int(os.environ.get("OPTICAL_FLOW_STRIDE", "4"))
+
 # ─── Visual ───────────────────────────────────────────────────────────
 HEATMAP_ALPHA = 0.45
 HEATMAP_ENABLED_DEFAULT = os.environ.get("HEATMAP_ENABLED", "1").lower() in ("1", "true", "yes", "on")
 WINDOW_NAME   = "Pushkaralu Crowd Risk"
+OPTICAL_FLOW_GPU = os.environ.get("OPTICAL_FLOW_GPU", "1").lower() in ("1", "true", "yes", "on")
 
 # Remove bright broadcast/watermark colours before counting, then discard tiny
 # density-map speckles. This reduces false counts from stream overlays, desks,

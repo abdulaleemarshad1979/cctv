@@ -348,7 +348,7 @@ class SwarmManager:
         start_t   = time.monotonic()
 
         while not self._stop.is_set():
-            handler = DroneStreamHandler(resolved_src)
+            handler = DroneStreamHandler(resolved_src, transport=config.RTSP_TRANSPORT)
             if not handler.is_opened():
                 ds.online = False
                 # Print once in a while or silently retry
@@ -436,7 +436,7 @@ class SwarmManager:
                         ckpt = ckpt[k]; break
             sd = {k.replace("module.", "").replace("model.", ""): v
                   for k, v in ckpt.items() if isinstance(v, torch.Tensor)}
-            mdl = vgg19()
+            mdl = vgg19(pretrained=False)
             try:   mdl.load_state_dict(sd, strict=True)
             except RuntimeError: mdl.load_state_dict(sd, strict=False)
             mdl.to(device).eval()

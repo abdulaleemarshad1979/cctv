@@ -14,6 +14,7 @@ import os
 import sys
 import cv2
 import time
+STARTUP_T0 = time.time()
 import queue
 import threading
 import numpy as np
@@ -22,6 +23,12 @@ from PIL import Image
 from torchvision import transforms
 
 import config
+
+# Override default video source if passed via command line
+if len(sys.argv) > 1:
+    config.VIDEO_SOURCE = sys.argv[1]
+    print(f"[INFO] Command-line override active: VIDEO_SOURCE = {config.VIDEO_SOURCE}")
+
 from src import (
     overlay,
     heatmap_generator,
@@ -93,7 +100,7 @@ def _load_model():
         k.replace("module.", "").replace("model.", ""): v
         for k, v in ckpt.items() if isinstance(v, torch.Tensor)
     }
-    m = vgg19()
+    m = vgg19(pretrained=False)
     try:
         m.load_state_dict(sd, strict=True)
     except RuntimeError:
@@ -122,14 +129,45 @@ _tfm = transforms.Compose([
                          std =[0.229, 0.224, 0.225]),
 ])
 
-
 def _preprocess(bgr):
     if getattr(config, "CLEAN_INPUT_OVERLAYS", True):
         bgr = density_filter.suppress_broadcast_overlays(bgr)
     small = cv2.resize(bgr, (config.INFER_WIDTH, config.INFER_HEIGHT),
                        interpolation=cv2.INTER_AREA)
     rgb   = cv2.cvtColor(small, cv2.COLOR_BGR2RGB)
-    return _tfm(Image.fromarray(rgb)).unsqueeze(0).to(device)
+    
+    # Direct numpy to normalized tensor conversion (no PIL round-trip)
+    mean = torch.tensor([0.485, 0.456, 0.406], dtype=torch.float32, device=device).view(1, 3, 1, 1)
+    std  = torch.tensor([0.229, 0.224, 0.225], dtype=torch.float32, device=device).view(1, 3, 1, 1)
+    
+    tensor_np = torch.from_numpy(rgb).permute(2, 0, 1).float().unsqueeze(0).to(device) / 255.0
+    return (tensor_np - mean) / std
+
+# Startup Verification of Preprocessing Pipeline
+if os.environ.get("VERIFY_PREPROCESS", "1") in ("1", "true", "yes", "on"):
+    try:
+        # Create a dummy frame (height, width, channels) in BGR
+        dummy_bgr = np.random.randint(0, 256, (720, 1280, 3), dtype=np.uint8)
+        
+        # 1. Run New Path calculation (which does suppress overlays inside _preprocess)
+        new_val = _preprocess(dummy_bgr.copy())
+        
+        # 2. Run Old Path calculation with the exact same overlay suppression
+        dummy_bgr_suppressed = dummy_bgr.copy()
+        if getattr(config, "CLEAN_INPUT_OVERLAYS", True):
+            dummy_bgr_suppressed = density_filter.suppress_broadcast_overlays(dummy_bgr_suppressed)
+        dummy_small = cv2.resize(dummy_bgr_suppressed, (config.INFER_WIDTH, config.INFER_HEIGHT),
+                                 interpolation=cv2.INTER_AREA)
+        dummy_rgb = cv2.cvtColor(dummy_small, cv2.COLOR_BGR2RGB)
+        old_val = _tfm(Image.fromarray(dummy_rgb)).unsqueeze(0).to(device)
+        
+        diff = torch.max(torch.abs(old_val - new_val)).item()
+        if torch.allclose(old_val, new_val, atol=1e-5):
+            print(f"[PREPROCESS TEST] Numerical equivalence confirmed! Max absolute diff: {diff:.2e}")
+        else:
+            print(f"[PREPROCESS TEST] WARNING: Mismatch between PIL and direct tensor preprocessing! Max absolute diff: {diff:.2e}")
+    except Exception as e:
+        print(f"[PREPROCESS TEST] WARNING: Failed to run verification test: {e}")
 
 
 def _infer(tensor):
@@ -176,6 +214,19 @@ _stride        = config.INITIAL_INFERENCE_STRIDE
 _proc_fps      = 0.0
 _zone_scores   = None          # np (3,3)
 _is_live       = False
+
+# Decoupled analytics state
+_speed_grid      = np.zeros((3, 3), dtype=np.float32)
+_motion_speed    = 0.0
+_turbulence      = 0.0
+_opp_result      = {"danger_grid": None, "max_score": 0.0, "any_dangerous": False, "alert_text": ""}
+_comp_risk       = 0.0
+_comp_zone       = "SAFE"
+_comp_color      = (0, 255, 0)
+_pressure_smooth = 0.0
+_sp_result       = {"smooth_prob": 0.0, "label": "SAFE", "label_color": (0,255,0), "alert_text": "", "terms": {}}
+_hs_result       = {"trend_matrix": None, "alert_text": "", "expanding": False}
+_analytics_ts    = 0.0
 
 _frame_q = queue.Queue(maxsize=1)
 _health_stats = {"reconnects": 0, "drop_rate_%": 0.0, "live_fps": 0.0}
@@ -226,7 +277,7 @@ def _producer():
                 break
 
             idx += 1
-            ts  = time.monotonic()
+            ts  = getattr(sh, "latest_frame_ts", 0.0) or time.monotonic()
             health = sh.health_report()
             with _lock:
                 _frame_data = (frame, ts)
@@ -259,12 +310,23 @@ def _producer():
 def _inference_worker():
     global _dmap, _density_score, _peak_density, _hotspot_ratio
     global _risk_score, _zone, _zone_color, _infer_t, _stride, _proc_fps, _zone_scores
+    global _speed_grid, _motion_speed, _turbulence, _opp_result, _comp_risk
+    global _comp_zone, _comp_color, _pressure_smooth, _sp_result, _hs_result, _analytics_ts
 
     # Wait for the asynchronously loaded model to be ready
     model_loaded.wait()
 
     last_t   = time.perf_counter()
     zm       = zone_monitor.ZoneMonitor()
+
+    # Move stateful analytics components here so they run on this worker thread
+    motion_anal = optical_flow.CrowdMotionAnalyzer()
+    risk_track  = risk_engine.RiskEngineTracker()
+    history     = HistoryBuffer(max_seconds=30.0, fps_estimate=5.0)
+    hs_tracker  = HotspotTracker(history)
+    opp_det     = OpposingFlowDetector()
+    stamp_pred  = StampedePredictor(history)
+    pressure_smooth = 0.0
 
     while not _stop.is_set():
         try:
@@ -301,25 +363,136 @@ def _inference_worker():
                              config.HIGH_THRESHOLD)
         scores, _      = zm.analyze_zones(dmap_np)
 
+        # Run Motion and Flow analytics on the frame
+        speed_grid, motion_speed, turbulence = motion_anal.analyze_motion(frame)
+        crowd_present = ds >= risk_engine.MIN_CROWD_DENSITY
+
+        # Zero out motion in cells with no detected people (water / noise filter)
+        if scores is not None:
+            for r in range(3):
+                for c in range(3):
+                    if scores[r, c] < 5.0:
+                        speed_grid[r, c] = 0.0
+        if not crowd_present:
+            speed_grid[:] = 0.0
+            motion_speed = 0.0
+            turbulence = 0.0
+
+        # Opposing flow
+        last_flow  = getattr(motion_anal, "last_flow", None)
+        opp_result = (opp_det.analyze(last_flow, zone_scores=scores)
+                      if last_flow is not None and crowd_present
+                      else {"danger_grid": None, "max_score": 0.0,
+                            "any_dangerous": False, "alert_text": ""})
+
+        # Composite risk
+        comp_risk = risk_track.compute_composite_risk(
+            ds, pd, hr, motion_speed, turbulence
+        )
+        comp_zone, comp_color = risk_engine.get_risk_zone(
+            comp_risk,
+            config.SAFE_THRESHOLD, config.WATCH_THRESHOLD, config.HIGH_THRESHOLD,
+        )
+        if crowd_present:
+            pressure_smooth = 0.85 * pressure_smooth + 0.15 * (comp_risk * 100.0)
+        else:
+            pressure_smooth = 0.0
+            history.clear()
+
+        # Push to history
+        hs_result    = {"trend_matrix": None, "alert_text": "", "expanding": False}
+        sp_result    = {"smooth_prob": 0.0, "label": "SAFE",
+                        "label_color": (0,255,0), "alert_text": "", "terms": {}}
+
+        if scores is not None and crowd_present:
+            history.push(
+                timestamp=time.monotonic(),
+                density_score=ds, peak_density=pd,
+                hotspot_ratio=hr, motion_speed=motion_speed,
+                turbulence=turbulence, composite_risk=comp_risk,
+                zone_scores=scores, zone_motions=speed_grid,
+            )
+            hs_result = hs_tracker.update(scores)
+            sp_result = stamp_pred.predict(
+                density_score=ds,
+                motion_speed=motion_speed,
+                turbulence=turbulence,
+                opposing_score=opp_result.get("max_score", 0.0),
+            )
+
+            # GPS alerts for HIGH/CRITICAL cells
+            gps_alerts = []
+            cap_grid = np.array(config.ZONE_CAPACITY[0], dtype=float)
+            lat_min, lon_min, lat_max, lon_max = config.DRONE_GPS_BOUNDS[0]
+            
+            for r in range(3):
+                for c in range(3):
+                    cell_risk, _ = risk_engine.get_risk_zone(
+                        scores[r, c] / max(cap_grid[r, c], 1),
+                        config.SAFE_THRESHOLD, config.WATCH_THRESHOLD, config.HIGH_THRESHOLD
+                    )
+                    if cell_risk in ("HIGH", "CRITICAL"):
+                        if lat_min != 0.0:
+                            lat = lat_max - (r + 0.5) / 3.0 * (lat_max - lat_min)
+                            lon = lon_min + (c + 0.5) / 3.0 * (lon_max - lon_min)
+                            lat, lon = round(lat, 6), round(lon, 6)
+                        else:
+                            lat, lon = 0.0, 0.0
+                        
+                        cell_label = f"{'ABC'[r]}{c + 1}"
+                        gps_str = f"{lat}N {lon}E" if lat != 0.0 else "GPS pending"
+                        occ_pct = np.clip(scores[r, c] / max(cap_grid[r, c], 1), 0, 5) * 100.0
+                        
+                        ga = {
+                            "drone_id": 0,
+                            "ghat": "Single Monitor",
+                            "cell": cell_label,
+                            "zone": cell_risk,
+                            "gps_lat": lat,
+                            "gps_lon": lon,
+                            "density": round(float(scores[r, c])),
+                            "occupancy_pct": round(occ_pct, 1),
+                            "message": (
+                                f"[{cell_risk}] Single Monitor Zone {cell_label} ({int(occ_pct)}% capacity) — "
+                                f"GPS: {gps_str} — estimated {int(scores[r, c])} people"
+                            ),
+                        }
+                        gps_alerts.append(ga)
+            if gps_alerts:
+                geo_alert.dispatch(gps_alerts)
+
         elapsed = time.perf_counter() - t0
         now     = time.perf_counter()
         fps     = 1.0 / max(now - last_t, 1e-6)
         last_t  = now
 
         with _lock:
-            _dmap          = dmap_np.copy()
-            _density_score = ds
-            _peak_density  = pd
-            _hotspot_ratio = hr
-            _risk_score    = rs
-            _zone          = zv
-            _zone_color    = zc
-            _infer_t       = elapsed
-            _proc_fps      = fps
-            _stride        = max(config.MIN_INFERENCE_STRIDE,
+            _dmap            = dmap_np.copy()
+            _density_score   = ds
+            _peak_density    = pd
+            _hotspot_ratio   = hr
+            _risk_score      = rs
+            _zone            = zv
+            _zone_color      = zc
+            _infer_t         = elapsed
+            _proc_fps        = fps
+            _stride          = max(config.MIN_INFERENCE_STRIDE,
                                  min(config.MAX_INFERENCE_STRIDE,
                                      _adapt_stride(elapsed)))
-            _zone_scores   = scores
+            _zone_scores     = scores
+            
+            # New decoupled variables
+            _speed_grid      = speed_grid.copy()
+            _motion_speed    = motion_speed
+            _turbulence      = turbulence
+            _opp_result      = opp_result
+            _comp_risk       = comp_risk
+            _comp_zone       = comp_zone
+            _comp_color      = comp_color
+            _pressure_smooth = pressure_smooth
+            _sp_result       = sp_result
+            _hs_result       = hs_result
+            _analytics_ts    = time.monotonic()
 
 
 threading.Thread(target=_producer,          daemon=True, name="Producer").start()
@@ -331,27 +504,38 @@ cv2.resizeWindow(config.WINDOW_NAME, config.DISPLAY_WIDTH, config.DISPLAY_HEIGHT
 print("[INFO] Keys: q=quit  h=heatmap  r=record  l=CSV  s=stampede-panel")
 
 # ── component instances ───────────────────────────────────────────────
-pressure_smooth  = 0.0
 show_stampede    = True
 recording        = False
 heatmap_enabled  = getattr(config, "HEATMAP_ENABLED_DEFAULT", False)
 
 crowd_log   = logger.CrowdLogger(config.CSV_LOG_PATH, enabled=config.WRITE_CSV_LOG)
-motion_anal = optical_flow.CrowdMotionAnalyzer()
-risk_track  = risk_engine.RiskEngineTracker()
-history     = HistoryBuffer(max_seconds=30.0, fps_estimate=5.0)
-hs_tracker  = HotspotTracker(history)
-opp_det     = OpposingFlowDetector()
-stamp_pred  = StampedePredictor(history)
 video_writer = None
 alert_first_shown_times = {}
 last_cap_ts = 0.0
 last_metrics_log_time = 0.0
 heatmap_state = {}
 
+# Startup performance timing log
+startup_latency = time.time() - STARTUP_T0
+print("\n" + "=" * 60)
+print(f"[PERFORMANCE] Startup Latency: {startup_latency:.2f} seconds")
+print("=" * 60 + "\n")
+
 # ── display loop ──────────────────────────────────────────────────────
 source = drone_stream.resolve_source(config.VIDEO_SOURCE)
+
+# Profile accumulators
+t_acq_sum = 0.0
+t_resize_sum = 0.0
+t_heatmap_sum = 0.0
+t_motion_sum = 0.0
+t_opposing_sum = 0.0
+t_overlay_sum = 0.0
+t_imshow_sum = 0.0
+profile_frame_count = 0
+
 while not _stop.is_set():
+    t_acq_start = time.perf_counter()
 
     with _lock:
         fd            = _frame_data
@@ -368,6 +552,19 @@ while not _stop.is_set():
         zone_scores   = _zone_scores
         health_stats  = _health_stats
         is_live_val   = _is_live
+        
+        # Grab decoupled analytics state
+        speed_grid      = _speed_grid.copy() if _speed_grid is not None else np.zeros((3, 3), dtype=np.float32)
+        motion_speed    = _motion_speed
+        turbulence      = _turbulence
+        opp_result      = _opp_result.copy() if isinstance(_opp_result, dict) else _opp_result
+        comp_risk       = _comp_risk
+        comp_zone       = _comp_zone
+        comp_color      = _comp_color
+        pressure_smooth = _pressure_smooth
+        sp_result       = _sp_result.copy() if isinstance(_sp_result, dict) else _sp_result
+        hs_result       = _hs_result.copy() if isinstance(_hs_result, dict) else _hs_result
+        analytics_ts    = _analytics_ts
 
     if fd is None:
         # Render a clean, animated "Connecting / Camera Offline" window instead of a frozen screen!
@@ -394,114 +591,38 @@ while not _stop.is_set():
         continue
     last_cap_ts = cap_ts
 
+    t_acq_dur = time.perf_counter() - t_acq_start
     age = time.monotonic() - cap_ts
 
+    t_resize_start = time.perf_counter()
     disp = _resize_for_display(frame)
+    t_resize_dur = time.perf_counter() - t_resize_start
 
-    # Heatmap
+    # Heatmap (apply on display resolution)
+    t_heatmap_start = time.perf_counter()
     if heatmap_enabled:
         disp = heatmap_generator.apply_heatmap(disp, dmap, alpha=config.HEATMAP_ALPHA, state=heatmap_state)
-
-    # Motion (uses median, noise-floored)
-    speed_grid, motion_speed, turbulence = motion_anal.analyze_motion(disp)
-    crowd_present = density_score >= risk_engine.MIN_CROWD_DENSITY
-
-    # Zero out motion in cells with no detected people (water / noise filter)
-    if zone_scores is not None:
-        for r in range(3):
-            for c in range(3):
-                if zone_scores[r, c] < 5.0:
-                    speed_grid[r, c] = 0.0
-    if not crowd_present:
-        speed_grid[:] = 0.0
-        motion_speed = 0.0
-        turbulence = 0.0
-
-    # Opposing flow
-    last_flow  = getattr(motion_anal, "last_flow", None)
-    opp_result = (opp_det.analyze(last_flow, zone_scores=zone_scores)
-                  if last_flow is not None and crowd_present
-                  else {"danger_grid": None, "max_score": 0.0,
-                        "any_dangerous": False, "alert_text": ""})
-
-    # Composite risk
-    comp_risk = risk_track.compute_composite_risk(
-        density_score, peak_density, hotspot_ratio, motion_speed, turbulence
-    )
-    comp_zone, comp_color = risk_engine.get_risk_zone(
-        comp_risk,
-        config.SAFE_THRESHOLD, config.WATCH_THRESHOLD, config.HIGH_THRESHOLD,
-    )
-    if crowd_present:
-        pressure_smooth = 0.85 * pressure_smooth + 0.15 * (comp_risk * 100.0)
     else:
-        pressure_smooth = 0.0
-        history.clear()
+        t_heatmap_dur = 0.0
+    t_heatmap_dur = time.perf_counter() - t_heatmap_start
 
-    # Push to history
-    hs_result    = {"trend_matrix": None, "alert_text": "", "expanding": False}
-    sp_result    = {"smooth_prob": 0.0, "label": "SAFE",
-                    "label_color": (0,255,0), "alert_text": "", "terms": {}}
-
-    if zone_scores is not None and crowd_present:
-        history.push(
-            timestamp=time.monotonic(),
-            density_score=density_score, peak_density=peak_density,
-            hotspot_ratio=hotspot_ratio, motion_speed=motion_speed,
-            turbulence=turbulence, composite_risk=comp_risk,
-            zone_scores=zone_scores, zone_motions=speed_grid,
-        )
-        hs_result = hs_tracker.update(zone_scores)
-        sp_result = stamp_pred.predict(
-            density_score=density_score,
-            motion_speed=motion_speed,
-            turbulence=turbulence,
-            opposing_score=opp_result.get("max_score", 0.0),
-        )
-
-        # GPS alerts for HIGH/CRITICAL cells
-        gps_alerts = []
-        cap_grid = np.array(config.ZONE_CAPACITY[0], dtype=float)
-        lat_min, lon_min, lat_max, lon_max = config.DRONE_GPS_BOUNDS[0]
-        
-        for r in range(3):
-            for c in range(3):
-                cell_risk, _ = risk_engine.get_risk_zone(
-                    zone_scores[r, c] / max(cap_grid[r, c], 1),
-                    config.SAFE_THRESHOLD, config.WATCH_THRESHOLD, config.HIGH_THRESHOLD
-                )
-                if cell_risk in ("HIGH", "CRITICAL"):
-                    if lat_min != 0.0:
-                        lat = lat_max - (r + 0.5) / 3.0 * (lat_max - lat_min)
-                        lon = lon_min + (c + 0.5) / 3.0 * (lon_max - lon_min)
-                        lat, lon = round(lat, 6), round(lon, 6)
-                    else:
-                        lat, lon = 0.0, 0.0
-                    
-                    cell_label = f"{'ABC'[r]}{c + 1}"
-                    gps_str = f"{lat}N {lon}E" if lat != 0.0 else "GPS pending"
-                    occ_pct = np.clip(zone_scores[r, c] / max(cap_grid[r, c], 1), 0, 5) * 100.0
-                    
-                    ga = {
-                        "drone_id": 0,
-                        "ghat": "Single Monitor",
-                        "cell": cell_label,
-                        "zone": cell_risk,
-                        "gps_lat": lat,
-                        "gps_lon": lon,
-                        "density": round(float(zone_scores[r, c])),
-                        "occupancy_pct": round(occ_pct, 1),
-                        "message": (
-                            f"[{cell_risk}] Single Monitor Zone {cell_label} ({int(occ_pct)}% capacity) — "
-                            f"GPS: {gps_str} — estimated {int(zone_scores[r, c])} people"
-                        ),
-                    }
-                    gps_alerts.append(ga)
-        if gps_alerts:
-            geo_alert.dispatch(gps_alerts)
+    # Motion and opposing flow run asynchronously on worker thread.
+    t_motion_dur = 0.0
+    t_opposing_dur = 0.0
 
     # ── draw ────────────────────────────────────────────────────────
+    t_overlay_start = time.perf_counter()
     overlay.draw_top_banner(disp, comp_zone, comp_color, pressure_smooth)
+    
+    # Visual capture-to-display latency indicator (Priority 2 verification)
+    latency_ms = age * 1000.0
+    cv2.putText(disp, f"Latency: {latency_ms:.0f}ms", (config.DISPLAY_WIDTH - 150, 28),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.45, (220, 220, 220), 1, cv2.LINE_AA)
+
+    # Analytics Staleness Indicator (Prompt 3)
+    staleness_ms = (time.monotonic() - analytics_ts) * 1000.0 if analytics_ts > 0 else 0.0
+    cv2.putText(disp, f"Staleness: {staleness_ms:.0f}ms", (config.DISPLAY_WIDTH - 150, 48),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.45, (220, 220, 220), 1, cv2.LINE_AA)
 
     overlay.draw_grid_3x3(
         disp,
@@ -531,6 +652,7 @@ while not _stop.is_set():
             alert_first_shown_times[a] = now
 
     overlay.draw_alert_ticker(disp, alerts, alert_first_shown_times, now)
+    t_overlay_dur = time.perf_counter() - t_overlay_start
 
     # ── recording ─────────────────────────────────────────────────
     if recording:
@@ -548,7 +670,9 @@ while not _stop.is_set():
         crowd_log.log(comp_zone, comp_risk, density_score,
                       peak_density, hotspot_ratio, infer_t, age, cur_stride)
 
+    t_imshow_start = time.perf_counter()
     cv2.imshow(config.WINDOW_NAME, disp)
+    t_imshow_dur = time.perf_counter() - t_imshow_start
     
     # Log performance metrics once per second
     now_m = time.monotonic()
@@ -566,7 +690,42 @@ while not _stop.is_set():
                 fps=health_stats["live_fps"]
             )
 
+    t_waitkey_start = time.perf_counter()
     key = cv2.waitKey(1) & 0xFF
+    t_imshow_dur += (time.perf_counter() - t_waitkey_start)
+
+    # Accumulate timing stats
+    t_acq_sum += t_acq_dur
+    t_resize_sum += t_resize_dur
+    t_heatmap_sum += t_heatmap_dur
+    t_motion_sum += t_motion_dur
+    t_opposing_sum += t_opposing_dur
+    t_overlay_sum += t_overlay_dur
+    t_imshow_sum += t_imshow_dur
+    
+    profile_frame_count += 1
+    if profile_frame_count >= 30:
+        print(f"\n[PROFILER] Display Loop Breakdown (rolling avg over last 30 frames):")
+        print(f"  - frame acquisition / lock read: {t_acq_sum / 30 * 1000:.2f} ms")
+        print(f"  - _resize_for_display():          {t_resize_sum / 30 * 1000:.2f} ms")
+        print(f"  - heatmap_generator.apply_heatmap: {t_heatmap_sum / 30 * 1000:.2f} ms")
+        print(f"  - motion_anal.analyze_motion():   {t_motion_sum / 30 * 1000:.2f} ms")
+        print(f"  - opposing flow detection:        {t_opposing_sum / 30 * 1000:.2f} ms")
+        print(f"  - overlay/text drawing:           {t_overlay_sum / 30 * 1000:.2f} ms")
+        print(f"  - cv2.imshow() + cv2.waitKey():   {t_imshow_sum / 30 * 1000:.2f} ms")
+        total_tracked = t_acq_sum + t_resize_sum + t_heatmap_sum + t_motion_sum + t_opposing_sum + t_overlay_sum + t_imshow_sum
+        print(f"  - Total tracked display time:     {total_tracked / 30 * 1000:.2f} ms (FPS: {30 / total_tracked:.1f})")
+        print("-" * 50)
+        
+        # Reset counters
+        t_acq_sum = 0.0
+        t_resize_sum = 0.0
+        t_heatmap_sum = 0.0
+        t_motion_sum = 0.0
+        t_opposing_sum = 0.0
+        t_overlay_sum = 0.0
+        t_imshow_sum = 0.0
+        profile_frame_count = 0
 
     if   key == ord("q"): _stop.set(); break
     elif key == ord("h"): heatmap_enabled = not heatmap_enabled

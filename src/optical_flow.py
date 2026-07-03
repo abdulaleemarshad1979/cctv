@@ -29,7 +29,9 @@ MOTION_EMA_ALPHA   = 0.35
 # This removes drone-drift motion that affects every cell equally
 COMPENSATE_SHAKE   = True
 
+import config
 import torch
+
 if torch.cuda.is_available():
     FLOW_W, FLOW_H = 480, 270   # raised flow resolution to 1/4 of display resolution
     FARNEBACK_WINSIZE = 25
@@ -37,12 +39,46 @@ else:
     FLOW_W, FLOW_H = 320, 180   # optimized resolution on CPU to run smoothly
     FARNEBACK_WINSIZE = 15
 
+# Detect CUDA support in OpenCV
+OPENCV_CUDA_AVAILABLE = False
+try:
+    if hasattr(cv2, "cuda") and cv2.cuda.getCudaEnabledDeviceCount() > 0:
+        OPENCV_CUDA_AVAILABLE = True
+except Exception:
+    pass
+
+OPTICAL_FLOW_GPU_ACTIVE = OPENCV_CUDA_AVAILABLE and getattr(config, "OPTICAL_FLOW_GPU", False)
+
 
 class CrowdMotionAnalyzer:
     def __init__(self):
         self.prev_gray   = None
         self.last_flow   = None          # exposed for OpposingFlowDetector
         self._ema_grid   = np.zeros((3, 3))   # smoothed per-cell speeds
+        
+        # GPU/CUDA optical flow helper setup
+        self.gpu_flow_obj = None
+        if OPTICAL_FLOW_GPU_ACTIVE:
+            try:
+                self.gpu_flow_obj = cv2.cuda_FarnebackOpticalFlow.create(
+                    numLevels=3,
+                    pyrScale=0.5,
+                    fastPyramids=False,
+                    winSize=FARNEBACK_WINSIZE,
+                    numIters=3,
+                    polyN=5,
+                    polySigma=1.2,
+                    flags=0
+                )
+                self.gpu_prev = cv2.cuda_GpuMat()
+                self.gpu_curr = cv2.cuda_GpuMat()
+                print(f"[OPTICAL FLOW] Using OpenCV CUDA GPU path.")
+            except Exception as e:
+                print(f"[OPTICAL FLOW] Failed to initialize OpenCV CUDA path: {e}. Falling back to CPU.")
+                self.gpu_flow_obj = None
+        
+        if self.gpu_flow_obj is None:
+            print(f"[OPTICAL FLOW] Using CPU path.")
 
     def analyze_motion(self, frame_bgr: np.ndarray):
         """
@@ -60,16 +96,29 @@ class CrowdMotionAnalyzer:
             self.last_flow = np.zeros((FLOW_H, FLOW_W, 2), dtype=np.float32)
             return np.zeros((3, 3)), 0.0, 0.0
 
-        flow = cv2.calcOpticalFlowFarneback(
-            self.prev_gray, gray, None,
-            0.5,    # pyr_scale
-            3,      # levels
-            FARNEBACK_WINSIZE, # dynamically set winsize
-            3,      # iterations
-            5,      # poly_n
-            1.2,    # poly_sigma
-            0,
-        )
+        if self.gpu_flow_obj is not None:
+            try:
+                self.gpu_prev.upload(self.prev_gray)
+                self.gpu_curr.upload(gray)
+                gpu_flow = self.gpu_flow_obj.calc(self.gpu_prev, self.gpu_curr, None)
+                flow = gpu_flow.download()
+            except Exception as e:
+                # Fallback to CPU in case of runtime CUDA failure
+                flow = cv2.calcOpticalFlowFarneback(
+                    self.prev_gray, gray, None,
+                    0.5, 3, FARNEBACK_WINSIZE, 3, 5, 1.2, 0
+                )
+        else:
+            flow = cv2.calcOpticalFlowFarneback(
+                self.prev_gray, gray, None,
+                0.5,
+                3,
+                FARNEBACK_WINSIZE,
+                3,
+                5,
+                1.2,
+                0,
+            )
         self.prev_gray = gray
 
         magnitude = np.sqrt(flow[..., 0] ** 2 + flow[..., 1] ** 2)

@@ -39,18 +39,16 @@ for idx, q in enumerate(sorted_qualities, start=1):
 choice = int(input("\nSelect quality number: "))
 
 selected_quality = sorted_qualities[choice - 1]
-selected_format = qualities[selected_quality]
+height = selected_quality.replace("p", "")
 
 print(f"\nSelected: {selected_quality}")
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# Download chosen quality + best audio
+# Download chosen quality (video only, no audio merging required)
 ydl_opts = {
-    "format": f"{selected_format}+bestaudio/best",
-    "merge_output_format": "mp4",
-    "ffmpeg_location": r"C:\Users\abdul\AppData\Local\Microsoft\WinGet\Packages\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\ffmpeg-8.1.1-full_build\bin",
-    "outtmpl": os.path.join(BASE_DIR, "Videos", "%(title)s.%(ext)s"),
+    "format": f"bestvideo[height={height}]/best[height={height}]",
+    "outtmpl": os.path.join(BASE_DIR, "Videos", "K.%(ext)s"),
     "js_runtimes": {"node": {}},
     "remote_components": {"ejs:github"}
 }

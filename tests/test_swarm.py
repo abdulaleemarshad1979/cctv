@@ -32,7 +32,7 @@ def main():
                 ckpt = ckpt[k]; break
     sd = {k.replace("module.", "").replace("model.", ""): v
           for k, v in ckpt.items() if isinstance(v, torch.Tensor)}
-    model = vgg19()
+    model = vgg19(pretrained=False)
     try:   model.load_state_dict(sd, strict=True)
     except RuntimeError: model.load_state_dict(sd, strict=False)
     model.to(device).eval()

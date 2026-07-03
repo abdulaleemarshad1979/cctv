@@ -23,6 +23,10 @@ webrtcAddress: :8889
 readBufferCount: 256   # default: 1024
 writeBufferCount: 256  # default: 1024
 
+# Uncomment below for ultra-low-latency testing:
+# readBufferCount: 64
+# writeBufferCount: 64
+
 # Timeouts
 readTimeout: 5s
 writeTimeout: 5s

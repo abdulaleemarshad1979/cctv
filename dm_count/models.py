@@ -48,10 +48,11 @@ cfg = {
     'E': [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 256, 'M', 512, 512, 512, 512, 'M', 512, 512, 512, 512]
 }
 
-def vgg19():
+def vgg19(pretrained=True):
     """VGG 19-layer model (configuration "E")
         model pre-trained on ImageNet
     """
     model = VGG(make_layers(cfg['E']))
-    model.load_state_dict(model_zoo.load_url(model_urls['vgg19']), strict=False)
+    if pretrained:
+        model.load_state_dict(model_zoo.load_url(model_urls['vgg19']), strict=False)
     return model
