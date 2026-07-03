@@ -11,6 +11,8 @@ import numpy as np
 
 # How much of a cell must move in "opposite" direction to count
 OPPOSING_RATIO_THRESHOLD = 0.20   # 20 % of pixels moving against majority
+MIN_CELL_DENSITY         = 5.0
+MIN_ACTIVE_RATIO         = 0.08
 OPPOSING_DANGER_RATIO    = 0.35   # 35 % → dangerous
 
 
@@ -28,6 +30,8 @@ class OpposingFlowDetector:
         self,
         flow: np.ndarray,          # shape (H, W, 2)  from cv2.calcOpticalFlowFarneback
         magnitude_threshold: float = 0.3,  # ignore sub-pixel noise
+        zone_scores: np.ndarray | None = None,
+        min_cell_density: float = MIN_CELL_DENSITY,
     ) -> dict:
         """
         Returns
@@ -53,6 +57,9 @@ class OpposingFlowDetector:
 
         for r in range(3):
             for c in range(3):
+                if zone_scores is not None and float(zone_scores[r, c]) < min_cell_density:
+                    continue
+
                 r0 = r * cell_h
                 r1 = (r + 1) * cell_h if r < 2 else fh
                 c0 = c * cell_w
@@ -64,7 +71,8 @@ class OpposingFlowDetector:
 
                 # Only consider pixels with meaningful motion
                 mask = cell_mag > magnitude_threshold
-                if mask.sum() < 10:
+                active_ratio = mask.sum() / max(mask.size, 1)
+                if mask.sum() < 10 or active_ratio < MIN_ACTIVE_RATIO:
                     continue
 
                 fx_valid = cell_fx[mask]

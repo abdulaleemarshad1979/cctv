@@ -29,6 +29,10 @@ from src.swarm_manager import SwarmManager, SWARM_DRONE_COUNT, DRONE_SOURCES, DR
 from dm_count.models import vgg19
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+if device.type == "cpu":
+    # Limit CPU threads to prevent UI/capture starvation in swarm mode
+    torch.set_num_threads(max(1, min(2, (os.cpu_count() or 4) // 2)))
+    print(f"[SWARM-INFER] CPU Thread count set to {torch.get_num_threads()} to prevent core saturation.")
 print(f"[SWARM-INFER] Device: {device}  |  Drones: {SWARM_DRONE_COUNT}")
 
 def _load_model():
@@ -51,7 +55,23 @@ def _load_model():
 model = _load_model()
 
 # ── Start swarm ───────────────────────────────────────────────────────
-swarm = SwarmManager(sources=DRONE_SOURCES[:SWARM_DRONE_COUNT], model=model)
+swarm_sources = DRONE_SOURCES[:SWARM_DRONE_COUNT]
+use_videos = os.environ.get("USE_VIDEOS", "").lower() in ("1", "true", "yes") or "--videos" in sys.argv
+
+if use_videos:
+    video_files = ["Kumbh.mp4", "mecca.mp4", "stadium.mp4", "concert.mp4", "Crowd.mp4"]
+    local_sources = []
+    for f in video_files:
+        p = os.path.join("Videos", f)
+        if os.path.exists(p):
+            local_sources.append(p)
+    if local_sources:
+        swarm_sources = [local_sources[i % len(local_sources)] for i in range(SWARM_DRONE_COUNT)]
+        print(f"[SWARM-INFER] Test mode: Using local videos: {swarm_sources}")
+    else:
+        print("[SWARM-INFER] Warning: No test videos found in Videos/ directory.")
+
+swarm = SwarmManager(sources=swarm_sources, model=model)
 swarm.start()
 
 class StatusHandler(BaseHTTPRequestHandler):
@@ -65,19 +85,29 @@ class StatusHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
     def log_message(self, *a): pass  # silence access logs
 
+def start_http_server():
+    for port in range(8080, 8090):
+        try:
+            server = HTTPServer(("0.0.0.0", port), StatusHandler)
+            print(f"[SWARM-INFER] HTTP status API server running on http://localhost:{port}")
+            server.serve_forever()
+            return
+        except OSError:
+            continue
+    print("[SWARM-INFER] Warning: Could not start HTTP status API server (ports 8080-8089 in use).")
+
 threading.Thread(
-    target=lambda: HTTPServer(("0.0.0.0", 8080), StatusHandler).serve_forever(),
+    target=start_http_server,
     daemon=True,
     name="HTTPStatusAPI"
 ).start()
-print("[SWARM-INFER] HTTP status API server running on http://0.0.0.0:8080")
 
 # ── Display window ────────────────────────────────────────────────────
 MOSAIC_W = config.DISPLAY_WIDTH
 MOSAIC_H = config.DISPLAY_HEIGHT
 
-cv2.namedWindow("Pushkaralu 2027 — Swarm Command", cv2.WINDOW_NORMAL)
-cv2.resizeWindow("Pushkaralu 2027 — Swarm Command", MOSAIC_W, MOSAIC_H)
+cv2.namedWindow("Pushkaralu 2027 | Swarm Command Center", cv2.WINDOW_NORMAL)
+cv2.resizeWindow("Pushkaralu 2027 | Swarm Command Center", MOSAIC_W, MOSAIC_H)
 
 focus_drone = -1   # -1 = mosaic; 0-3 = single drone
 
@@ -126,34 +156,58 @@ while True:
     if focus_drone < 0:
         unified = swarm.get_unified_state()
         h2, w2  = disp.shape[:2]
-        bar_h   = 32
-        cv2.rectangle(disp, (0, 0), (w2, bar_h), (0, 0, 0), -1)
+        bar_h   = 44
+        
+        # Draw semi-transparent header overlay
+        overlay_bar = disp[0:bar_h, 0:w2].copy()
+        cv2.rectangle(overlay_bar, (0, 0), (w2, bar_h), (18, 18, 22), -1)
+        disp[0:bar_h, 0:w2] = cv2.addWeighted(disp[0:bar_h, 0:w2], 0.1, overlay_bar, 0.9, 0)
+        
+        # Subtle bottom border line
+        cv2.line(disp, (0, bar_h-1), (w2, bar_h-1), (45, 45, 52), 1, cv2.LINE_AA)
 
-        x = 5
+        x = 15
         for i, ds in enumerate(swarm.states):
             with ds.lock:
-                name  = ds.name
-                zone  = ds.comp_zone
+                name = ds.name
+                zone = ds.comp_zone
                 color = ds.comp_color
                 online = ds.online
+                density = ds.density_score
 
-            status = zone if online else "OFFLINE"
-            s_color = color if online else (80, 80, 80)
-            txt = f"D{i+1}:{name[:6]}[{status}]  "
-            cv2.putText(disp, txt, (x, 22),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.45, s_color, 1, cv2.LINE_AA)
-            (tw, _), _ = cv2.getTextSize(txt, cv2.FONT_HERSHEY_SIMPLEX, 0.45, 1)
-            x += tw + 5
+            # Status indicators
+            dot_color = color if online else (90, 90, 90)
+            status_txt = zone if online else "OFFLINE"
+            
+            # Status dot
+            cv2.circle(disp, (x + 8, 22), 5, dot_color, -1, cv2.LINE_AA)
+            
+            if online:
+                txt = f"D{i+1}: {name} ({int(density)} pax) | {status_txt}"
+            else:
+                txt = f"D{i+1}: {name} | {status_txt}"
+                
+            cv2.putText(disp, txt, (x + 22, 27),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.42, (230, 230, 235) if online else (130, 130, 135), 1, cv2.LINE_AA)
+                        
+            (tw, _), _ = cv2.getTextSize(txt, cv2.FONT_HERSHEY_SIMPLEX, 0.42, 1)
+            
+            # Divider line
+            divider_x = x + 22 + tw + 15
+            if i < len(swarm.states) - 1 and divider_x < w2 - 180:
+                cv2.line(disp, (divider_x, 12), (divider_x, 32), (45, 45, 52), 1, cv2.LINE_AA)
+            
+            x = divider_x + 15
+            
+        # Unified system status on the far right
+        system_status = unified.get("worst_zone", "SAFE")
+        system_color = (0, 255, 0) if system_status == "SAFE" else (0, 0, 255) if system_status in ("HIGH", "CRITICAL") else (0, 255, 255)
+        sys_txt = f"SYSTEM: {system_status}"
+        (stw, _), _ = cv2.getTextSize(sys_txt, cv2.FONT_HERSHEY_SIMPLEX, 0.45, 1)
+        cv2.putText(disp, sys_txt, (w2 - stw - 15, 27),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.45, system_color, 1, cv2.LINE_AA)
 
-        # Dispatch GPS alerts
-        all_alerts = []
-        for ds in swarm.states:
-            with ds.lock:
-                all_alerts.extend(ds.gps_alerts)
-        if all_alerts:
-            geo_alert.dispatch(all_alerts)
-
-    cv2.imshow("Pushkaralu 2027 — Swarm Command", disp)
+    cv2.imshow("Pushkaralu 2027 | Swarm Command Center", disp)
     key = cv2.waitKey(16) & 0xFF   # ~60 fps display refresh
 
     if   key == ord('q'):         swarm.stop(); break

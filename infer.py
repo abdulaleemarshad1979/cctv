@@ -25,11 +25,13 @@ import config
 from src import (
     overlay,
     heatmap_generator,
+    density_filter,
     risk_engine,
     optical_flow,
     zone_monitor,
     drone_stream,
     logger,
+    geo_alert,
 )
 from src.history_buffer         import HistoryBuffer
 from src.hotspot_tracker        import HotspotTracker
@@ -43,6 +45,10 @@ device     = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 AMP_ENABLED = device.type == "cuda"
 if AMP_ENABLED:
     torch.backends.cudnn.benchmark = True
+else:
+    # Limit CPU threads to prevent UI/capture starvation
+    torch.set_num_threads(max(1, min(2, (os.cpu_count() or 4) // 2)))
+    print(f"[INFO] CPU Thread count set to {torch.get_num_threads()} to prevent core saturation.")
 print(f"[INFO] Device: {device}")
 
 
@@ -79,6 +85,8 @@ _tfm = transforms.Compose([
 
 
 def _preprocess(bgr):
+    if getattr(config, "CLEAN_INPUT_OVERLAYS", True):
+        bgr = density_filter.suppress_broadcast_overlays(bgr)
     small = cv2.resize(bgr, (config.INFER_WIDTH, config.INFER_HEIGHT),
                        interpolation=cv2.INTER_AREA)
     rgb   = cv2.cvtColor(small, cv2.COLOR_BGR2RGB)
@@ -103,6 +111,15 @@ def _adapt_stride(elapsed):
     return 8
 
 
+def _resize_for_display(frame):
+    h, w = frame.shape[:2]
+    target = (config.DISPLAY_WIDTH, config.DISPLAY_HEIGHT)
+    if (w, h) == target:
+        return frame.copy()
+    interpolation = cv2.INTER_AREA if w > target[0] or h > target[1] else cv2.INTER_LINEAR
+    return cv2.resize(frame, target, interpolation=interpolation)
+
+
 # ── shared state ──────────────────────────────────────────────────────
 _lock      = threading.Lock()
 _stop      = threading.Event()
@@ -119,6 +136,7 @@ _infer_t       = 0.0
 _stride        = config.INITIAL_INFERENCE_STRIDE
 _proc_fps      = 0.0
 _zone_scores   = None          # np (3,3)
+_is_live       = False
 
 _frame_q = queue.Queue(maxsize=1)
 
@@ -134,38 +152,60 @@ def _clear_q(q):
 def _producer():
     global _frame_data, _stride
     source = drone_stream.resolve_source(config.VIDEO_SOURCE)
-    sh = drone_stream.DroneStreamHandler(source)
-    if not sh.is_opened():
-        print("[ERROR] Cannot open source:", source)
-        _stop.set(); return
-
-    src_fps = sh.get_fps()
-    print(f"[INFO] Source FPS={src_fps:.1f}  live={sh.is_live}")
-    idx = 0
-    nft = time.monotonic()
-
+    
     while not _stop.is_set():
-        ok, frame = sh.read_frame()
-        if not ok:
-            print("[INFO] Stream ended."); _stop.set(); break
+        sh = drone_stream.DroneStreamHandler(
+            source,
+            target_width=config.CAPTURE_WIDTH,
+            target_height=config.CAPTURE_HEIGHT,
+            transport=config.RTSP_TRANSPORT
+        )
+        if not sh.is_opened():
+            print(f"[ERROR] Cannot open source {source}. Offline. Retrying in 3.0s...")
+            time.sleep(3.0)
+            continue
 
-        idx += 1
-        ts  = time.monotonic()
+        src_fps = sh.get_fps()
+        src_w, src_h = sh.get_resolution()
+        print(f"[INFO] Source FPS={src_fps:.1f}  live={sh.is_live}  resolution={src_w}x{src_h}")
         with _lock:
-            _frame_data = (frame, ts)
-            stride = _stride
+            global _is_live
+            _is_live = sh.is_live
+        if src_w < config.DISPLAY_WIDTH or src_h < config.DISPLAY_HEIGHT:
+            print(
+                "[WARN] Incoming feed is below display quality. "
+                "Set the drone app/relay to 720p or 1080p; the monitor cannot restore lost detail."
+            )
+        idx = 0
+        nft = time.monotonic()
 
-        if idx % stride == 0:
-            if _frame_q.full(): _clear_q(_frame_q)
-            try: _frame_q.put_nowait((frame.copy(), ts))
-            except queue.Full: pass
+        while not _stop.is_set():
+            ok, frame = sh.read_frame()
+            if not ok:
+                print("[INFO] Stream ended/disconnected. Reconnecting...")
+                break
 
-        if not sh.is_live:
-            nft += 1.0 / src_fps
-            s = nft - time.monotonic()
-            if s > 0: time.sleep(s)
+            idx += 1
+            ts  = time.monotonic()
+            with _lock:
+                _frame_data = (frame, ts)
+                stride = _stride
 
-    sh.release()
+            if idx % stride == 0:
+                if _frame_q.full(): _clear_q(_frame_q)
+                try: _frame_q.put_nowait((frame.copy(), ts))
+                except queue.Full: pass
+
+            if not sh.is_live:
+                nft += 1.0 / src_fps
+                s = nft - time.monotonic()
+                if s > 0: time.sleep(s)
+
+        sh.release()
+        with _lock:
+            _frame_data = None  # Clear frame data to trigger placeholder screen
+        if not _stop.is_set():
+            time.sleep(3.0)
 
 
 # ── inference worker ──────────────────────────────────────────────────
@@ -186,6 +226,23 @@ def _inference_worker():
         tensor   = _preprocess(frame)
         dmap_out = _infer(tensor)
         dmap_np  = dmap_out.squeeze().detach().float().cpu().numpy()
+        dmap_np  = density_filter.clean_density_map(
+            dmap_np,
+            source_frame_bgr=frame,
+            speckle_ratio=getattr(config, "DENSITY_SPECKLE_RATIO", 0.015),
+        )
+
+        with _lock:
+            is_live_val = _is_live
+
+        # Altitude correction
+        if getattr(config, 'ENABLE_ALTITUDE_CORRECTION', False) and getattr(config, 'DRONE_ALTITUDE_M', 30.0) > 5.0 and is_live_val:
+            import math
+            hfov = getattr(config, 'DRONE_SENSOR_HFOV', 80.0)
+            gw   = 2.0 * config.DRONE_ALTITUDE_M * math.tan(math.radians(hfov / 2.0))
+            ppm  = config.INFER_WIDTH / max(gw, 0.1)
+            corr_factor = (config.BASELINE_PX_PER_M / max(ppm, 0.01)) ** 2
+            dmap_np = dmap_np * corr_factor
 
         ds, pd, hr, rs = risk_engine.compute_pressure_metrics(dmap_np)
         zv, zc         = risk_engine.get_risk_zone(rs,
@@ -227,7 +284,7 @@ print("[INFO] Keys: q=quit  h=heatmap  r=record  l=CSV  s=stampede-panel")
 pressure_smooth  = 0.0
 show_stampede    = True
 recording        = False
-heatmap_enabled  = True
+heatmap_enabled  = getattr(config, "HEATMAP_ENABLED_DEFAULT", False)
 
 crowd_log   = logger.CrowdLogger(config.CSV_LOG_PATH, enabled=config.WRITE_CSV_LOG)
 motion_anal = optical_flow.CrowdMotionAnalyzer()
@@ -241,6 +298,7 @@ alert_first_shown_times = {}
 last_cap_ts = 0.0
 
 # ── display loop ──────────────────────────────────────────────────────
+source = drone_stream.resolve_source(config.VIDEO_SOURCE)
 while not _stop.is_set():
 
     with _lock:
@@ -258,7 +316,23 @@ while not _stop.is_set():
         zone_scores   = _zone_scores
 
     if fd is None:
-        time.sleep(0.005); continue
+        # Render a clean, animated "Connecting / Camera Offline" window instead of a frozen screen!
+        placeholder = np.zeros((config.DISPLAY_HEIGHT, config.DISPLAY_WIDTH, 3), dtype=np.uint8)
+        # Dynamic dot animation based on timestamp
+        dots = "." * (int(time.monotonic() * 2) % 4)
+        cv2.putText(placeholder, f"CONNECTING TO LIVE STREAM{dots}", (50, config.DISPLAY_HEIGHT // 2 - 40),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1.1, (100, 240, 100), 2, cv2.LINE_AA)
+        cv2.putText(placeholder, f"Source: {source}", (50, config.DISPLAY_HEIGHT // 2 + 10),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (180, 180, 180), 1, cv2.LINE_AA)
+        cv2.putText(placeholder, "Please ensure your mobile device or drone stream is active.", (50, config.DISPLAY_HEIGHT // 2 + 50),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.52, (150, 150, 255), 1, cv2.LINE_AA)
+        cv2.putText(placeholder, "Press 'Q' to quit.", (50, config.DISPLAY_HEIGHT // 2 + 90),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.48, (120, 120, 125), 1, cv2.LINE_AA)
+        cv2.imshow(config.WINDOW_NAME, placeholder)
+        key = cv2.waitKey(20) & 0xFF
+        if key in (ord('q'), ord('Q'), 27):
+            _stop.set()
+        continue
 
     frame, cap_ts = fd
     if cap_ts == last_cap_ts:
@@ -268,9 +342,7 @@ while not _stop.is_set():
 
     age = time.monotonic() - cap_ts
 
-    # Resize to display resolution
-    disp = cv2.resize(frame, (config.DISPLAY_WIDTH, config.DISPLAY_HEIGHT),
-                      interpolation=cv2.INTER_AREA)
+    disp = _resize_for_display(frame)
 
     # Heatmap
     if heatmap_enabled:
@@ -278,6 +350,7 @@ while not _stop.is_set():
 
     # Motion (uses median, noise-floored)
     speed_grid, motion_speed, turbulence = motion_anal.analyze_motion(disp)
+    crowd_present = density_score >= risk_engine.MIN_CROWD_DENSITY
 
     # Zero out motion in cells with no detected people (water / noise filter)
     if zone_scores is not None:
@@ -285,11 +358,15 @@ while not _stop.is_set():
             for c in range(3):
                 if zone_scores[r, c] < 5.0:
                     speed_grid[r, c] = 0.0
+    if not crowd_present:
+        speed_grid[:] = 0.0
+        motion_speed = 0.0
+        turbulence = 0.0
 
     # Opposing flow
     last_flow  = getattr(motion_anal, "last_flow", None)
-    opp_result = (opp_det.analyze(last_flow)
-                  if last_flow is not None
+    opp_result = (opp_det.analyze(last_flow, zone_scores=zone_scores)
+                  if last_flow is not None and crowd_present
                   else {"danger_grid": None, "max_score": 0.0,
                         "any_dangerous": False, "alert_text": ""})
 
@@ -301,14 +378,18 @@ while not _stop.is_set():
         comp_risk,
         config.SAFE_THRESHOLD, config.WATCH_THRESHOLD, config.HIGH_THRESHOLD,
     )
-    pressure_smooth = 0.85 * pressure_smooth + 0.15 * (comp_risk * 100.0)
+    if crowd_present:
+        pressure_smooth = 0.85 * pressure_smooth + 0.15 * (comp_risk * 100.0)
+    else:
+        pressure_smooth = 0.0
+        history.clear()
 
     # Push to history
     hs_result    = {"trend_matrix": None, "alert_text": "", "expanding": False}
     sp_result    = {"smooth_prob": 0.0, "label": "SAFE",
                     "label_color": (0,255,0), "alert_text": "", "terms": {}}
 
-    if zone_scores is not None:
+    if zone_scores is not None and crowd_present:
         history.push(
             timestamp=time.monotonic(),
             density_score=density_score, peak_density=peak_density,
@@ -323,6 +404,47 @@ while not _stop.is_set():
             turbulence=turbulence,
             opposing_score=opp_result.get("max_score", 0.0),
         )
+
+        # GPS alerts for HIGH/CRITICAL cells
+        gps_alerts = []
+        cap_grid = np.array(config.ZONE_CAPACITY[0], dtype=float)
+        lat_min, lon_min, lat_max, lon_max = config.DRONE_GPS_BOUNDS[0]
+        
+        for r in range(3):
+            for c in range(3):
+                cell_risk, _ = risk_engine.get_risk_zone(
+                    zone_scores[r, c] / max(cap_grid[r, c], 1),
+                    config.SAFE_THRESHOLD, config.WATCH_THRESHOLD, config.HIGH_THRESHOLD
+                )
+                if cell_risk in ("HIGH", "CRITICAL"):
+                    if lat_min != 0.0:
+                        lat = lat_max - (r + 0.5) / 3.0 * (lat_max - lat_min)
+                        lon = lon_min + (c + 0.5) / 3.0 * (lon_max - lon_min)
+                        lat, lon = round(lat, 6), round(lon, 6)
+                    else:
+                        lat, lon = 0.0, 0.0
+                    
+                    cell_label = f"{'ABC'[r]}{c + 1}"
+                    gps_str = f"{lat}N {lon}E" if lat != 0.0 else "GPS pending"
+                    occ_pct = np.clip(zone_scores[r, c] / max(cap_grid[r, c], 1), 0, 5) * 100.0
+                    
+                    ga = {
+                        "drone_id": 0,
+                        "ghat": "Single Monitor",
+                        "cell": cell_label,
+                        "zone": cell_risk,
+                        "gps_lat": lat,
+                        "gps_lon": lon,
+                        "density": round(float(zone_scores[r, c])),
+                        "occupancy_pct": round(occ_pct, 1),
+                        "message": (
+                            f"[{cell_risk}] Single Monitor Zone {cell_label} ({int(occ_pct)}% capacity) — "
+                            f"GPS: {gps_str} — estimated {int(zone_scores[r, c])} people"
+                        ),
+                    }
+                    gps_alerts.append(ga)
+        if gps_alerts:
+            geo_alert.dispatch(gps_alerts)
 
     # ── draw ────────────────────────────────────────────────────────
     overlay.draw_top_banner(disp, comp_zone, comp_color, pressure_smooth)

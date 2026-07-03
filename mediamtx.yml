@@ -1,0 +1,30 @@
+# MediaMTX Low-Latency Configuration
+# Auto-loaded by mediamtx when run from this directory
+
+# RTSP server
+rtsp: yes
+rtspAddress: :8554
+rtspTransports: [udp, tcp]
+
+# RTMP server
+rtmp: yes
+rtmpAddress: :1935
+
+# SRT server (UDP-based streaming)
+srt: yes
+srtAddress: :8890
+
+# WebRTC server (Ultra-low latency web player)
+webrtc: yes
+webrtcAddress: :8889
+
+# Low-latency buffer tuning
+# Reducing buffer sizes helps prevent the build-up of old/stale frames.
+readBufferCount: 256   # default: 1024
+writeBufferCount: 256  # default: 1024
+
+# Timeouts
+readTimeout: 5s
+writeTimeout: 5s
+runOnPublish: ""
+runOnPublishRestart: no

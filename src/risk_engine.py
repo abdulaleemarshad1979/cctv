@@ -1,5 +1,7 @@
 import numpy as np
 
+MIN_CROWD_DENSITY = 5.0
+
 class RiskEngineTracker:
     def __init__(self):
         self.prev_peak_density = 0.0
@@ -10,6 +12,10 @@ class RiskEngineTracker:
         risk = 0.4 * density + 0.3 * motion + 0.2 * turbulence + 0.1 * hotspot_growth
         All terms are normalized to [0, 1].
         """
+        if density_score < MIN_CROWD_DENSITY:
+            self.prev_peak_density = 0.0
+            return 0.0
+
         # 1. Density term (sigmoid/exp saturation)
         density_term = 1.0 - np.exp(-density_score / 1200.0)
 
@@ -48,6 +54,9 @@ def compute_pressure_metrics(dmap_np):
     dmap = np.clip(dmap_np, 0, None)
     density_score = float(dmap.sum())
     peak_density = float(dmap.max()) if dmap.size else 0.0
+
+    if density_score < MIN_CROWD_DENSITY:
+        return density_score, peak_density, 0.0, 0.0
 
     positive = dmap[dmap > 0]
     if positive.size == 0:

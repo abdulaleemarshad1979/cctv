@@ -31,12 +31,14 @@ class HotspotTracker:
         growth_threshold: float = 0.015,   # normalised growth/sample to flag GROWING
         critical_threshold: float = 0.04,  # to flag CRITICAL
         trend_window: float = 8.0,         # seconds of history for trend
+        min_density: float = 5.0,          # ignore tiny model noise
     ):
         self.history          = history
         self.top_n            = top_n
         self.growth_threshold = growth_threshold
         self.critical_threshold = critical_threshold
         self.trend_window     = trend_window
+        self.min_density      = min_density
 
     # ------------------------------------------------------------------
     def update(self, zone_scores: np.ndarray) -> dict:
@@ -55,13 +57,14 @@ class HotspotTracker:
         """
         growth_matrix = self.history.zone_growth_matrix(self.trend_window)
         trend_matrix  = self._label_trends(growth_matrix)
+        trend_matrix  = np.where(zone_scores >= self.min_density, trend_matrix, TREND_STABLE)
 
         # Rank cells by current density
         flat_idx  = np.argsort(zone_scores.ravel())[::-1]
         hotspots  = [
             (int(i // 3), int(i % 3), float(zone_scores.ravel()[i]))
             for i in flat_idx[: self.top_n]
-            if zone_scores.ravel()[i] > 0
+            if zone_scores.ravel()[i] >= self.min_density
         ]
 
         # Check if any top-N hotspot cell is expanding

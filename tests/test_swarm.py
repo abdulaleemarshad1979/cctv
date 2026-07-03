@@ -1,7 +1,11 @@
 import time
 import os
+import sys
 import cv2
 import numpy as np
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import config
 from src.swarm_manager import SwarmManager
 
@@ -15,8 +19,26 @@ def main():
     # Use the same local video file for all 4 drone sources for testing
     sources = [video_path] * 4
 
+    print("Loading shared model...")
+    import torch
+    from dm_count.models import vgg19
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if not os.path.exists(config.WEIGHTS_PATH):
+        raise FileNotFoundError(f"Model not found: {config.WEIGHTS_PATH}")
+    ckpt = torch.load(config.WEIGHTS_PATH, map_location=device)
+    if isinstance(ckpt, dict):
+        for k in ("state_dict", "model_state_dict", "model", "ema"):
+            if k in ckpt and isinstance(ckpt[k], dict):
+                ckpt = ckpt[k]; break
+    sd = {k.replace("module.", "").replace("model.", ""): v
+          for k, v in ckpt.items() if isinstance(v, torch.Tensor)}
+    model = vgg19()
+    try:   model.load_state_dict(sd, strict=True)
+    except RuntimeError: model.load_state_dict(sd, strict=False)
+    model.to(device).eval()
+
     print("Initializing SwarmManager...")
-    mgr = SwarmManager(sources=sources)
+    mgr = SwarmManager(sources=sources, model=model)
     
     print("Starting Swarm Pipelines...")
     mgr.start()

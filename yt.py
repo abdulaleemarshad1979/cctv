@@ -1,9 +1,14 @@
+import os
 import yt_dlp
 
 url = input("Enter YouTube URL: ")
 
 # Get video information
-with yt_dlp.YoutubeDL({"quiet": True}) as ydl:
+with yt_dlp.YoutubeDL({
+    "quiet": True,
+    "js_runtimes": {"node": {}},
+    "remote_components": {"ejs:github"}
+}) as ydl:
     info = ydl.extract_info(url, download=False)
 
 formats = info["formats"]
@@ -38,12 +43,16 @@ selected_format = qualities[selected_quality]
 
 print(f"\nSelected: {selected_quality}")
 
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 # Download chosen quality + best audio
 ydl_opts = {
     "format": f"{selected_format}+bestaudio/best",
     "merge_output_format": "mp4",
     "ffmpeg_location": r"C:\Users\abdul\AppData\Local\Microsoft\WinGet\Packages\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\ffmpeg-8.1.1-full_build\bin",
-    "outtmpl": "./Videos/%(title)s.%(ext)s",
+    "outtmpl": os.path.join(BASE_DIR, "Videos", "%(title)s.%(ext)s"),
+    "js_runtimes": {"node": {}},
+    "remote_components": {"ejs:github"}
 }
 
 with yt_dlp.YoutubeDL(ydl_opts) as ydl:

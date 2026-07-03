@@ -15,7 +15,7 @@ import numpy as np
 
 # ─── constants ────────────────────────────────────────────────────────
 BANNER_H  = 110        # must match draw_top_banner rect height
-PANEL_W   = 200        # stampede panel width (px)
+PANEL_W   = 220        # stampede panel width (px)
 
 C_GREEN   = (0,   255,   0)
 C_YELLOW  = (0,   255, 255)
@@ -134,19 +134,23 @@ def draw_grid_3x3(
 
     # Grid lives BELOW the banner
     grid_y0 = BANNER_H
-    grid_h  = h - BANNER_H - 30   # leave 30px for alert ticker at bottom
-    cell_w  = w // 3
+    grid_y1 = h - 30
+    grid_x0 = 0
+    grid_x1 = w - PANEL_W if panel_visible and w > PANEL_W + 360 else w
+    grid_w  = grid_x1 - grid_x0
+    grid_h  = grid_y1 - grid_y0
+    cell_w  = grid_w // 3
+    cell_h  = grid_h // 3
     labels  = ["A", "B", "C"]
-    ROW_BOUNDARIES = [0.0, 0.30, 0.62, 1.0]
 
     # ── tinted cell backgrounds ──
     overlay_layer = frame.copy()
     for r in range(3):
-        y0 = grid_y0 + int(ROW_BOUNDARIES[r] * grid_h)
-        y1 = grid_y0 + int(ROW_BOUNDARIES[r+1] * grid_h) if r < 2 else (h - 30)
+        y0 = grid_y0 + r * cell_h
+        y1 = grid_y0 + (r + 1) * cell_h if r < 2 else grid_y1
         for c in range(3):
-            x0 = c * cell_w
-            x1 = (c + 1) * cell_w if c < 2 else w
+            x0 = grid_x0 + c * cell_w
+            x1 = grid_x0 + (c + 1) * cell_w if c < 2 else grid_x1
             density  = float(zone_scores[r][c]) if zone_scores is not None else 0.0
             pressure = min(1.0, density / max_capacity)
             color = _pressure_color(pressure)
@@ -156,17 +160,20 @@ def draw_grid_3x3(
     cv2.addWeighted(overlay_layer, 0.15, frame, 0.85, 0, frame)
 
     # ── grid lines ──
+    cv2.rectangle(frame, (grid_x0, grid_y0), (grid_x1 - 1, grid_y1 - 1), C_WHITE, 1)
     for i in range(1, 3):
-        y_line = grid_y0 + int(ROW_BOUNDARIES[i] * grid_h)
-        cv2.line(frame, (0, y_line), (w, y_line), C_WHITE, 1)
-        cv2.line(frame, (i * cell_w, grid_y0), (i * cell_w, h - 30), C_WHITE, 1)
+        y_line = grid_y0 + i * cell_h
+        x_line = grid_x0 + i * cell_w
+        cv2.line(frame, (grid_x0, y_line), (grid_x1, y_line), C_WHITE, 1)
+        cv2.line(frame, (x_line, grid_y0), (x_line, grid_y1), C_WHITE, 1)
 
     # ── per-cell labels ──
     for r in range(3):
-        cy0 = grid_y0 + int(ROW_BOUNDARIES[r] * grid_h)
-        cy1 = grid_y0 + int(ROW_BOUNDARIES[r+1] * grid_h) if r < 2 else (h - 30)
+        cy0 = grid_y0 + r * cell_h
+        cy1 = grid_y0 + (r + 1) * cell_h if r < 2 else grid_y1
         for c in range(3):
-            cx0 = c * cell_w
+            cx0 = grid_x0 + c * cell_w
+            cx1 = grid_x0 + (c + 1) * cell_w if c < 2 else grid_x1
 
             density = float(zone_scores[r][c])   if zone_scores  is not None else 0.0
             motion  = float(zone_motions[r][c])  if zone_motions is not None else 0.0
@@ -192,36 +199,28 @@ def draw_grid_3x3(
 
             # Opposing flow hatch
             if opposing_danger is not None and opposing_danger[r, c]:
-                x1 = (cx0 + cell_w) if c < 2 else w
-                y1 = cy1
-                _draw_hatch(frame, cx0, cy0, x1, y1)
+                _draw_opposing_marker(frame, cx0, cy0, cx1, cy1)
 
     # ── hotspot highlight ──
-    if zone_scores is not None and np.max(zone_scores) > 0.0:
+    if zone_scores is not None and np.max(zone_scores) >= 5.0:
         max_r, max_c = divmod(int(np.argmax(zone_scores)), 3)
-        hy0 = grid_y0 + int(ROW_BOUNDARIES[max_r] * grid_h)
-        hy1 = grid_y0 + int(ROW_BOUNDARIES[max_r + 1] * grid_h) if max_r < 2 else (h - 30)
-        hx0 = max_c * cell_w
-        hx1 = (max_c + 1) * cell_w if max_c < 2 else w
+        hy0 = grid_y0 + max_r * cell_h
+        hy1 = grid_y0 + (max_r + 1) * cell_h if max_r < 2 else grid_y1
+        hx0 = grid_x0 + max_c * cell_w
+        hx1 = grid_x0 + (max_c + 1) * cell_w if max_c < 2 else grid_x1
 
         cv2.rectangle(frame, (hx0 + 3, hy0 + 3), (hx1 - 3, hy1 - 3), C_RED, 3)
         # Small "HOTSPOT" badge
-        bx, by = hx0 + 5, hy0 + 5
+        bx, by = max(hx1 - 98, hx0 + 5), hy0 + 5
         cv2.rectangle(frame, (bx, by), (bx + 90, by + 22), C_RED, -1)
         cv2.putText(frame, "HOTSPOT", (bx + 5, by + 16),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.42, C_WHITE, 1, cv2.LINE_AA)
 
 
-def _draw_hatch(img, x0, y0, x1, y1, color=C_MAGENTA, spacing=14):
-    """Light diagonal hatching to flag opposing flow cells."""
-    span = (x1 - x0) + (y1 - y0)
-    for offset in range(0, span, spacing):
-        sx, sy = x0 + offset, y0
-        ex, ey = x0, y0 + offset
-        if sx > x1: sy += sx - x1; sx = x1
-        if ey > y1: ex += ey - y1; ey = y1
-        if sx <= x1 and ey <= y1:
-            cv2.line(img, (int(sx), int(sy)), (int(ex), int(ey)), color, 1, cv2.LINE_AA)
+def _draw_opposing_marker(img, x0, y0, x1, y1, color=C_MAGENTA):
+    """Mark opposing flow without visually filling the whole cell."""
+    cv2.rectangle(img, (x0 + 4, y0 + 4), (x1 - 4, y1 - 4), color, 2)
+    _text(img, "OPPOSING", x0 + 8, y1 - 12, color, 0.34, 1)
 
 
 # ─── stampede panel ───────────────────────────────────────────────────

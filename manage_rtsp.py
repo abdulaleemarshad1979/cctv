@@ -24,8 +24,7 @@ import subprocess
 from pathlib import Path
 
 BASE_DIR         = Path(__file__).parent
-DRONE_STREAM_PY  = BASE_DIR / "src" / "drone_stream.py"
-SOURCE_PICKER_PY = BASE_DIR / "src" / "source_picker.py"
+PRESETS_PY       = BASE_DIR / "src" / "presets.py"
 
 # ── ANSI colours ─────────────────────────────────────────────────────
 R = "\033[0m"
@@ -80,8 +79,8 @@ def prompt(label, default=""):
 # ═══════════════════════════════════════════════════════════════════
 
 def read_drone_db() -> dict:
-    """Parse DRONE_DB from drone_stream.py — handles two-line entries."""
-    raw = DRONE_STREAM_PY.read_text(encoding="utf-8")
+    """Parse DRONE_DB from presets.py — handles two-line entries."""
+    raw = PRESETS_PY.read_text(encoding="utf-8")
     marker = raw.find("DRONE_DB = {")
     if marker < 0:
         return {}
@@ -106,12 +105,12 @@ def read_drone_db() -> dict:
 
 
 # ═══════════════════════════════════════════════════════════════════
-#  WRITE — inject into drone_stream.py
+#  WRITE — inject into presets.py
 # ═══════════════════════════════════════════════════════════════════
 
 def write_to_drone_stream(name: str, url: str, note: str) -> bool:
-    """Append a new entry to DRONE_DB in drone_stream.py."""
-    text = DRONE_STREAM_PY.read_text(encoding="utf-8")
+    """Append a new entry to DRONE_DB in presets.py."""
+    text = PRESETS_PY.read_text(encoding="utf-8")
 
     # Find the closing brace of DRONE_DB
     # We insert just before the last } that ends the dict
@@ -143,7 +142,7 @@ def write_to_drone_stream(name: str, url: str, note: str) -> bool:
                 f'                         "{note}"),\n'
             )
             lines.insert(last_mavion_line + 1, new_entry.rstrip("\n"))
-            DRONE_STREAM_PY.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            PRESETS_PY.write_text("\n".join(lines) + "\n", encoding="utf-8")
             return True
 
     # No Mavion section yet — create it before the closing } of DRONE_DB
@@ -181,13 +180,13 @@ def write_to_drone_stream(name: str, url: str, note: str) -> bool:
     for offset, nl in enumerate(new_lines):
         lines.insert(insert_after + 1 + offset, nl)
 
-    DRONE_STREAM_PY.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    PRESETS_PY.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return True
 
 
 def remove_from_drone_stream(name: str) -> bool:
-    """Remove a named entry from DRONE_DB in drone_stream.py."""
-    text  = DRONE_STREAM_PY.read_text(encoding="utf-8")
+    """Remove a named entry from DRONE_DB in presets.py."""
+    text  = PRESETS_PY.read_text(encoding="utf-8")
     lines = text.splitlines()
     new_lines = []
     skip_next = False
@@ -207,51 +206,20 @@ def remove_from_drone_stream(name: str) -> bool:
             continue
         new_lines.append(line)
     if removed:
-        DRONE_STREAM_PY.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+        PRESETS_PY.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
     return removed
 
 
 # ═══════════════════════════════════════════════════════════════════
-#  WRITE — inject into source_picker.py
+#  WRITE — source_picker.py is deprecated (legacy stub)
 # ═══════════════════════════════════════════════════════════════════
 
 def write_to_source_picker(name: str, url: str) -> bool:
-    """Add entry to PRESETS dict in source_picker.py."""
-    text  = SOURCE_PICKER_PY.read_text(encoding="utf-8")
-    lines = text.splitlines()
-
-    # Find the closing } of PRESETS (in source_picker.py this dict is DRONE_PRESETS)
-    in_presets = False
-    close_idx  = -1
-    for i, line in enumerate(lines):
-        if re.match(r"^    DRONE_PRESETS\s*=\s*\{", line):
-            in_presets = True
-        if in_presets and line.strip() == "}":
-            close_idx = i
-            break
-
-    if close_idx < 0:
-        return False
-
-    # Check if name already exists
-    if f'"{name}"' in text:
-        return True   # already there
-
-    pad      = max(1, 24 - len(name))
-    new_line = f'        "{name}":{" " * pad}"{url}",'
-    lines.insert(close_idx, new_line)
-    SOURCE_PICKER_PY.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return True
 
 
 def remove_from_source_picker(name: str) -> bool:
-    text  = SOURCE_PICKER_PY.read_text(encoding="utf-8")
-    lines = text.splitlines()
-    new_lines = [l for l in lines if f'"{name}"' not in l or "DRONE_PRESETS" in l]
-    removed = len(new_lines) < len(lines)
-    if removed:
-        SOURCE_PICKER_PY.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
-    return removed
+    return True
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -422,24 +390,18 @@ def action_add():
     divider()
 
     d_ok = write_to_drone_stream(name, url, note)
-    p_ok = write_to_source_picker(name, url)
 
     if d_ok:
-        ok(f"drone_stream.py  → added  \"{name}\"")
+        ok(f"presets.py      → added  \"{name}\"")
     else:
-        err("drone_stream.py  → FAILED to write")
+        err("presets.py      → FAILED to write")
 
-    if p_ok:
-        ok(f"source_picker.py → added  \"{name}\"")
-    else:
-        err("source_picker.py → FAILED to write")
-
-    if d_ok or p_ok:
+    if d_ok:
         print()
         print(f"  {c(GRN + BOLD,'Saved!')}  You can now use it as:")
         print(f"    {c(CYN, f'python launch.py {name}')}")
         print(f"    {c(CYN, f'python drone_stream.py {name}')}")
-        print(f"    {c(DIM, f'Or type  {name}  in the source picker menu')}")
+        print(f"    {c(DIM, f'Or choose preset {name} in launcher')}")
 
     print()
     input(f"  {c(DIM,'Press Enter to return to menu...')}")
@@ -460,13 +422,13 @@ def action_test_only():
 
 
 def action_list():
-    """List all saved presets from drone_stream.py."""
+    """List all saved presets from presets.py."""
     header("All Saved Presets")
     divider()
     db = read_drone_db()
 
     if not db:
-        warn("No presets found in drone_stream.py")
+        warn("No presets found in presets.py")
         input(f"\n  {c(DIM,'Press Enter to return...')}")
         return
 
@@ -521,13 +483,10 @@ def action_remove():
         return
 
     d_ok = remove_from_drone_stream(name)
-    p_ok = remove_from_source_picker(name)
 
     print()
-    if d_ok: ok(f"Removed from drone_stream.py")
-    else:    err(f"Not found in drone_stream.py")
-    if p_ok: ok(f"Removed from source_picker.py")
-    else:    warn(f"Not in source_picker.py (that's ok)")
+    if d_ok: ok(f"Removed from presets.py")
+    else:    err(f"Not found in presets.py")
 
     print()
     input(f"  {c(DIM,'Press Enter to return...')}")

@@ -36,6 +36,58 @@ import sys
 import time
 import threading
 import collections
+import socket
+import re
+
+def check_connection(url: str, timeout: float = 1.0) -> bool:
+    """
+    Perform a quick TCP socket connection check to see if the host/port is reachable.
+    Returns True if reachable, False otherwise.
+    For local files, youtube URLs, and webcam indices, returns True.
+    """
+    if isinstance(url, int):
+        return True
+    if not isinstance(url, str):
+        return False
+    
+    url_lower = url.lower().strip()
+    if url_lower.startswith(("srt://", "srts://")):
+        return True
+    if not url_lower.startswith(("rtsp://", "rtsps://", "http://", "https://", "rtmp://", "rtmps://")):
+        # Probably a local file path
+        return True
+        
+    try:
+        # Extract host and port using regex
+        match = re.search(r'^(?:rtsp|rtsps|http|https|rtmp|rtmps)://(?:[^@\n]+@)?([^/:\n]+)(?::([0-9]+))?', url_lower)
+        if not match:
+            return True
+        host = match.group(1)
+        port_str = match.group(2)
+        
+        if port_str:
+            port = int(port_str)
+        else:
+            if url_lower.startswith("rtsp://"):
+                port = 554
+            elif url_lower.startswith("rtsps://"):
+                port = 322
+            elif url_lower.startswith("http://"):
+                port = 80
+            elif url_lower.startswith("https://"):
+                port = 443
+            elif url_lower.startswith("rtmp://"):
+                port = 1935
+            else:
+                port = 554
+                
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(timeout)
+            s.connect((host, port))
+            return True
+    except Exception as e:
+        print(f"[STREAM] Connection pre-check failed for {url}: {e}")
+        return False
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -47,119 +99,7 @@ BASE_BACKOFF_S = 0.5
 MAX_BACKOFF_S  = 8.0
 
 
-# ══════════════════════════════════════════════════════════════════════
-#  DRONE DATABASE — every brand + model that supports RTSP
-#  Format:  "shortcut_name": ("rtsp://url", "setup note")
-# ══════════════════════════════════════════════════════════════════════
-
-DRONE_DB = {
-
-    # ─── DJI ─────────────────────────────────────────────────────────
-    "dji_phantom4":     ("rtsp://192.168.0.1/live",
-                         "DJI GO 4 app -> Wi-Fi: DJI-PHANTOM-XXXX"),
-    "dji_mavic2":       ("rtsp://192.168.0.1/live",
-                         "DJI GO 4 app -> Wi-Fi: DJI-MAVIC-XXXX"),
-    "dji_mavic3":       ("rtsp://192.168.42.1/live",
-                         "DJI Fly app  -> Wi-Fi: DJI-MAVIC3-XXXX"),
-    "dji_mini2":        ("rtsp://192.168.42.1/live",
-                         "DJI Fly app  -> Wi-Fi: DJI-MINI2-XXXX"),
-    "dji_mini3":        ("rtsp://192.168.0.1:8554/live",
-                         "DJI Fly app  -> Wi-Fi: DJI-MINI3-XXXX"),
-    "dji_mini4pro":     ("rtsp://192.168.0.1:8554/live",
-                         "DJI Fly app  -> Wi-Fi: DJI-MINI4PRO-XXXX"),
-    "dji_air2s":        ("rtsp://192.168.42.1/live",
-                         "DJI Fly app  -> Wi-Fi: DJI-AIR2S-XXXX"),
-    "dji_air3":         ("rtsp://192.168.42.1/live",
-                         "DJI Fly app  -> Wi-Fi: DJI-AIR3-XXXX"),
-    "dji_spark":        ("rtsp://192.168.0.1/live",
-                         "DJI GO 4 app -> Wi-Fi: DJI-SPARK-XXXX"),
-    "dji_avata":        ("rtsp://10.0.0.22/live",
-                         "DJI Fly app  -> Wi-Fi: FPV Goggles 2"),
-    "dji_avata2":       ("rtsp://10.0.0.22/live",
-                         "DJI Fly app  -> Wi-Fi: Goggles 3"),
-    "dji_fpv":          ("rtsp://10.0.0.22/live",
-                         "DJI Fly app  -> Wi-Fi: FPV Goggles"),
-    "dji_m300":         ("rtsp://192.168.0.1/live",
-                         "DJI Pilot 2  -> Wi-Fi: RC Enterprise"),
-    "dji_m350":         ("rtsp://192.168.0.1/live",
-                         "DJI Pilot 2  -> Wi-Fi: RC Enterprise"),
-    "dji_m30":          ("rtsp://192.168.0.1/live",
-                         "DJI Pilot 2  -> Wi-Fi: RC Enterprise"),
-    "dji_go4":          ("rtsp://192.168.0.1/live",
-                         "Any DJI GO 4 drone (Phantom/Mavic 2/Spark)"),
-    "dji_fly":          ("rtsp://192.168.42.1/live",
-                         "Any DJI Fly drone (Mini 2/3/Air 2S/Mavic 3)"),
-
-    # ─── Parrot ──────────────────────────────────────────────────────
-    "parrot_anafi":     ("rtsp://192.168.42.1/live",
-                         "FreeFlight 6 -> Wi-Fi: ANAFI-XXXXXX"),
-    "parrot_anafi_usa": ("rtsp://192.168.42.1/live",
-                         "FreeFlight 6 -> Wi-Fi: ANAFI-USA-XXXX"),
-    "parrot_bebop2":    ("rtsp://192.168.42.1/arstream",
-                         "FreeFlight Pro -> Wi-Fi: Bebop-XXXXXXXX"),
-    "parrot_disco":     ("rtsp://192.168.42.1/live",
-                         "FreeFlight Pro -> Wi-Fi: disco-XXXXXXXX"),
-
-    # ─── Autel ───────────────────────────────────────────────────────
-    "autel_evo2":       ("rtsp://192.168.0.80/live/ch01",
-                         "Autel Sky app -> Wi-Fi: EVO-XXXXXX"),
-    "autel_evo_lite":   ("rtsp://192.168.0.80/live/ch01",
-                         "Autel Sky app -> Wi-Fi: EVO-LITE-XXXX"),
-    "autel_evo_nano":   ("rtsp://192.168.0.80/live/ch01",
-                         "Autel Sky app -> Wi-Fi: EVO-NANO-XXXX"),
-    "autel_evo_max":    ("rtsp://192.168.0.80/live/ch01",
-                         "Autel Sky app -> Wi-Fi: EVO-MAX-XXXX"),
-
-    # ─── Skydio ──────────────────────────────────────────────────────
-    "skydio2":          ("rtsp://192.168.110.1/mpeg_ts.264",
-                         "Skydio SDK -> Wi-Fi: Skydio-XXXXXX"),
-    "skydio_x10":       ("rtsp://192.168.110.1/mpeg_ts.264",
-                         "Skydio SDK -> Wi-Fi: SkydioX10-XXXX"),
-
-    # ─── Yuneec ──────────────────────────────────────────────────────
-    "yuneec_h520":      ("rtsp://192.168.0.1/live",
-                         "DataPilot -> Wi-Fi: YUNEEC-XXXX"),
-    "yuneec_typhoonh":  ("rtsp://192.168.0.1:8080/live",
-                         "Controller Wi-Fi -> YUNEEC-XXXX"),
-
-    # ─── Freefly ─────────────────────────────────────────────────────
-    "freefly_altax":    ("rtsp://192.168.0.1/live",
-                         "Freefly app -> Wi-Fi: AltaX-XXXX"),
-
-    # ─── Custom FPV (RPi / OrangePi onboard) ─────────────────────────
-    "fpv_rpi":          ("rtsp://192.168.1.100:8554/fpv",
-                         "Raspberry Pi onboard running MediaMTX -> confirm IP"),
-    "fpv_orange_pi":    ("rtsp://192.168.1.101:8554/fpv",
-                         "Orange Pi onboard running MediaMTX -> confirm IP"),
-
-    # ─── IP Cameras (ground-mounted surveillance) ─────────────────────
-    "hikvision":        ("rtsp://admin:admin@192.168.1.64:554/h264/ch1/main/av_stream",
-                         "Change admin:admin to your credentials"),
-    "dahua":            ("rtsp://admin:admin@192.168.1.65:554/cam/realmonitor?channel=1&subtype=0",
-                         "Change admin:admin to your credentials"),
-    "reolink":          ("rtsp://admin:@192.168.1.66:554/h264Preview_01_main",
-                         "Change admin: to your password"),
-    "amcrest":          ("rtsp://admin:admin@192.168.1.67:554/cam/realmonitor?channel=1",
-                         "Change credentials to yours"),
-    "axis":             ("rtsp://192.168.1.68/axis-media/media.amp",
-                         "Axis cam — no credentials needed by default"),
-
-    # ─── Phone as camera ─────────────────────────────────────────────
-    "android_ipwebcam": ("rtsp://192.168.1.X:8080/h264_ulaw.sdp",
-                         "Install 'IP Webcam' (free) -> Start Server -> replace X with shown IP"),
-    "iphone_epoccam":   ("rtsp://192.168.1.X:8554/live",
-                         "Install 'EpocCam' + PC driver -> replace X with shown IP"),
-    "iphone_camo":      ("rtsp://192.168.1.X:8080/live",
-                         "Install 'Camo' -> enable RTSP -> replace X with shown IP"),
-
-    # ─── Relay / Restream ────────────────────────────────────────────
-    "mediamtx_local":   ("rtsp://localhost:8554/drone",
-                         "MediaMTX on same machine -> drone app pushes to it"),
-    "mediamtx_server":  ("rtsp://SERVER_IP:8554/drone",
-                         "MediaMTX on another machine -> replace SERVER_IP"),
-    "obs_studio":       ("rtsp://localhost:8554/obs",
-                         "OBS -> RTSP Server plugin -> stream key = obs"),
-}
+from .presets import DRONE_DB
 
 
 def list_drones():
@@ -220,7 +160,7 @@ def _ffmpeg_opts(transport: str = "tcp") -> str:
         f"rtsp_transport;{transport}|"
         "fflags;nobuffer|"
         "flags;low_delay|"
-        "stimeout;5000000|"
+        "stimeout;3000000|"
         "analyzeduration;100000|"
         "probesize;500000"
     )
@@ -253,7 +193,18 @@ class DroneStreamHandler:
         self.transport     = transport.lower()
         self.target_width  = target_width
         self.target_height = target_height
-        self.is_live       = self._detect_live(source)
+
+        # If it is a YouTube URL, resolve the underlying direct stream
+        if isinstance(source, str) and ("youtube.com" in source.lower() or "youtu.be" in source.lower()):
+            print(f"[STREAM] Resolving YouTube stream URL for: {source}")
+            resolved = self._resolve_youtube_url(source)
+            if resolved:
+                print(f"[STREAM] Resolved YouTube direct URL.")
+                self.source = resolved
+            else:
+                print(f"[STREAM] Warning: Could not resolve YouTube URL, trying raw source.")
+
+        self.is_live       = self._detect_live(self.source)
         self._lock         = threading.Lock()
 
         self._frame_times = collections.deque(maxlen=120)
@@ -262,6 +213,17 @@ class DroneStreamHandler:
         self._connect_ts  = None
 
         self.cap = self._open()
+
+        # Threaded low-latency background frame grabber
+        self.latest_frame = None
+        self.latest_ret   = False
+        self.running      = True
+        self.frame_ready  = threading.Event()
+        self.bg_thread    = None
+
+        if self.is_live and self.cap.isOpened():
+            self.bg_thread = threading.Thread(target=self._bg_update_loop, daemon=True)
+            self.bg_thread.start()
 
     # ── classmethod shortcut ─────────────────────────────────────────
 
@@ -284,8 +246,23 @@ class DroneStreamHandler:
         if not isinstance(src, str):
             return False
         return src.lower().strip().startswith(
-            ("rtsp://", "rtsps://", "http://", "https://")
+            ("rtsp://", "rtsps://", "http://", "https://", "rtmp://", "rtmps://", "srt://", "srts://")
         )
+
+    def _resolve_youtube_url(self, url: str) -> str:
+        try:
+            import yt_dlp
+            ydl_opts = {
+                "format": "best",
+                "quiet": True,
+                "no_warnings": True,
+            }
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+                return info.get("url")
+        except Exception as e:
+            print(f"[STREAM] YouTube extract error: {e}")
+            return None
 
     def _safe_url(self, url: str) -> str:
         if "@" in url:
@@ -309,19 +286,37 @@ class DroneStreamHandler:
         return cap
 
     def _open_rtsp(self) -> cv2.VideoCapture:
-        opts = _ffmpeg_opts(self.transport)
+        src_str  = str(self.source)
+        is_srt = src_str.lower().startswith(("srt://", "srts://"))
+        if is_srt:
+            opts = (
+                "fflags;nobuffer|"
+                "flags;low_delay|"
+                "analyzeduration;100000|"
+                "probesize;500000"
+            )
+        else:
+            opts = _ffmpeg_opts(self.transport)
         os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = opts + "|hwaccel;auto"
 
-        src_str  = str(self.source)
         safe_url = self._safe_url(src_str)
 
         print(f"[STREAM] Connecting  : {safe_url}")
-        print(f"[STREAM] Transport   : {self.transport.upper()}")
+        if is_srt:
+            print(f"[STREAM] Protocol    : SRT (Low Latency UDP)")
+        else:
+            print(f"[STREAM] Transport   : {self.transport.upper()}")
+
+        # Pre-check socket connection before initiating blocking cv2.VideoCapture
+        if not check_connection(src_str, timeout=1.5):
+            print(f"[STREAM] PRE-CHECK FAILED: {safe_url} is offline/unreachable.")
+            # Return an unopened VideoCapture object
+            return cv2.VideoCapture()
 
         cap = cv2.VideoCapture(src_str, cv2.CAP_FFMPEG)
         cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-        cap.set(cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 8000)
-        cap.set(cv2.CAP_PROP_READ_TIMEOUT_MSEC, 5000)
+        cap.set(cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 3000)
+        cap.set(cv2.CAP_PROP_READ_TIMEOUT_MSEC, 3000)
 
         if self.target_width and self.target_height:
             cap.set(cv2.CAP_PROP_FRAME_WIDTH,  self.target_width)
@@ -345,42 +340,89 @@ class DroneStreamHandler:
         """Returns (True, frame_bgr) or (False, None)."""
         self._total_reads += 1
 
-        with self._lock:
-            if self.is_live:
-                ret = self.cap.grab()
-                if not ret:
-                    return self._reconnect()
-                ok, frame = self.cap.retrieve()
-                if not ok or frame is None:
-                    return self._reconnect()
-            else:
+        if self.is_live:
+            # Wait for the background thread to fetch a new frame
+            ok = self.frame_ready.wait(timeout=2.0)
+            with self._lock:
+                if not self.running:
+                    return False, None
+                if not self.latest_ret:
+                    return False, None
+                # Clear event so subsequent reads block
+                self.frame_ready.clear()
+                return True, self.latest_frame
+        else:
+            with self._lock:
                 ok, frame = self.cap.read()
                 if not ok:
-                    return False, None
+                    # Loop video files infinitely
+                    self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                    ok, frame = self.cap.read()
+                    if not ok:
+                        return False, None
+            self._frame_times.append(time.monotonic())
+            return True, frame
 
-        self._frame_times.append(time.monotonic())
-        return True, frame
+    def _bg_update_loop(self):
+        while self.running:
+            with self._lock:
+                cap_opened = self.cap.isOpened()
+            if not cap_opened:
+                time.sleep(0.01)
+                continue
 
-    def _reconnect(self):
-        if not self.is_live:
-            return False, None
+            ret = self.cap.grab()
+            if ret:
+                ok, frame = self.cap.retrieve()
+                if ok and frame is not None:
+                    with self._lock:
+                        self.latest_frame = frame
+                        self.latest_ret   = True
+                        self._frame_times.append(time.monotonic())
+                        self.frame_ready.set()
+                else:
+                    self._handle_bg_reconnect()
+            else:
+                self._handle_bg_reconnect()
+            time.sleep(0.001)
+
+    def _handle_bg_reconnect(self):
+        with self._lock:
+            if not self.running:
+                return
+            self.latest_ret = False
+            self.latest_frame = None
+
         backoff = BASE_BACKOFF_S
         for attempt in range(1, MAX_RECONNECT + 1):
             self._drop_count += 1
             print(f"[STREAM] Reconnect {attempt}/{MAX_RECONNECT} (wait {backoff:.1f}s) ...")
-            self.cap.release()
+            with self._lock:
+                self.cap.release()
             time.sleep(backoff)
             backoff = min(backoff * 2, MAX_BACKOFF_S)
-            self.cap = self._open_rtsp()
-            if self.cap.isOpened():
-                ok = self.cap.grab()
+            
+            new_cap = self._open_rtsp()
+            if new_cap.isOpened():
+                ok = new_cap.grab()
                 if ok:
-                    ok2, frame = self.cap.retrieve()
+                    ok2, frame = new_cap.retrieve()
                     if ok2 and frame is not None:
+                        with self._lock:
+                            self.cap = new_cap
+                            self.latest_frame = frame
+                            self.latest_ret   = True
+                            self._frame_times.append(time.monotonic())
+                            self.frame_ready.set()
                         print(f"[STREAM] Reconnected after {attempt} attempt(s).")
-                        return True, frame
+                        return
+                new_cap.release()
+                
         print(f"[STREAM] FATAL: could not reconnect after {MAX_RECONNECT} tries.")
-        return False, None
+        with self._lock:
+            self.running = False
+            self.latest_ret = False
+            self.frame_ready.set()
 
     # ── info ─────────────────────────────────────────────────────────
 
@@ -424,6 +466,9 @@ class DroneStreamHandler:
 
     def release(self):
         with self._lock:
+            self.running = False
+            self.latest_ret = False
+            self.frame_ready.set()
             if self.cap.isOpened():
                 self.cap.release()
         print("[STREAM] Released.")

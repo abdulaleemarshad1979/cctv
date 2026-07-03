@@ -237,3 +237,75 @@ Real-time alert dispatching is handled by `src/geo_alert.py`. When a cell in the
    * Notifications will be dispatched with location details and Google Maps links.
 4. **WhatsApp**:
    * Integrate using the free CallMeBot API. Set `WHATSAPP_PHONE` and `WHATSAPP_API_KEY` environment variables.
+
+---
+
+## Connecting a DJI Air 3S
+
+The DJI Air 3S (and other modern DJI Fly drones like the Air 3, Mini 4 Pro, Mavic 3 series) does **not** expose a direct RTSP server on its Wi-Fi hotspot. Instead, the DJI Fly app **pushes** an RTMP stream outward to a server you specify. You must bridge that RTMP feed into an RTSP endpoint using **MediaMTX** (free, open-source, single binary).
+
+### Step 1 — Install MediaMTX
+
+| OS | Command |
+|---|---|
+| **Linux / macOS** | `curl -L https://github.com/bluenviron/mediamtx/releases/latest/download/mediamtx_linux_amd64.tar.gz \| tar xz && ./mediamtx` |
+| **Windows** | Download the `.zip` from [github.com/bluenviron/mediamtx/releases](https://github.com/bluenviron/mediamtx/releases), extract, run `mediamtx.exe` |
+
+MediaMTX listens for RTMP on port **1935** and re-exposes every stream as RTSP on port **8554** automatically. No config file edits needed.
+
+### Step 2 — Find your PC's IP address on the drone Wi-Fi
+
+Connect your PC to the **DJI Air 3S hotspot** (SSID: `DJI-AIR3S-XXXX`), then:
+
+```bash
+# Linux / macOS
+ip route get 1 | awk '{print $7; exit}'    # or: ifconfig | grep 192.168
+
+# Windows
+ipconfig | findstr 192.168
+```
+
+Your PC will typically receive `192.168.42.X` on DJI's hotspot.
+
+### Step 3 — Configure DJI Fly App
+
+1. Open the **DJI Fly app** and connect to your Air 3S.
+2. Tap the **three-dot menu** (top-right of the camera view).
+3. Go to **Transmission → Live Streaming → Custom RTMP**.
+4. Enter:
+   ```
+   rtmp://192.168.42.X:1935/live
+   ```
+   (replace `X` with your PC's actual address from Step 2)
+5. Tap **Start** — you should see a streaming indicator in the app.
+
+### Step 4 — Verify the stream (optional)
+
+```bash
+ffplay -rtsp_transport tcp rtsp://localhost:8554/live
+# or
+python src/drone_stream.py dji_air3s
+```
+
+### Step 5 — Launch the monitor
+
+```bash
+# Linux / macOS
+DRONE=dji_air3s python infer.py
+
+# Windows CMD
+set DRONE=dji_air3s && python infer.py
+```
+
+### Air 3S Camera Specs (set in config.py)
+
+| Parameter | Value |
+|---|---|
+| Main lens HFOV | 80° |
+| Medium lens HFOV | 57° |
+| Max video resolution | 4K / 60 fps |
+| RTMP stream resolution | 720p or 1080p (DJI Fly limit) |
+| Recommended `DRONE_ALTITUDE_M` | 30 m (adjustable) |
+
+> **Tip:** If you see lag, switch to UDP transport:
+> `DRONE=dji_air3s RTSP_TRANSPORT=udp python infer.py`

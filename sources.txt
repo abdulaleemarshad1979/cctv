@@ -14,6 +14,7 @@
 # ====================================================================
 # Add your sources below this line:
 
+rtmp://rxpzq-49-15-219-117.run.pinggy-free.link:40443/live/drone1
 rtsp://192.168.42.1/live
 
 # More examples (uncomment to use):
@@ -38,3 +39,21 @@ Videos/concert.mp4
 Videos.py/Kumbh.mp4
 
 Videos/Kumbh.mp4
+
+https://youtube.com/live/FHVWuAwiXBc?feature=share
+
+dji_air3
+
+python launch.py rtsp://127.0.0.1:8554/live/drone1
+
+rtsp://127.0.0.1:8554/live/drone1
+
+Videos/Rjy.mp4
+
+rtsp://localhost:8554/drone1
+
+rtsp://localhost:8554/drone
+
+rtsp://localhost:8554/live/drone1
+
+Videos/Kumbh.m4

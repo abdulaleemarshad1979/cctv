@@ -41,23 +41,10 @@ DIM    = "\033[2m"
 BOLD   = "\033[1m"
 RESET  = "\033[0m"
 
-# ── known drone presets (from drone_stream.py) ────────────────────────
-DRONE_PRESETS = {
-    "dji_phantom4":     "rtsp://192.168.0.1/live",
-    "dji_mavic2":       "rtsp://192.168.0.1/live",
-    "dji_mavic3":       "rtsp://192.168.42.1/live",
-    "dji_mini2":        "rtsp://192.168.42.1/live",
-    "dji_mini3":        "rtsp://192.168.0.1:8554/live",
-    "dji_mini4pro":     "rtsp://192.168.0.1:8554/live",
-    "dji_air2s":        "rtsp://192.168.42.1/live",
-    "dji_air3":         "rtsp://192.168.42.1/live",
-    "dji_avata":        "rtsp://10.0.0.22/live",
-    "parrot_anafi":     "rtsp://192.168.42.1/live",
-    "autel_evo2":       "rtsp://192.168.0.80/live/ch01",
-    "skydio2":          "rtsp://192.168.110.1/mpeg_ts.264",
-    "mediamtx_local":   "rtsp://localhost:8554/drone",
-    "android_ipwebcam": "rtsp://192.168.1.X:8080/h264_ulaw.sdp",
-}
+# ── known drone presets (imported from src.presets) ───────────────────
+from src.presets import DRONE_DB
+DRONE_PRESETS = {k: v[0] for k, v in DRONE_DB.items()}
+
 
 # ── default sources list content ──────────────────────────────────────
 DEFAULT_SOURCES_CONTENT = """\
@@ -97,10 +84,10 @@ def clear():
 
 def banner():
     print(f"""
-{CYN}{BOLD}╔══════════════════════════════════════════════════════════════╗
-║       PUSHKARALU DRONE CROWD MONITOR  —  LAUNCHER            ║
-║       Powered by DM-Count  |  AI Crowd Risk Engine           ║
-╚══════════════════════════════════════════════════════════════╝{RESET}
+{CYN}{BOLD}+--------------------------------------------------------------+
+|       PUSHKARALU DRONE CROWD MONITOR  —  LAUNCHER            |
+|       Powered by DM-Count  |  AI Crowd Risk Engine           |
++--------------------------------------------------------------+{RESET}
 """)
 
 
@@ -142,9 +129,9 @@ def validate_source(source: str) -> tuple[bool, str]:
     if not s:
         return False, "Empty input."
     if s.lower() in DRONE_PRESETS:
-        return True, f"Drone preset  →  {DRONE_PRESETS[s.lower()]}"
-    if s.startswith(("rtsp://", "rtsps://", "http://", "https://")):
-        return True, "RTSP / HTTP stream"
+        return True, f"Drone preset  ->  {DRONE_PRESETS[s.lower()]}"
+    if s.startswith(("rtsp://", "rtsps://", "rtmp://", "rtmps://", "http://", "https://")):
+        return True, "RTSP / RTMP / HTTP stream"
     if s.isdigit():
         return True, f"USB Webcam #{s}"
     if os.path.isfile(s):
@@ -158,9 +145,11 @@ def validate_source(source: str) -> tuple[bool, str]:
 def describe_source(source: str) -> str:
     s = source.strip()
     if s.lower() in DRONE_PRESETS:
-        return f"{MAG}[PRESET]{RESET}  {s}  →  {DIM}{DRONE_PRESETS[s.lower()]}{RESET}"
+        return f"{MAG}[PRESET]{RESET}  {s}  ->  {DIM}{DRONE_PRESETS[s.lower()]}{RESET}"
     if s.startswith("rtsp://") or s.startswith("rtsps://"):
         return f"{CYN}[RTSP  ]{RESET}  {s}"
+    if s.startswith("rtmp://") or s.startswith("rtmps://"):
+        return f"{GRN}[RTMP  ]{RESET}  {s}"
     if s.startswith(("http://", "https://")):
         return f"{BLU}[HTTP  ]{RESET}  {s}"
     if s.isdigit():

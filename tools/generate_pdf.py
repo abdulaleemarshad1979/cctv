@@ -142,7 +142,7 @@ def parse_markdown_to_flowables(filepath, styles):
     return flowables
 
 def main():
-    workspace_dir = os.path.dirname(os.path.abspath(__file__))
+    workspace_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     md_path = os.path.join(workspace_dir, "SYSTEM_GUIDE.md")
     pdf_path = os.path.join(workspace_dir, "SYSTEM_GUIDE.pdf")
 

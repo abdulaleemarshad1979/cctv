@@ -100,7 +100,11 @@ class GeoAlertDispatcher:
         self._log_jsonl(alert)
 
         msg = self._format_message(alert)
-        print(f"[GEO-ALERT] {msg}")
+        try:
+            print(f"[GEO-ALERT] {msg}")
+        except UnicodeEncodeError:
+            safe_msg = msg.encode('ascii', errors='replace').decode('ascii')
+            print(f"[GEO-ALERT] {safe_msg}")
 
         if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
             self._send_telegram(msg)

@@ -52,8 +52,13 @@ WRITE_CSV_LOG        = False
 CSV_LOG_PATH         = os.path.join(BASE_DIR, "outputs", "crowd_log.csv")
 
 # ─── Display / inference ──────────────────────────────────────────────
-DISPLAY_WIDTH  = 960
-DISPLAY_HEIGHT = 540
+DISPLAY_WIDTH  = int(os.environ.get("DISPLAY_WIDTH", "1280"))
+DISPLAY_HEIGHT = int(os.environ.get("DISPLAY_HEIGHT", "720"))
+
+# Preferred capture size for webcams/camera backends that accept resolution hints.
+# RTSP/RTMP feeds usually keep the resolution chosen by the drone app or relay.
+CAPTURE_WIDTH  = int(os.environ.get("CAPTURE_WIDTH", "1280"))
+CAPTURE_HEIGHT = int(os.environ.get("CAPTURE_HEIGHT", "720"))
 
 import torch
 if torch.cuda.is_available():
@@ -70,7 +75,14 @@ MAX_INFERENCE_STRIDE     = 24
 
 # ─── Visual ───────────────────────────────────────────────────────────
 HEATMAP_ALPHA = 0.45
+HEATMAP_ENABLED_DEFAULT = os.environ.get("HEATMAP_ENABLED", "1").lower() in ("1", "true", "yes", "on")
 WINDOW_NAME   = "Pushkaralu Crowd Risk"
+
+# Remove bright broadcast/watermark colours before counting, then discard tiny
+# density-map speckles. This reduces false counts from stream overlays, desks,
+# windows, and other static background texture.
+CLEAN_INPUT_OVERLAYS = os.environ.get("CLEAN_INPUT_OVERLAYS", "1").lower() in ("1", "true", "yes", "on")
+DENSITY_SPECKLE_RATIO = float(os.environ.get("DENSITY_SPECKLE_RATIO", "0.015"))
 
 # ─── Risk thresholds ──────────────────────────────────────────────────
 SAFE_THRESHOLD  = 0.25
@@ -78,22 +90,24 @@ WATCH_THRESHOLD = 0.50
 HIGH_THRESHOLD  = 0.75
 
 # ─── Drone altitude (for reference / future scale correction) ───
+# DJI Air 3S specs: main lens HFOV ≈ 80° (wide), medium lens HFOV ≈ 57°
+# Set DRONE_SENSOR_HFOV to 80.0 for the main camera (most common).
 DRONE_ALTITUDE_M  = 30.0   # assumed altitude above ground (metres)
-DRONE_SENSOR_HFOV = 84.0   # horizontal FOV in degrees (DJI Mini 3 = 82.1°)
+DRONE_SENSOR_HFOV = 80.0   # horizontal FOV in degrees — DJI Air 3S main lens
 DRONE_CORRECT_DISTORTION = False
 
 # ─── Swarm Config ────────────────────────────────────────────────────
 SWARM_DRONE_COUNT = 4
 
 DRONE_SOURCES = [
-    'rtsp://localhost:8554/drone1',
-    'rtsp://localhost:8554/drone2',
-    'rtsp://localhost:8554/drone3',
-    'rtsp://localhost:8554/drone4',
+    'rtsp://127.0.0.1:8554/live/drone1',
+    'rtsp://127.0.0.1:8554/live/drone2',
+    'rtsp://127.0.0.1:8554/live/drone3',
+    'rtsp://127.0.0.1:8554/live/drone4',
 ]
 
 DRONE_NAMES = [
-    'North Ghat', 'Main Ghat', 'South Ghat', 'Mobile'
+    'Ghat 1', 'Ghat 2', 'Ghat 3', 'Ghat 4'
 ]
 
 DRONE_ALTITUDES_M = [30.0, 25.0, 30.0, 20.0]
@@ -115,5 +129,4 @@ ZONE_CAPACITY = [
 ]
 
 BASELINE_PX_PER_M         = 50.0
-ENABLE_ALTITUDE_CORRECTION = True
-
+ENABLE_ALTITUDE_CORRECTION = False

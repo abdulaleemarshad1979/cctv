@@ -71,7 +71,6 @@ class CrowdMotionAnalyzer:
             0,
         )
         self.prev_gray = gray
-        self.last_flow = flow
 
         magnitude = np.sqrt(flow[..., 0] ** 2 + flow[..., 1] ** 2)
 
@@ -85,6 +84,9 @@ class CrowdMotionAnalyzer:
             comp_flow[..., 0] -= global_fx_median
             comp_flow[..., 1] -= global_fy_median
             magnitude = np.sqrt(comp_flow[..., 0] ** 2 + comp_flow[..., 1] ** 2)
+            self.last_flow = comp_flow
+        else:
+            self.last_flow = flow
 
         # ── Global metrics ─────────────────────────────────────────
         active = magnitude[magnitude > MOTION_NOISE_FLOOR]

@@ -29,6 +29,7 @@ from . import risk_engine
 from . import zone_monitor
 from . import optical_flow
 from . import heatmap_generator
+from . import density_filter
 from . import geo_alert
 
 from .drone_stream     import DroneStreamHandler, resolve_source
@@ -151,13 +152,14 @@ class DroneState:
         self.drone_id    = drone_id
         self.name        = DRONE_NAMES[drone_id]
         self.altitude_m  = DRONE_ALTITUDES_M[drone_id]
-        self.lock        = threading.Lock()
+        self.lock        = threading.RLock()
         self.alert_first_shown = {}  # tracks when each alert was first shown
 
         # Frame
         self.frame_bgr   = None
         self.cap_ts      = 0.0
         self.frame_q     = queue.Queue(maxsize=1)
+        self.is_live     = False
 
         # Inference outputs
         self.dmap_np        = None
@@ -290,44 +292,69 @@ class SwarmManager:
 
     def _producer(self, idx: int, src: str):
         ds = self.states[idx]
-        handler = DroneStreamHandler(resolve_source(src))
 
-        if not handler.is_opened():
-            print(f"[SWARM] Drone {idx+1} ({ds.name}): FAILED to open {src}")
-            return
+        # Resolve preset names locally, ignoring global DRONE/CCTV_SOURCE env overrides in swarm mode
+        from .presets import DRONE_DB
+        resolved_src = src
+        if isinstance(src, str) and src in DRONE_DB:
+            resolved_src, _ = DRONE_DB[src]
 
-        ds.online = True
         start_t   = time.monotonic()
-        frame_no  = 0
 
         while not self._stop.is_set():
-            ok, frame = handler.read_frame()
-            if not ok:
-                print(f"[SWARM] Drone {idx+1} stream ended.")
+            handler = DroneStreamHandler(resolved_src)
+            if not handler.is_opened():
                 ds.online = False
-                break
+                # Print once in a while or silently retry
+                print(f"[SWARM] Drone {idx+1} ({ds.name}): Offline. Retrying connection to {resolved_src} in 3.0s...")
+                # Avoid tight loop on quick failures
+                time.sleep(3.0)
+                continue
 
-            frame_no += 1
-            ts = time.monotonic()
-
+            print(f"[SWARM] Drone {idx+1} ({ds.name}): Connected to {resolved_src}")
+            ds.online = True
+            frame_no  = 0
+            src_fps   = handler.get_fps()
+            nft       = time.monotonic()
             with ds.lock:
-                ds.frame_bgr = frame
-                ds.cap_ts    = ts
-                ds.uptime_s  = ts - start_t
-                health       = handler.health_report()
-                ds.drop_rate_pct   = health["drop_rate_%"]
-                ds.reconnect_count = health["reconnects"]
+                ds.is_live = handler.is_live
 
-            # Push to inference queue (drop old frame if full)
-            if frame_no % getattr(config, 'INITIAL_INFERENCE_STRIDE', 12) == 0:
-                q = ds.frame_q
-                if q.full():
-                    try: q.get_nowait()
-                    except queue.Empty: pass
-                q.put_nowait(frame.copy())
+            while not self._stop.is_set():
+                ok, frame = handler.read_frame()
+                if not ok:
+                    print(f"[SWARM] Drone {idx+1} stream ended/disconnected. Reconnecting...")
+                    ds.online = False
+                    break
 
-        handler.release()
-        ds.online = False
+                frame_no += 1
+                ts = time.monotonic()
+
+                with ds.lock:
+                    ds.frame_bgr = frame
+                    ds.cap_ts    = ts
+                    ds.uptime_s  = ts - start_t
+                    health       = handler.health_report()
+                    ds.drop_rate_pct   = health["drop_rate_%"]
+                    ds.reconnect_count = health["reconnects"]
+
+                # Push to inference queue (drop old frame if full)
+                if frame_no % getattr(config, 'INITIAL_INFERENCE_STRIDE', 12) == 0:
+                    q = ds.frame_q
+                    if q.full():
+                        try: q.get_nowait()
+                        except queue.Empty: pass
+                    q.put_nowait(frame.copy())
+
+                if not handler.is_live:
+                    nft += 1.0 / src_fps
+                    s = nft - time.monotonic()
+                    if s > 0:
+                        time.sleep(s)
+
+            handler.release()
+            ds.online = False
+            if not self._stop.is_set():
+                time.sleep(3.0)
 
     # ── Inference Worker ───────────────────────────────────────────
 
@@ -381,7 +408,11 @@ class SwarmManager:
                 continue
 
             # Preprocess
-            small = cv2.resize(frame, (config.INFER_WIDTH, config.INFER_HEIGHT),
+            if getattr(config, "CLEAN_INPUT_OVERLAYS", True):
+                frame_for_infer = density_filter.suppress_broadcast_overlays(frame)
+            else:
+                frame_for_infer = frame
+            small = cv2.resize(frame_for_infer, (config.INFER_WIDTH, config.INFER_HEIGHT),
                                interpolation=cv2.INTER_AREA)
             rgb   = cv2.cvtColor(small, cv2.COLOR_BGR2RGB)
             tensor = tfm(Image.fromarray(rgb)).unsqueeze(0).to(device)
@@ -396,11 +427,18 @@ class SwarmManager:
                     out = mdl(tensor)
             dmap_t  = out[0] if isinstance(out, (tuple, list)) else out
             dmap_np = dmap_t.squeeze().detach().float().cpu().numpy()
+            dmap_np = density_filter.clean_density_map(
+                dmap_np,
+                source_frame_bgr=frame,
+                speckle_ratio=getattr(config, "DENSITY_SPECKLE_RATIO", 0.015),
+            )
 
             # ── Altitude correction ──────────────────────────────
             raw_sum = float(np.clip(dmap_np, 0, None).sum())
             corr_factor = 1.0
-            if ENABLE_ALT_CORRECT and ds.altitude_m > 5.0:
+            with ds.lock:
+                is_live_val = getattr(ds, 'is_live', False)
+            if ENABLE_ALT_CORRECT and ds.altitude_m > 5.0 and is_live_val:
                 import math
                 hfov = getattr(config, 'DRONE_SENSOR_HFOV', 84.0)
                 gw   = 2.0 * ds.altitude_m * math.tan(math.radians(hfov / 2.0))
@@ -427,6 +465,7 @@ class SwarmManager:
             disp = cv2.resize(frame, (config.DISPLAY_WIDTH, config.DISPLAY_HEIGHT),
                               interpolation=cv2.INTER_AREA)
             speed_grid, motion_speed, turbulence = ds.motion_anal.analyze_motion(disp)
+            crowd_present = ds_val >= risk_engine.MIN_CROWD_DENSITY
 
             # Zero out motion in cells with no detected people (water / noise filter)
             if scores is not None:
@@ -434,11 +473,15 @@ class SwarmManager:
                     for c in range(3):
                         if scores[r, c] < 5.0:
                             speed_grid[r, c] = 0.0
+            if not crowd_present:
+                speed_grid[:] = 0.0
+                motion_speed = 0.0
+                turbulence = 0.0
 
             # ── Opposing flow ─────────────────────────────────
             last_flow = getattr(ds.motion_anal, 'last_flow', None)
-            opp_res = (ds.opp_det.analyze(last_flow)
-                       if last_flow is not None
+            opp_res = (ds.opp_det.analyze(last_flow, zone_scores=scores)
+                       if last_flow is not None and crowd_present
                        else {"danger_grid": None, "max_score": 0.0,
                              "any_dangerous": False, "alert_text": ""})
 
@@ -450,14 +493,18 @@ class SwarmManager:
                 comp_risk,
                 config.SAFE_THRESHOLD, config.WATCH_THRESHOLD, config.HIGH_THRESHOLD)
 
-            pressure_s = 0.85 * ds.pressure_smooth + 0.15 * (comp_risk * 100.0)
+            if crowd_present:
+                pressure_s = 0.85 * ds.pressure_smooth + 0.15 * (comp_risk * 100.0)
+            else:
+                pressure_s = 0.0
+                ds.history.clear()
 
             # ── History & trackers ────────────────────────────
             hs_res = {"trend_matrix": None, "alert_text": "", "expanding": False}
             sp_res = {"smooth_prob": 0.0, "label": "SAFE",
                       "label_color": (0,255,0), "alert_text": "", "terms": {}}
 
-            if scores is not None:
+            if scores is not None and crowd_present:
                 ds.history.push(
                     timestamp=time.monotonic(),
                     density_score=ds_val, peak_density=pd,
@@ -599,7 +646,8 @@ class SwarmManager:
             speed_grid    = ds.speed_grid
             hs_result     = ds.hs_result
             opp_result    = ds.opp_result
-            sp_result     = ds.sp_result
+            online     = ds.online
+            uptime_s   = ds.uptime_s
 
         disp = cv2.resize(frame, (config.DISPLAY_WIDTH // 2, config.DISPLAY_HEIGHT // 2),
                           interpolation=cv2.INTER_AREA)
@@ -607,11 +655,29 @@ class SwarmManager:
         if dmap is not None:
             disp = heatmap_generator.apply_heatmap(disp, dmap, alpha=config.HEATMAP_ALPHA)
 
-        # Mini banner with drone ID
+        # Sleek mini header overlay
         h2, w2 = disp.shape[:2]
-        cv2.rectangle(disp, (0, 0), (w2, 28), (0, 0, 0), -1)
-        cv2.putText(disp, f"D{idx+1}: {ds.name}  [{comp_zone}]",
-                    (5, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.45, comp_color, 1, cv2.LINE_AA)
+        header_h = 32
+        
+        # Transparent overlay
+        overlay_hdr = disp[0:header_h, 0:w2].copy()
+        cv2.rectangle(overlay_hdr, (0, 0), (w2, header_h), (12, 12, 15), -1)
+        disp[0:header_h, 0:w2] = cv2.addWeighted(disp[0:header_h, 0:w2], 0.15, overlay_hdr, 0.85, 0)
+        
+        # Colored top outline bar indicating risk zone color
+        cv2.rectangle(disp, (0, 0), (w2, 3), comp_color, -1)
+        
+        # Sleek text
+        text_y = 21
+        # Left side: drone name & state
+        txt_left = f"D{idx+1}: {ds.name} | {comp_zone}"
+        cv2.putText(disp, txt_left, (10, text_y), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (240, 240, 245), 1, cv2.LINE_AA)
+        
+        # Right side: telemetry (headcount and uptime)
+        if online:
+            txt_right = f"{int(ds.density_score)} pax | {uptime_s:.0f}s"
+            (trw, _), _ = cv2.getTextSize(txt_right, cv2.FONT_HERSHEY_SIMPLEX, 0.4, 1)
+            cv2.putText(disp, txt_right, (w2 - trw - 10, text_y), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (180, 180, 185), 1, cv2.LINE_AA)
 
         return disp
 

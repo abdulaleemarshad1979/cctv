@@ -16,6 +16,8 @@ Output probability is smoothed with an EMA to avoid jitter.
 import numpy as np
 from .history_buffer import HistoryBuffer
 
+MIN_CROWD_DENSITY = 5.0
+
 
 # Probability thresholds → labels
 PROB_SAFE     = 0.25
@@ -66,6 +68,23 @@ class StampedePredictor:
           "terms":         dict   individual component scores
         }
         """
+        if density_score < MIN_CROWD_DENSITY:
+            self._smoothed_prob = 0.0
+            return {
+                "raw_prob":    0.0,
+                "smooth_prob": 0.0,
+                "label":       "SAFE",
+                "label_color": (0, 255, 0),
+                "alert_text":  "",
+                "terms": {
+                    "density":   0.0,
+                    "motion":    0.0,
+                    "turbulence": 0.0,
+                    "growth":    0.0,
+                    "opposing":  0.0,
+                },
+            }
+
         # 1. Density term
         density_term = 1.0 - np.exp(-density_score / self.density_sat)
 
@@ -87,8 +106,8 @@ class StampedePredictor:
         else:
             growth_term = 0.5          # neutral when no history yet
 
-        # 5. Opposing flow term (already in [0, 1])
-        opposing_term = float(np.clip(opposing_score, 0.0, 1.0))
+        # 5. Opposing flow term (scaled from minority-flow range [0, 0.5] to [0, 1])
+        opposing_term = float(np.clip(opposing_score * 2.0, 0.0, 1.0))
 
         # Weighted sum
         raw_prob = (
@@ -142,7 +161,7 @@ class StampedePredictor:
     def _build_alert(prob: float, label: str) -> str:
         pct = int(prob * 100)
         if label == "SAFE":
-            return f"Crowd stable  ({pct}%)"
+            return ""
         if label == "WATCH":
             return f"Monitor crowd ({pct}%)"
         if label == "HIGH":
