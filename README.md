@@ -1,13 +1,3 @@
----
-title: CCTV Crowd Backend
-emoji: 🛰️
-colorFrom: blue
-colorTo: indigo
-sdk: docker
-app_port: 7860
-pinned: false
----
-
 # Pushkaralu Drone Crowd Monitor & Risk Engine
 
 An AI-powered CCTV and drone swarm monitoring system designed to estimate crowd density, track risk factors, predict stampedes, and dispatch geotagged alerts for large public gatherings. Powered by the **DM-Count** deep-learning model, this application processes RTSP video feeds from DJI, Autel, Parrot, or custom drones to provide real-time situational awareness.
