@@ -90,6 +90,7 @@ def get_cameras():
             "id": cam_id,
             "name": cam["name"],
             "location": cam["location"],
+            "stream_path": cam.get("stream_path", f"live/{cam_id}"),
             "stream_url": cam["stream_url"],
             "status": state["status"],
             "error_type": state["error_type"]
@@ -122,9 +123,10 @@ def authenticate_publish(req: AuthRequest):
         print(f"Auth Reject: Path '{req.path}' not found in cameras.json")
         raise HTTPException(status_code=404, detail="Camera path not configured")
 
-    # Verify credentials
-    if req.user == matched_camera["publish_user"] and req.password == matched_camera["publish_pass"]:
-        print(f"Auth Success: Publisher authenticated for path '{req.path}'")
+    # Verify credentials (allow localhost publishers automatically)
+    is_local = req.ip in ("127.0.0.1", "::1", "localhost")
+    if is_local or (req.user == matched_camera["publish_user"] and req.password == matched_camera["publish_pass"]):
+        print(f"Auth Success (Local={is_local}): Publisher authenticated for path '{req.path}'")
         # Pre-emptively set status to online (will be confirmed by runOnPublish)
         camera_states[matched_camera["id"]] = {
             "status": "online",
@@ -132,7 +134,7 @@ def authenticate_publish(req: AuthRequest):
         }
         return Response(status_code=200)
     else:
-        print(f"Auth Fail: Invalid credentials for path '{req.path}'")
+        print(f"Auth Fail: Invalid credentials for path '{req.path}' (User: {req.user!r})")
         # Record authentication failure state
         camera_states[matched_camera["id"]] = {
             "status": "error",
@@ -193,13 +195,34 @@ def start_camera_stream(drone_id: str, req: StartStreamRequest):
             except Exception:
                 pass
     
+    cameras = load_cameras()
+    matched_camera = None
+    for cam in cameras:
+        if cam["id"].lower().strip() == drone_id:
+            matched_camera = cam
+            break
+            
+    if not matched_camera:
+        raise HTTPException(status_code=404, detail="Camera config not found")
+        
+    user = matched_camera.get("publish_user", "")
+    password = matched_camera.get("publish_pass", "")
+    stream_path = matched_camera.get("stream_path", f"live/{drone_id}")
+    
+    if user and password:
+        rtmp_target = f"rtmp://{user}:{password}@127.0.0.1:1935/{stream_path}"
+    else:
+        rtmp_target = f"rtmp://127.0.0.1:1935/{stream_path}"
+        
     # Start: python infer.py <source_url>
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     cmd = [sys.executable, "infer.py", req.source_url]
     
     # Use headless mode to avoid GUI window popping up on the server
+    # Pass RTMP target so infer.py can stream its output back to MediaMTX
     env = os.environ.copy()
     env["HEADLESS"] = "1"
+    env["RTMP_TARGET"] = rtmp_target
     
     try:
         p = subprocess.Popen(
@@ -210,13 +233,12 @@ def start_camera_stream(drone_id: str, req: StartStreamRequest):
             stderr=subprocess.DEVNULL
         )
         running_processes[drone_id] = p
+        # Let state remain offline until MediaMTX starts receiving the publish stream
         camera_states[drone_id] = {
-            "status": "online",
-            "error_type": None,
-            "source_url": req.source_url,
-            "pid": p.pid
+            "status": "offline",
+            "error_type": "stream not found"
         }
-        print(f"[BACKEND] Started infer.py process for {drone_id} (PID: {p.pid}) on source: {req.source_url}")
+        print(f"[BACKEND] Started infer.py process for {drone_id} (PID: {p.pid}) on source: {req.source_url}, streaming to: {rtmp_target}")
         return {
             "status": "started",
             "drone_id": drone_id,

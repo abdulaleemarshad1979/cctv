@@ -14,7 +14,9 @@ import os
 import sys
 import cv2
 import time
-STARTUP_T0 = time.time()
+import subprocess
+import shutil
+STARTUP_T0 = time.monotonic()
 import queue
 import threading
 import numpy as np
@@ -497,8 +499,9 @@ threading.Thread(target=_producer,          daemon=True, name="Producer").start(
 threading.Thread(target=_inference_worker,  daemon=True, name="Inference").start()
 
 # ── display window ────────────────────────────────────────────────────
-cv2.namedWindow(config.WINDOW_NAME, cv2.WINDOW_NORMAL)
-cv2.resizeWindow(config.WINDOW_NAME, config.DISPLAY_WIDTH, config.DISPLAY_HEIGHT)
+if os.environ.get("HEADLESS", "0") != "1":
+    cv2.namedWindow(config.WINDOW_NAME, cv2.WINDOW_NORMAL)
+    cv2.resizeWindow(config.WINDOW_NAME, config.DISPLAY_WIDTH, config.DISPLAY_HEIGHT)
 print("[INFO] Keys: q=quit  g=toggle-grid  r=record  l=CSV  s=stampede-panel")
 
 # ── component instances ───────────────────────────────────────────────
@@ -508,6 +511,8 @@ recording        = False
 
 crowd_log   = logger.CrowdLogger(config.CSV_LOG_PATH, enabled=config.WRITE_CSV_LOG)
 video_writer = None
+rtmp_target = os.environ.get("RTMP_TARGET")
+rtmp_proc = None
 alert_first_shown_times = {}
 last_cap_ts = 0.0
 last_metrics_log_time = 0.0
@@ -660,8 +665,63 @@ while not _stop.is_set():
         crowd_log.log(comp_zone, comp_risk, density_score,
                       peak_density, hotspot_ratio, infer_t, age, cur_stride)
 
+    # ── RTMP Streaming ────────────────────────────────────────────
+    if rtmp_target:
+        if rtmp_proc is None:
+            ffmpeg_path = None
+            if shutil.which("ffmpeg"):
+                ffmpeg_path = "ffmpeg"
+            else:
+                winget_path = r"C:\Users\abdul\AppData\Local\Microsoft\WinGet\Packages\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\ffmpeg-8.1.1-full_build\bin\ffmpeg.exe"
+                if os.path.exists(winget_path):
+                    ffmpeg_path = winget_path
+                else:
+                    local_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ffmpeg.exe")
+                    if os.path.exists(local_path):
+                        ffmpeg_path = local_path
+            
+            if ffmpeg_path:
+                h2, w2 = disp.shape[:2]
+                cmd = [
+                    ffmpeg_path,
+                    "-y",
+                    "-f", "rawvideo",
+                    "-vcodec", "rawvideo",
+                    "-pix_fmt", "bgr24",
+                    "-s", f"{w2}x{h2}",
+                    "-r", "25",
+                    "-i", "-",
+                    "-c:v", "libx264",
+                    "-pix_fmt", "yuv420p",
+                    "-preset", "ultrafast",
+                    "-tune", "zerolatency",
+                    "-f", "flv",
+                    rtmp_target
+                ]
+                try:
+                    rtmp_proc = subprocess.Popen(
+                        cmd,
+                        stdin=subprocess.PIPE,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL
+                    )
+                    print(f"[STREAM] Pushing stream to: {rtmp_target}")
+                except Exception as e:
+                    print(f"[STREAM] Failed to spawn FFmpeg process: {e}")
+            else:
+                print("[STREAM] ERROR: FFmpeg could not be found. Cannot stream.")
+                rtmp_target = None # Disable
+                
+        if rtmp_proc and rtmp_proc.stdin:
+            try:
+                rtmp_proc.stdin.write(disp.tobytes())
+            except Exception as e:
+                print(f"[STREAM] Error writing to FFmpeg pipe: {e}")
+                rtmp_proc = None
+
     t_imshow_start = time.perf_counter()
-    cv2.imshow(config.WINDOW_NAME, disp)
+    if os.environ.get("HEADLESS", "0") != "1":
+        cv2.imshow(config.WINDOW_NAME, disp)
     t_imshow_dur = time.perf_counter() - t_imshow_start
     
     # Log performance metrics once per second
@@ -726,6 +786,14 @@ while not _stop.is_set():
         if not crowd_log.enabled: crowd_log.close()
 
 # ── cleanup ───────────────────────────────────────────────────────────
+if rtmp_proc:
+    try:
+        if rtmp_proc.stdin:
+            rtmp_proc.stdin.close()
+        rtmp_proc.terminate()
+        rtmp_proc.wait(timeout=1.0)
+    except Exception:
+        pass
 cv2.destroyAllWindows()
 if video_writer: video_writer.release()
 crowd_log.close()
