@@ -14,3 +14,8 @@ requests>=2.22.0
 
 # Video Downloader Utility
 yt-dlp>=2023.3.3
+
+# Web Server & Telemetry API
+fastapi
+uvicorn
+pydantic

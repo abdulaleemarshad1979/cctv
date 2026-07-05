@@ -93,13 +93,21 @@ def cleanup_and_start_mediamtx():
         pass
 
     # Start mediamtx with our local config
-    mediamtx_path = os.path.join(os.getcwd(), "mediamtx.exe")
+    mediamtx_bin = "mediamtx.exe" if os.name == "nt" else "mediamtx"
+    mediamtx_path = os.path.join(os.getcwd(), mediamtx_bin)
+    if not os.path.exists(mediamtx_path) and os.name != "nt":
+        import shutil
+        mediamtx_path = shutil.which("mediamtx") or "mediamtx"
+
     mediamtx_config = os.path.join(os.getcwd(), "mediamtx.yml")
-    if os.path.exists(mediamtx_path) and os.path.exists(mediamtx_config):
+    if mediamtx_path:
         try:
-            print("[LITE SERVER] Starting MediaMTX with project configuration...")
+            print(f"[LITE SERVER] Starting MediaMTX ({mediamtx_path}) with configuration...")
+            cmd = [mediamtx_path]
+            if os.path.exists(mediamtx_config):
+                cmd.append(mediamtx_config)
             subprocess.Popen(
-                [mediamtx_path, mediamtx_config],
+                cmd,
                 cwd=os.getcwd(),
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,

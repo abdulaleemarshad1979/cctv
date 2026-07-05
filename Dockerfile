@@ -1,16 +1,36 @@
 FROM python:3.10-slim
 
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    curl \
+    tar \
+    ffmpeg \
+    libgl1-mesa-glx \
+    libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Download and install MediaMTX (Linux AMD64)
+RUN curl -L -o mediamtx.tar.gz https://github.com/bluenviron/mediamtx/releases/download/v1.9.3/mediamtx_v1.9.3_linux_amd64.tar.gz \
+    && tar -xzf mediamtx.tar.gz -C /usr/local/bin/ mediamtx \
+    && rm mediamtx.tar.gz
+
+# Set up working directory
 WORKDIR /app
 
-# Copy requirements and install
-COPY backend/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Copy requirements and adjust for headless environment
+COPY requirements.txt .
+RUN sed -i 's/opencv-python>=/opencv-python-headless>=/g' requirements.txt \
+    && pip install --no-cache-dir -r requirements.txt
 
-# Copy backend files
-COPY backend/ ./backend/
+# Copy all source files
+COPY . .
 
-# Expose port 7860 (Hugging Face Spaces default container port)
+# Create directory structure and grant write permissions (for Hugging Face non-root user UID 1000)
+RUN mkdir -p /app/Videos /app/outputs /app/scratch /app/.agents \
+    && chmod -R 777 /app
+
+# Expose port 7860 (Hugging Face default)
 EXPOSE 7860
 
-# Run uvicorn on port 7860
-CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "7860"]
+# Run lite_server.py on port 7860
+CMD ["uvicorn", "lite_server:app", "--host", "0.0.0.0", "--port", "7860"]
