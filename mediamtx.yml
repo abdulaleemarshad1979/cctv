@@ -4,7 +4,9 @@
 # RTSP server
 rtsp: yes
 rtspAddress: :8554
-rtspTransports: [udp, tcp]
+protocols: [udp, multicast, tcp]
+rtpAddress: :8002
+rtcpAddress: :8003
 
 # RTMP server
 rtmp: yes
@@ -18,31 +20,19 @@ srtAddress: :8890
 webrtc: yes
 webrtcAddress: :8889
 
-# Low-latency buffer tuning
-# Reducing buffer sizes helps prevent the build-up of old/stale frames.
-readBufferCount: 256   # default: 1024
-writeBufferCount: 256  # default: 1024
-
-# Uncomment below for ultra-low-latency testing:
-# readBufferCount: 64
-# writeBufferCount: 64
+# HLS server on port 8088
+hls: yes
+hlsAddress: :8088
 
 # Timeouts
 readTimeout: 5s
 writeTimeout: 5s
-runOnPublish: ""
-runOnPublishRestart: no
+
+# Global External Authentication URL
+externalAuthenticationURL: http://localhost:8000/auth
 
 paths:
-  live/drone1:
-    readTimeout: 5s
-    sourceOnDemand: no
-  live/drone2:
-    readTimeout: 5s
-    sourceOnDemand: no
-  live/drone3:
-    readTimeout: 5s
-    sourceOnDemand: no
-  live/drone4:
-    readTimeout: 5s
-    sourceOnDemand: no
+  all:
+    # Webhooks to notify backend when stream is ready or not ready
+    runOnReady: 'curl -X POST http://localhost:8000/cameras/state -H "Content-Type: application/json" -d "{\"path\":\"$MTX_PATH\", \"status\":\"online\"}"'
+    runOnNotReady: 'curl -X POST http://localhost:8000/cameras/state -H "Content-Type: application/json" -d "{\"path\":\"$MTX_PATH\", \"status\":\"offline\"}"'

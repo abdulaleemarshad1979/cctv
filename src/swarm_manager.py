@@ -28,7 +28,6 @@ import config
 from . import risk_engine
 from . import zone_monitor
 from . import optical_flow
-from . import heatmap_generator
 from . import density_filter
 from . import geo_alert
 
@@ -194,7 +193,6 @@ class DroneState:
         self.last_frame_age_s = 0.0
         self.infer_time      = 0.0
         self.live_fps        = 0.0
-        self.heatmap_state   = {}
 
         # Analysis objects
         self.history     = HistoryBuffer(max_seconds=30.0, fps_estimate=5.0)
@@ -729,9 +727,6 @@ class SwarmManager:
 
         disp = cv2.resize(frame, (config.DISPLAY_WIDTH // 2, config.DISPLAY_HEIGHT // 2),
                           interpolation=cv2.INTER_AREA)
-
-        if dmap is not None:
-            disp = heatmap_generator.apply_heatmap(disp, dmap, alpha=config.HEATMAP_ALPHA, state=ds.heatmap_state)
 
         # Sleek mini header overlay
         h2, w2 = disp.shape[:2]

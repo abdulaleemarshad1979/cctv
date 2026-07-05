@@ -31,7 +31,6 @@ if len(sys.argv) > 1:
 
 from src import (
     overlay,
-    heatmap_generator,
     density_filter,
     risk_engine,
     optical_flow,
@@ -500,19 +499,18 @@ threading.Thread(target=_inference_worker,  daemon=True, name="Inference").start
 # ── display window ────────────────────────────────────────────────────
 cv2.namedWindow(config.WINDOW_NAME, cv2.WINDOW_NORMAL)
 cv2.resizeWindow(config.WINDOW_NAME, config.DISPLAY_WIDTH, config.DISPLAY_HEIGHT)
-print("[INFO] Keys: q=quit  h=heatmap  r=record  l=CSV  s=stampede-panel")
+print("[INFO] Keys: q=quit  g=toggle-grid  r=record  l=CSV  s=stampede-panel")
 
 # ── component instances ───────────────────────────────────────────────
 show_stampede    = True
+show_grid        = True
 recording        = False
-heatmap_enabled  = getattr(config, "HEATMAP_ENABLED_DEFAULT", False)
 
 crowd_log   = logger.CrowdLogger(config.CSV_LOG_PATH, enabled=config.WRITE_CSV_LOG)
 video_writer = None
 alert_first_shown_times = {}
 last_cap_ts = 0.0
 last_metrics_log_time = 0.0
-heatmap_state = {}
 
 # Startup performance timing log
 startup_latency = time.time() - STARTUP_T0
@@ -526,7 +524,6 @@ source = drone_stream.resolve_source(config.VIDEO_SOURCE)
 # Profile accumulators
 t_acq_sum = 0.0
 t_resize_sum = 0.0
-t_heatmap_sum = 0.0
 t_motion_sum = 0.0
 t_opposing_sum = 0.0
 t_overlay_sum = 0.0
@@ -578,7 +575,8 @@ while not _stop.is_set():
                     cv2.FONT_HERSHEY_SIMPLEX, 0.52, (150, 150, 255), 1, cv2.LINE_AA)
         cv2.putText(placeholder, "Press 'Q' to quit.", (50, config.DISPLAY_HEIGHT // 2 + 90),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.48, (120, 120, 125), 1, cv2.LINE_AA)
-        cv2.imshow(config.WINDOW_NAME, placeholder)
+        if os.environ.get("HEADLESS", "0") != "1":
+            cv2.imshow(config.WINDOW_NAME, placeholder)
         key = cv2.waitKey(20) & 0xFF
         if key in (ord('q'), ord('Q'), 27):
             _stop.set()
@@ -596,14 +594,6 @@ while not _stop.is_set():
     t_resize_start = time.perf_counter()
     disp = _resize_for_display(frame)
     t_resize_dur = time.perf_counter() - t_resize_start
-
-    # Heatmap (apply on display resolution)
-    t_heatmap_start = time.perf_counter()
-    if heatmap_enabled:
-        disp = heatmap_generator.apply_heatmap(disp, dmap, alpha=config.HEATMAP_ALPHA, state=heatmap_state)
-    else:
-        t_heatmap_dur = 0.0
-    t_heatmap_dur = time.perf_counter() - t_heatmap_start
 
     # Motion and opposing flow run asynchronously on worker thread.
     t_motion_dur = 0.0
@@ -623,14 +613,15 @@ while not _stop.is_set():
     cv2.putText(disp, f"Staleness: {staleness_ms:.0f}ms", (config.DISPLAY_WIDTH - 150, 48),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.45, (220, 220, 220), 1, cv2.LINE_AA)
 
-    overlay.draw_grid_3x3(
-        disp,
-        zone_scores     = zone_scores,
-        zone_motions    = speed_grid,
-        trend_matrix    = hs_result.get("trend_matrix"),
-        opposing_danger = opp_result.get("danger_grid"),
-        panel_visible   = show_stampede,
-    )
+    if show_grid:
+        overlay.draw_grid_3x3(
+            disp,
+            zone_scores     = zone_scores,
+            zone_motions    = speed_grid,
+            trend_matrix    = hs_result.get("trend_matrix"),
+            opposing_danger = opp_result.get("danger_grid"),
+            panel_visible   = show_stampede,
+        )
 
     if show_stampede:
         overlay.draw_stampede_panel(disp, sp_result)
@@ -696,7 +687,6 @@ while not _stop.is_set():
     # Accumulate timing stats
     t_acq_sum += t_acq_dur
     t_resize_sum += t_resize_dur
-    t_heatmap_sum += t_heatmap_dur
     t_motion_sum += t_motion_dur
     t_opposing_sum += t_opposing_dur
     t_overlay_sum += t_overlay_dur
@@ -707,19 +697,17 @@ while not _stop.is_set():
         print(f"\n[PROFILER] Display Loop Breakdown (rolling avg over last 30 frames):")
         print(f"  - frame acquisition / lock read: {t_acq_sum / 30 * 1000:.2f} ms")
         print(f"  - _resize_for_display():          {t_resize_sum / 30 * 1000:.2f} ms")
-        print(f"  - heatmap_generator.apply_heatmap: {t_heatmap_sum / 30 * 1000:.2f} ms")
         print(f"  - motion_anal.analyze_motion():   {t_motion_sum / 30 * 1000:.2f} ms")
         print(f"  - opposing flow detection:        {t_opposing_sum / 30 * 1000:.2f} ms")
         print(f"  - overlay/text drawing:           {t_overlay_sum / 30 * 1000:.2f} ms")
         print(f"  - cv2.imshow() + cv2.waitKey():   {t_imshow_sum / 30 * 1000:.2f} ms")
-        total_tracked = t_acq_sum + t_resize_sum + t_heatmap_sum + t_motion_sum + t_opposing_sum + t_overlay_sum + t_imshow_sum
+        total_tracked = t_acq_sum + t_resize_sum + t_motion_sum + t_opposing_sum + t_overlay_sum + t_imshow_sum
         print(f"  - Total tracked display time:     {total_tracked / 30 * 1000:.2f} ms (FPS: {30 / total_tracked:.1f})")
         print("-" * 50)
         
         # Reset counters
         t_acq_sum = 0.0
         t_resize_sum = 0.0
-        t_heatmap_sum = 0.0
         t_motion_sum = 0.0
         t_opposing_sum = 0.0
         t_overlay_sum = 0.0
@@ -727,7 +715,7 @@ while not _stop.is_set():
         profile_frame_count = 0
 
     if   key == ord("q"): _stop.set(); break
-    elif key == ord("h"): heatmap_enabled = not heatmap_enabled
+    elif key == ord("g"): show_grid       = not show_grid
     elif key == ord("s"): show_stampede   = not show_stampede
     elif key == ord("r"):
         recording = not recording

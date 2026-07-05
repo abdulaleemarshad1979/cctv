@@ -154,21 +154,8 @@ def draw_grid_3x3(
     labels  = ["A", "B", "C"]
 
     # ── tinted cell backgrounds ──
-    overlay_layer = frame.copy()
-    for r in range(3):
-        y0 = grid_y0 + r * cell_h
-        y1 = grid_y0 + (r + 1) * cell_h if r < 2 else grid_y1
-        for c in range(3):
-            x0 = grid_x0 + c * cell_w
-            x1 = grid_x0 + (c + 1) * cell_w if c < 2 else grid_x1
-            density  = float(zone_scores[r][c]) if zone_scores is not None else 0.0
-            cell_cap = float(cap_grid[r, c])
-            pressure = min(1.0, density / max(cell_cap, 1.0))
-            color = _pressure_color(pressure)
-            if color != C_GREEN:
-                cv2.rectangle(overlay_layer, (x0, y0), (x1, y1), color, -1)
-
-    cv2.addWeighted(overlay_layer, 0.15, frame, 0.85, 0, frame)
+    # Removed tinted cell background overlays to keep video streams clear without filters
+    pass
 
     # ── grid lines ──
     cv2.rectangle(frame, (grid_x0, grid_y0), (grid_x1 - 1, grid_y1 - 1), C_WHITE, 1)

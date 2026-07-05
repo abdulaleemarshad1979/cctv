@@ -9,7 +9,7 @@ Run:
 
 Keys:
     q = quit
-    h = toggle heatmap
+    g = toggle grid overlay
     f = toggle fullscreen mosaic / single-drone view
     1/2/3/4 = focus on that drone's feed
     s = toggle stampede panel
@@ -148,6 +148,13 @@ class StatusHandler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
         self.wfile.write(body)
+    def do_OPTIONS(self):
+        self.send_response(200)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "*")
+        self.end_headers()
+
     def log_message(self, *a): pass  # silence access logs
 
 def start_http_server():
@@ -176,8 +183,9 @@ cv2.resizeWindow("Pushkaralu 2027 | Swarm Command Center", MOSAIC_W, MOSAIC_H)
 
 focus_drone = -1   # -1 = mosaic; 0-3 = single drone
 last_metrics_log_times = [0.0] * SWARM_DRONE_COUNT
+show_grid = True
 
-print("[SWARM-INFER] Keys: q=quit  1-4=focus drone  f=mosaic  h=heatmap  s=stampede")
+print("[SWARM-INFER] Keys: q=quit  g=toggle-grid  1-4=focus drone  f=mosaic  s=stampede")
 
 while True:
     # Build display
@@ -190,16 +198,14 @@ while True:
             if ds.frame_bgr is not None:
                 disp = cv2.resize(ds.frame_bgr.copy(),
                                   (MOSAIC_W, MOSAIC_H), interpolation=cv2.INTER_AREA)
-                if ds.dmap_np is not None:
-                    from src import heatmap_generator
-                    disp = heatmap_generator.apply_heatmap(disp, ds.dmap_np, alpha=config.HEATMAP_ALPHA, state=ds.heatmap_state)
                 overlay.draw_top_banner(disp, ds.comp_zone, ds.comp_color, ds.pressure_smooth)
-                overlay.draw_grid_3x3(disp,
-                                      zone_scores=ds.zone_scores,
-                                      zone_motions=ds.speed_grid,
-                                      trend_matrix=ds.hs_result.get("trend_matrix"),
-                                      opposing_danger=ds.opp_result.get("danger_grid"),
-                                      panel_visible=True)
+                if show_grid:
+                    overlay.draw_grid_3x3(disp,
+                                          zone_scores=ds.zone_scores,
+                                          zone_motions=ds.speed_grid,
+                                          trend_matrix=ds.hs_result.get("trend_matrix"),
+                                          opposing_danger=ds.opp_result.get("danger_grid"),
+                                          panel_visible=True)
                 overlay.draw_stampede_panel(disp, ds.sp_result)
                 alerts = ds.get_alerts()
                 
@@ -278,6 +284,7 @@ while True:
 
     if   key == ord('q'):         swarm.stop(); break
     elif key == ord('f'):         focus_drone = -1
+    elif key == ord('g'):         show_grid = not show_grid
     elif key == ord('1'):         focus_drone = 0
     elif key == ord('2') and SWARM_DRONE_COUNT >= 2: focus_drone = 1
     elif key == ord('3') and SWARM_DRONE_COUNT >= 3: focus_drone = 2

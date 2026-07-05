@@ -1,0 +1,680 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Veda Crowd Monitoring Command Center</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Hls.js for HLS playback -->
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <!-- Google Fonts: Orbitron & Inter -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Orbitron:wght@500;700;900&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .tech-font {
+            font-family: 'Orbitron', sans-serif;
+        }
+        /* Custom scrollbar styling */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #090d16;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #1e293b;
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #334155;
+        }
+        /* Glow animations */
+        .glow-red {
+            box-shadow: 0 0 15px rgba(239, 68, 68, 0.15);
+        }
+        .glow-emerald {
+            box-shadow: 0 0 15px rgba(16, 185, 129, 0.15);
+        }
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.65);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+    </style>
+</head>
+<body class="bg-[#060814] text-slate-100 min-h-screen flex flex-col overflow-x-hidden selection:bg-indigo-500/30 selection:text-indigo-200">
+
+    <!-- Premium Glow Background Orbs -->
+    <div class="absolute top-[-10%] left-[-10%] w-[50vw] h-[50vw] rounded-full bg-blue-900/10 blur-[120px] pointer-events-none -z-10"></div>
+    <div class="absolute bottom-[-10%] right-[-10%] w-[50vw] h-[50vw] rounded-full bg-red-950/10 blur-[120px] pointer-events-none -z-10"></div>
+
+    <!-- Header Section -->
+    <header class="sticky top-0 z-50 glass-panel border-b border-slate-900/80 px-6 py-4 flex flex-col sm:flex-row justify-between items-center gap-4">
+        <div class="flex items-center space-x-4">
+            <!-- Animated Ping & Icon -->
+            <div class="relative flex h-3 w-3">
+                <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-500 opacity-75"></span>
+                <span class="relative inline-flex rounded-full h-3 w-3 bg-red-600"></span>
+            </div>
+            <div>
+                <h1 class="text-xl font-bold tracking-widest uppercase text-transparent bg-clip-text bg-gradient-to-r from-slate-100 via-indigo-200 to-indigo-400">
+                    Veda Command Center
+                </h1>
+                <p class="text-[10px] text-slate-400 tracking-wider uppercase font-semibold mt-0.5">
+                    Live Crowd Analytics & Threat Detection
+                </p>
+            </div>
+        </div>
+
+        <div class="flex items-center space-x-3">
+            <!-- Port indicator -->
+            <div id="port-status" class="text-xs text-slate-400 bg-slate-950/60 px-3 py-1.5 rounded-lg border border-slate-800 flex items-center gap-2">
+                <span class="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
+                <span>Connecting Backend...</span>
+            </div>
+            <div class="text-xs text-slate-400 bg-slate-950/60 px-3 py-1.5 rounded-lg border border-slate-800">
+                System Mode: <span class="text-indigo-400 font-semibold uppercase">Swarm Ingest</span>
+            </div>
+            <button id="settings-btn" class="p-2 text-slate-400 hover:text-indigo-400 bg-slate-950/60 hover:bg-slate-900 rounded-lg border border-slate-800 hover:border-indigo-500/30 transition-all" title="Configure endpoints">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Dashboard Area -->
+    <main class="flex-1 p-6 grid grid-cols-1 xl:grid-cols-4 gap-6">
+        
+        <!-- Left Side: 4-Drone Video Grid (Takes 3 columns on big screens) -->
+        <div class="xl:col-span-3 grid grid-cols-1 md:grid-cols-2 gap-6">
+            
+            <!-- Drone Card template creator helper -->
+            <!-- Drone 1 Card -->
+            <div id="card-drone1" class="relative glass-panel rounded-2xl overflow-hidden shadow-2xl transition-all duration-300 hover:border-slate-700/50 flex flex-col">
+                <!-- Video Container -->
+                <div class="relative flex-1 bg-black aspect-video overflow-hidden">
+                    <video id="video-drone1" class="w-full h-full object-cover" autoplay muted playsinline></video>
+                    <!-- Badges -->
+                    <div class="absolute top-4 left-4 flex gap-2">
+                        <span class="bg-slate-950/85 backdrop-blur-md px-3 py-1 rounded-lg text-xs font-bold tracking-wider text-slate-300 border border-slate-800">
+                            DRONE 01
+                        </span>
+                        <span id="name-drone1" class="bg-indigo-950/80 backdrop-blur-md px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider text-indigo-300 border border-indigo-500/20">
+                            North Ghat
+                        </span>
+                    </div>
+                    <!-- Live indicator -->
+                    <div class="absolute top-4 right-4 flex items-center space-x-1.5 bg-red-955/90 backdrop-blur-md px-2.5 py-1 rounded-md text-[10px] font-bold border border-red-500/30 text-red-400">
+                        <span class="w-1.5 h-1.5 rounded-full bg-red-500 animate-ping"></span>
+                        <span>LIVE FEED</span>
+                    </div>
+                    <!-- Bottom Overlay for Status -->
+                    <div class="absolute bottom-4 left-4 flex gap-1.5">
+                        <span id="zone-drone1" class="bg-emerald-950/90 text-emerald-400 border border-emerald-500/20 px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-widest backdrop-blur-md">
+                            SAFE
+                        </span>
+                    </div>
+                </div>
+                <!-- Card Footer Info -->
+                <div class="p-4 bg-slate-950/40 border-t border-slate-900/50 flex justify-between items-center">
+                    <div class="flex flex-col">
+                        <span class="text-[10px] text-slate-500 font-semibold uppercase tracking-wider">Estimated Count</span>
+                        <span id="count-drone1" class="tech-font text-2xl font-bold text-slate-200">--</span>
+                    </div>
+                    <div class="flex gap-4 text-right">
+                        <div class="flex flex-col">
+                            <span class="text-[9px] text-slate-500 uppercase tracking-wider">Uptime</span>
+                            <span id="uptime-drone1" class="text-xs font-semibold text-slate-300 font-mono">--</span>
+                        </div>
+                        <div class="flex flex-col">
+                            <span class="text-[9px] text-slate-500 uppercase tracking-wider">Drop Rate</span>
+                            <span id="drop-drone1" class="text-xs font-semibold text-slate-300 font-mono">--</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Drone 2 Card -->
+            <div id="card-drone2" class="relative glass-panel rounded-2xl overflow-hidden shadow-2xl transition-all duration-300 hover:border-slate-700/50 flex flex-col">
+                <div class="relative flex-1 bg-black aspect-video overflow-hidden">
+                    <video id="video-drone2" class="w-full h-full object-cover" autoplay muted playsinline></video>
+                    <div class="absolute top-4 left-4 flex gap-2">
+                        <span class="bg-slate-950/85 backdrop-blur-md px-3 py-1 rounded-lg text-xs font-bold tracking-wider text-slate-300 border border-slate-800">
+                            DRONE 02
+                        </span>
+                        <span id="name-drone2" class="bg-indigo-950/80 backdrop-blur-md px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider text-indigo-300 border border-indigo-500/20">
+                            Main Ghat
+                        </span>
+                    </div>
+                    <div class="absolute top-4 right-4 flex items-center space-x-1.5 bg-red-950/90 backdrop-blur-md px-2.5 py-1 rounded-md text-[10px] font-bold border border-red-500/30 text-red-400">
+                        <span class="w-1.5 h-1.5 rounded-full bg-red-500 animate-ping"></span>
+                        <span>LIVE FEED</span>
+                    </div>
+                    <div class="absolute bottom-4 left-4 flex gap-1.5">
+                        <span id="zone-drone2" class="bg-emerald-950/90 text-emerald-400 border border-emerald-500/20 px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-widest backdrop-blur-md">
+                            SAFE
+                        </span>
+                    </div>
+                </div>
+                <div class="p-4 bg-slate-950/40 border-t border-slate-900/50 flex justify-between items-center">
+                    <div class="flex flex-col">
+                        <span class="text-[10px] text-slate-500 font-semibold uppercase tracking-wider">Estimated Count</span>
+                        <span id="count-drone2" class="tech-font text-2xl font-bold text-slate-200">--</span>
+                    </div>
+                    <div class="flex gap-4 text-right">
+                        <div class="flex flex-col">
+                            <span class="text-[9px] text-slate-500 uppercase tracking-wider">Uptime</span>
+                            <span id="uptime-drone2" class="text-xs font-semibold text-slate-300 font-mono">--</span>
+                        </div>
+                        <div class="flex flex-col">
+                            <span class="text-[9px] text-slate-500 uppercase tracking-wider">Drop Rate</span>
+                            <span id="drop-drone2" class="text-xs font-semibold text-slate-300 font-mono">--</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Drone 3 Card -->
+            <div id="card-drone3" class="relative glass-panel rounded-2xl overflow-hidden shadow-2xl transition-all duration-300 hover:border-slate-700/50 flex flex-col">
+                <div class="relative flex-1 bg-black aspect-video overflow-hidden">
+                    <video id="video-drone3" class="w-full h-full object-cover" autoplay muted playsinline></video>
+                    <div class="absolute top-4 left-4 flex gap-2">
+                        <span class="bg-slate-950/85 backdrop-blur-md px-3 py-1 rounded-lg text-xs font-bold tracking-wider text-slate-300 border border-slate-800">
+                            DRONE 03
+                        </span>
+                        <span id="name-drone3" class="bg-indigo-950/80 backdrop-blur-md px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider text-indigo-300 border border-indigo-500/20">
+                            South Ghat
+                        </span>
+                    </div>
+                    <div class="absolute top-4 right-4 flex items-center space-x-1.5 bg-red-950/90 backdrop-blur-md px-2.5 py-1 rounded-md text-[10px] font-bold border border-red-500/30 text-red-400">
+                        <span class="w-1.5 h-1.5 rounded-full bg-red-500 animate-ping"></span>
+                        <span>LIVE FEED</span>
+                    </div>
+                    <div class="absolute bottom-4 left-4 flex gap-1.5">
+                        <span id="zone-drone3" class="bg-emerald-950/90 text-emerald-400 border border-emerald-500/20 px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-widest backdrop-blur-md">
+                            SAFE
+                        </span>
+                    </div>
+                </div>
+                <div class="p-4 bg-slate-950/40 border-t border-slate-900/50 flex justify-between items-center">
+                    <div class="flex flex-col">
+                        <span class="text-[10px] text-slate-500 font-semibold uppercase tracking-wider">Estimated Count</span>
+                        <span id="count-drone3" class="tech-font text-2xl font-bold text-slate-200">--</span>
+                    </div>
+                    <div class="flex gap-4 text-right">
+                        <div class="flex flex-col">
+                            <span class="text-[9px] text-slate-500 uppercase tracking-wider">Uptime</span>
+                            <span id="uptime-drone3" class="text-xs font-semibold text-slate-300 font-mono">--</span>
+                        </div>
+                        <div class="flex flex-col">
+                            <span class="text-[9px] text-slate-500 uppercase tracking-wider">Drop Rate</span>
+                            <span id="drop-drone3" class="text-xs font-semibold text-slate-300 font-mono">--</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Drone 4 Card -->
+            <div id="card-drone4" class="relative glass-panel rounded-2xl overflow-hidden shadow-2xl transition-all duration-300 hover:border-slate-700/50 flex flex-col">
+                <div class="relative flex-1 bg-black aspect-video overflow-hidden">
+                    <video id="video-drone4" class="w-full h-full object-cover" autoplay muted playsinline></video>
+                    <div class="absolute top-4 left-4 flex gap-2">
+                        <span class="bg-slate-950/85 backdrop-blur-md px-3 py-1 rounded-lg text-xs font-bold tracking-wider text-slate-300 border border-slate-800">
+                            DRONE 04
+                        </span>
+                        <span id="name-drone4" class="bg-indigo-950/80 backdrop-blur-md px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider text-indigo-300 border border-indigo-500/20">
+                            Mobile
+                        </span>
+                    </div>
+                    <div class="absolute top-4 right-4 flex items-center space-x-1.5 bg-red-950/90 backdrop-blur-md px-2.5 py-1 rounded-md text-[10px] font-bold border border-red-500/30 text-red-400">
+                        <span class="w-1.5 h-1.5 rounded-full bg-red-500 animate-ping"></span>
+                        <span>LIVE FEED</span>
+                    </div>
+                    <div class="absolute bottom-4 left-4 flex gap-1.5">
+                        <span id="zone-drone4" class="bg-emerald-950/90 text-emerald-400 border border-emerald-500/20 px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-widest backdrop-blur-md">
+                            SAFE
+                        </span>
+                    </div>
+                </div>
+                <div class="p-4 bg-slate-950/40 border-t border-slate-900/50 flex justify-between items-center">
+                    <div class="flex flex-col">
+                        <span class="text-[10px] text-slate-500 font-semibold uppercase tracking-wider">Estimated Count</span>
+                        <span id="count-drone4" class="tech-font text-2xl font-bold text-slate-200">--</span>
+                    </div>
+                    <div class="flex gap-4 text-right">
+                        <div class="flex flex-col">
+                            <span class="text-[9px] text-slate-500 uppercase tracking-wider">Uptime</span>
+                            <span id="uptime-drone4" class="text-xs font-semibold text-slate-300 font-mono">--</span>
+                        </div>
+                        <div class="flex flex-col">
+                            <span class="text-[9px] text-slate-500 uppercase tracking-wider">Drop Rate</span>
+                            <span id="drop-drone4" class="text-xs font-semibold text-slate-300 font-mono">--</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Right Side: Threat Alerts & Command Log Panel (Takes 1 column) -->
+        <div class="flex flex-col gap-6">
+            
+            <!-- System Stats Summary -->
+            <div class="glass-panel rounded-2xl p-5 shadow-2xl flex flex-col">
+                <h2 class="text-xs font-bold tracking-wider text-indigo-400 uppercase mb-3 flex items-center gap-2">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 002 2h2a2 2 0 002-2z" />
+                    </svg>
+                    Command Status
+                </h2>
+                <div class="grid grid-cols-2 gap-4">
+                    <div class="bg-slate-950/60 border border-slate-900 rounded-xl p-3 flex flex-col justify-center">
+                        <span class="text-[9px] text-slate-500 uppercase tracking-wider">Worst Zone</span>
+                        <span id="worst-zone-badge" class="tech-font text-lg font-bold text-emerald-400 uppercase mt-0.5">SAFE</span>
+                    </div>
+                    <div class="bg-slate-950/60 border border-slate-900 rounded-xl p-3 flex flex-col justify-center">
+                        <span class="text-[9px] text-slate-500 uppercase tracking-wider">Max Pressure</span>
+                        <span id="worst-pressure-val" class="tech-font text-lg font-bold text-slate-200 mt-0.5">--</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Incident Logs -->
+            <div class="glass-panel rounded-2xl p-5 flex flex-col flex-1 shadow-2xl min-h-[400px]">
+                <h2 class="text-xs font-bold tracking-wider text-slate-400 uppercase mb-4 border-b border-slate-900 pb-3 flex justify-between items-center">
+                    <span class="flex items-center gap-2">
+                        <svg class="w-4 h-4 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                        </svg>
+                        Real-Time Incident Logs
+                    </span>
+                    <span class="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                </h2>
+                <!-- Log Container -->
+                <div id="log-container" class="flex-1 space-y-3.5 overflow-y-auto max-h-[50vh] text-xs font-mono pr-2">
+                    <div class="text-slate-500 border-l-2 border-slate-800 pl-3 py-1">
+                        [SYSTEM] Monitoring station initialized. Auto-detecting Python status server...
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <footer class="glass-panel border-t border-slate-900/80 px-6 py-3 flex flex-col sm:flex-row justify-between items-center text-[10px] text-slate-500 tracking-wider uppercase font-semibold gap-2">
+        <span>VEDA PLATFORM &copy; 2026</span>
+        <span id="api-status">API Server Status: Unknown</span>
+    </footer>
+
+    <script>
+        // Retrieve initial configuration from Query Parameters, localStorage, or defaults
+        const urlParams = new URLSearchParams(window.location.search);
+        
+        let customHlsUrl = urlParams.get('hls') || localStorage.getItem('veda_hls_url') || "http://localhost:8088/live";
+        let customApiUrl = urlParams.get('api') || localStorage.getItem('veda_api_url') || "";
+        
+        // Save initial values if query parameters were used to ensure persistence
+        if (urlParams.get('hls')) localStorage.setItem('veda_hls_url', customHlsUrl);
+        if (urlParams.get('api')) localStorage.setItem('veda_api_url', customApiUrl);
+
+        const videoElements = {
+            'drone1': document.getElementById('video-drone1'),
+            'drone2': document.getElementById('video-drone2'),
+            'drone3': document.getElementById('video-drone3'),
+            'drone4': document.getElementById('video-drone4')
+        };
+        const hlsInstances = {};
+
+        // Initialize players for all 4 drone channels
+        function setupStream(streamName, video) {
+            const streamUrl = `${customHlsUrl}/${streamName}/index.m3u8`;
+
+            if (Hls.isSupported()) {
+                if (hlsInstances[streamName]) {
+                    hlsInstances[streamName].destroy();
+                }
+                const hls = new Hls({
+                    maxBufferLength: 2,
+                    maxMaxBufferLength: 4,
+                    lowLatencyMode: true
+                });
+                hls.loadSource(streamUrl);
+                hls.attachMedia(video);
+                hlsInstances[streamName] = hls;
+
+                hls.on(Hls.Events.ERROR, function (event, data) {
+                    if (data.fatal) {
+                        switch (data.type) {
+                            case Hls.ErrorTypes.NETWORK_ERROR:
+                                hls.startLoad();
+                                break;
+                            case Hls.ErrorTypes.MEDIA_ERROR:
+                                hls.recoverMediaError();
+                                break;
+                            default:
+                                break;
+                        }
+                    }
+                });
+            } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                video.src = streamUrl;
+            }
+        }
+
+        function restartAllStreams() {
+            setupStream('drone1', videoElements['drone1']);
+            setupStream('drone2', videoElements['drone2']);
+            setupStream('drone3', videoElements['drone3']);
+            setupStream('drone4', videoElements['drone4']);
+        }
+
+        restartAllStreams();
+
+        // State & Metrics Polling Client
+        let backendPort = 8080;
+        let isConnected = false;
+        let lastAlerts = new Set();
+
+        async function findActivePort() {
+            const statusIndicator = document.getElementById('port-status');
+            const apiStatus = document.getElementById('api-status');
+
+            // If a custom API URL is explicitly configured, check its health
+            if (customApiUrl) {
+                const targetUrl = customApiUrl.replace(/\/$/, ""); // strip trailing slash
+                try {
+                    const response = await fetch(`${targetUrl}/health`, { method: 'GET' });
+                    if (response.ok) {
+                        isConnected = true;
+                        statusIndicator.className = "text-xs text-slate-400 bg-slate-950/60 px-3 py-1.5 rounded-lg border border-emerald-900/30 flex items-center gap-2";
+                        statusIndicator.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span><span>Connected: Custom API</span>`;
+                        apiStatus.innerText = `API Server Status: Connected (${targetUrl})`;
+                        return true;
+                    }
+                } catch (e) {
+                    // fail silently
+                }
+                isConnected = false;
+                statusIndicator.className = "text-xs text-slate-400 bg-slate-950/60 px-3 py-1.5 rounded-lg border border-red-900/30 flex items-center gap-2";
+                statusIndicator.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-red-500 animate-ping"></span><span>Backend Offline</span>`;
+                apiStatus.innerText = `API Server Status: Offline (Custom URL)`;
+                return false;
+            }
+
+            // Otherwise, scan local ports 8080 to 8089
+            const startPort = 8080;
+            const endPort = 8089;
+
+            for (let port = startPort; port <= endPort; port++) {
+                try {
+                    const response = await fetch(`http://localhost:${port}/health`, { method: 'GET' });
+                    if (response.ok) {
+                        backendPort = port;
+                        isConnected = true;
+                        statusIndicator.className = "text-xs text-slate-400 bg-slate-950/60 px-3 py-1.5 rounded-lg border border-emerald-900/30 flex items-center gap-2";
+                        statusIndicator.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span><span>Connected: Port ${port}</span>`;
+                        apiStatus.innerText = `API Server Status: Connected (Port ${port})`;
+                        return true;
+                    }
+                } catch (e) {
+                    // Fail silently, try next port
+                }
+            }
+            isConnected = false;
+            statusIndicator.className = "text-xs text-slate-400 bg-slate-950/60 px-3 py-1.5 rounded-lg border border-red-900/30 flex items-center gap-2";
+            statusIndicator.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-red-500 animate-ping"></span><span>Backend Offline</span>`;
+            apiStatus.innerText = `API Server Status: Offline`;
+            return false;
+        }
+
+        function appendLog(message, type = 'info') {
+            const logContainer = document.getElementById('log-container');
+            const logEntry = document.createElement('div');
+            
+            let colorClass = 'text-slate-400 border-slate-800';
+            if (type === 'warning') colorClass = 'text-amber-400 border-amber-500/50';
+            if (type === 'critical') colorClass = 'text-red-400 border-red-500/50 font-semibold';
+            if (type === 'success') colorClass = 'text-emerald-400 border-emerald-500/50';
+
+            const timeStr = new Date().toLocaleTimeString();
+            logEntry.className = `border-l-2 pl-3 py-1 ${colorClass} animate-fade-in`;
+            logEntry.innerHTML = `[${timeStr}] ${message}`;
+            
+            logContainer.appendChild(logEntry);
+            logContainer.scrollTop = logContainer.scrollHeight;
+
+            // Keep log size clean
+            while (logContainer.children.length > 50) {
+                logContainer.removeChild(logContainer.firstChild);
+            }
+        }
+
+        function updateUI(data) {
+            // Update Overall Stats
+            const worstZoneBadge = document.getElementById('worst-zone-badge');
+            const worstPressureVal = document.getElementById('worst-pressure-val');
+
+            if (data.worst_zone) {
+                worstZoneBadge.innerText = data.worst_zone;
+                
+                // Color formatting
+                worstZoneBadge.className = "tech-font text-lg font-bold mt-0.5 ";
+                if (data.worst_zone === 'CRITICAL') worstZoneBadge.className += 'text-red-500';
+                else if (data.worst_zone === 'HIGH') worstZoneBadge.className += 'text-orange-500';
+                else if (data.worst_zone === 'WATCH') worstZoneBadge.className += 'text-amber-500';
+                else worstZoneBadge.className += 'text-emerald-400';
+            }
+
+            if (data.worst_pressure !== undefined) {
+                worstPressureVal.innerText = data.worst_pressure;
+            }
+
+            // Update Drone Summaries
+            if (data.drone_summaries && Array.isArray(data.drone_summaries)) {
+                data.drone_summaries.forEach((drone) => {
+                    // ID mapping is 0-indexed in backend list
+                    const num = drone.drone_id + 1;
+                    const countElem = document.getElementById(`count-drone${num}`);
+                    const zoneElem = document.getElementById(`zone-drone${num}`);
+                    const uptimeElem = document.getElementById(`uptime-drone${num}`);
+                    const dropElem = document.getElementById(`drop-drone${num}`);
+                    const nameElem = document.getElementById(`name-drone${num}`);
+                    const cardElem = document.getElementById(`card-drone${num}`);
+
+                    if (nameElem && drone.name) nameElem.innerText = drone.name;
+                    if (countElem) {
+                        countElem.innerText = drone.online ? Math.round(drone.pressure || 0) : '--';
+                    }
+                    if (uptimeElem) {
+                        uptimeElem.innerText = drone.online ? `${drone.uptime_s || 0}s` : '--';
+                    }
+                    if (dropElem) {
+                        dropElem.innerText = drone.online ? `${drone.drop_rate || 0}%` : '--';
+                    }
+
+                    if (zoneElem) {
+                        zoneElem.innerText = drone.online ? (drone.zone || 'SAFE') : 'OFFLINE';
+                        zoneElem.className = "border px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-widest backdrop-blur-md ";
+                        
+                        if (!drone.online) {
+                            zoneElem.className += "bg-slate-900/90 text-slate-500 border-slate-800";
+                            if (cardElem) cardElem.style.borderColor = 'rgba(255, 255, 255, 0.05)';
+                        } else {
+                            if (drone.zone === 'CRITICAL') {
+                                zoneElem.className += "bg-red-950/90 text-red-400 border-red-500/20";
+                                if (cardElem) cardElem.style.borderColor = 'rgba(239, 68, 68, 0.3)';
+                            } else if (drone.zone === 'HIGH') {
+                                zoneElem.className += "bg-orange-950/90 text-orange-400 border-orange-500/20";
+                                if (cardElem) cardElem.style.borderColor = 'rgba(249, 115, 22, 0.3)';
+                            } else if (drone.zone === 'WATCH') {
+                                zoneElem.className += "bg-amber-950/90 text-amber-400 border-amber-500/20";
+                                if (cardElem) cardElem.style.borderColor = 'rgba(245, 158, 11, 0.3)';
+                            } else {
+                                zoneElem.className += "bg-emerald-950/90 text-emerald-400 border-emerald-500/20";
+                                if (cardElem) cardElem.style.borderColor = 'rgba(16, 185, 129, 0.2)';
+                            }
+                        }
+                    }
+                });
+            }
+
+            // Update Critical Alerts / Logs
+            if (data.critical_alerts && Array.isArray(data.critical_alerts)) {
+                data.critical_alerts.forEach((alert) => {
+                    if (!lastAlerts.has(alert)) {
+                        appendLog(alert, 'critical');
+                        lastAlerts.add(alert);
+                    }
+                });
+            }
+
+            // Periodically clear set to allow repeating logs if relevant
+            if (lastAlerts.size > 20) {
+                lastAlerts.clear();
+            }
+        }
+
+        async function poll() {
+            if (!isConnected) {
+                await findActivePort();
+                if (!isConnected) {
+                    setTimeout(poll, 3000);
+                    return;
+                }
+            }
+
+            try {
+                const targetEndpoint = customApiUrl ? customApiUrl.replace(/\/$/, "") : `http://localhost:${backendPort}`;
+                const response = await fetch(`${targetEndpoint}/`, { method: 'GET' });
+                if (response.ok) {
+                    const data = await response.json();
+                    updateUI(data);
+                } else {
+                    isConnected = false;
+                }
+            } catch (e) {
+                isConnected = false;
+                const endpointName = customApiUrl ? "custom AI server" : "AI server";
+                appendLog(`Connection lost to ${endpointName}. Re-detecting status...`, "warning");
+            }
+
+            setTimeout(poll, 1000);
+        }
+
+        // Settings Modal Interaction
+        const settingsBtn = document.getElementById('settings-btn');
+        const settingsModal = document.getElementById('settings-modal');
+        const closeSettingsBtn = document.getElementById('close-settings-btn');
+        const saveSettingsBtn = document.getElementById('save-settings-btn');
+        const resetSettingsBtn = document.getElementById('reset-settings-btn');
+        
+        const settingHlsUrl = document.getElementById('setting-hls-url');
+        const settingApiUrl = document.getElementById('setting-api-url');
+
+        function openSettings() {
+            settingHlsUrl.value = customHlsUrl;
+            settingApiUrl.value = customApiUrl;
+            settingsModal.classList.remove('hidden');
+        }
+
+        function closeSettings() {
+            settingsModal.classList.add('hidden');
+        }
+
+        settingsBtn.addEventListener('click', openSettings);
+        closeSettingsBtn.addEventListener('click', closeSettings);
+        
+        settingsModal.addEventListener('click', (e) => {
+            if (e.target === settingsModal) closeSettings();
+        });
+
+        saveSettingsBtn.addEventListener('click', () => {
+            customHlsUrl = settingHlsUrl.value.trim() || "http://localhost:8088/live";
+            customApiUrl = settingApiUrl.value.trim();
+            
+            localStorage.setItem('veda_hls_url', customHlsUrl);
+            if (customApiUrl) {
+                localStorage.setItem('veda_api_url', customApiUrl);
+            } else {
+                localStorage.removeItem('veda_api_url');
+            }
+
+            appendLog("Settings updated. Applying endpoints...", "success");
+            closeSettings();
+            
+            // Re-initialize connections
+            isConnected = false;
+            restartAllStreams();
+        });
+
+        resetSettingsBtn.addEventListener('click', () => {
+            if (confirm("Reset connection settings to defaults?")) {
+                localStorage.removeItem('veda_hls_url');
+                localStorage.removeItem('veda_api_url');
+                customHlsUrl = "http://localhost:8088/live";
+                customApiUrl = "";
+                
+                settingHlsUrl.value = customHlsUrl;
+                settingApiUrl.value = customApiUrl;
+                
+                appendLog("Settings reset to defaults.", "info");
+                closeSettings();
+                
+                isConnected = false;
+                restartAllStreams();
+            }
+        });
+
+        // Start polling immediately
+        poll();
+    </script>
+
+    <!-- Settings Modal -->
+    <div id="settings-modal" class="fixed inset-0 z-[100] hidden flex items-center justify-center bg-slate-950/80 backdrop-blur-md transition-all duration-300">
+        <div class="glass-panel w-full max-w-md rounded-2xl p-6 shadow-2xl border border-slate-800">
+            <div class="flex justify-between items-center mb-6">
+                <h3 class="text-base font-bold uppercase tracking-wider text-slate-100 flex items-center gap-2">
+                    <svg class="w-5 h-5 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                    </svg>
+                    Command Server Settings
+                </h3>
+                <button id="close-settings-btn" class="text-slate-500 hover:text-slate-300">
+                    <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
+            </div>
+            
+            <div class="space-y-4">
+                <div class="flex flex-col">
+                    <label class="text-[10px] text-indigo-400 font-bold uppercase tracking-wider mb-1.5">MediaMTX HLS Stream Base URL</label>
+                    <input type="text" id="setting-hls-url" class="bg-slate-950 border border-slate-800 focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/20 text-slate-100 rounded-lg px-3 py-2 text-xs outline-none transition-all font-mono" placeholder="http://localhost:8088/live">
+                    <span class="text-[9px] text-slate-500 mt-1">E.g., http://localhost:8088/live or your public Pinggy HLS URL</span>
+                </div>
+                
+                <div class="flex flex-col">
+                    <label class="text-[10px] text-indigo-400 font-bold uppercase tracking-wider mb-1.5">Python AI API Server URL</label>
+                    <input type="text" id="setting-api-url" class="bg-slate-950 border border-slate-800 focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/20 text-slate-100 rounded-lg px-3 py-2 text-xs outline-none transition-all font-mono" placeholder="Auto-Detect (localhost:8080-8089)">
+                    <span class="text-[9px] text-slate-500 mt-1">Leave empty to auto-detect locally, or paste a custom endpoint (e.g. Pinggy HTTP URL)</span>
+                </div>
+            </div>
+            
+            <div class="mt-6 flex gap-3">
+                <button id="save-settings-btn" class="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg py-2.5 text-xs font-semibold shadow-lg shadow-indigo-900/30 transition-all">
+                    Apply Settings
+                </button>
+                <button id="reset-settings-btn" class="bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-800 rounded-lg px-4 py-2.5 text-xs font-semibold transition-all">
+                    Reset
+                </button>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

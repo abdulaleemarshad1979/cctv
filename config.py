@@ -92,8 +92,6 @@ MAX_INFERENCE_STRIDE     = 24
 OPTICAL_FLOW_STRIDE = int(os.environ.get("OPTICAL_FLOW_STRIDE", "4"))
 
 # ─── Visual ───────────────────────────────────────────────────────────
-HEATMAP_ALPHA = 0.45
-HEATMAP_ENABLED_DEFAULT = os.environ.get("HEATMAP_ENABLED", "1").lower() in ("1", "true", "yes", "on")
 WINDOW_NAME   = "Pushkaralu Crowd Risk"
 OPTICAL_FLOW_GPU = os.environ.get("OPTICAL_FLOW_GPU", "1").lower() in ("1", "true", "yes", "on")
 
@@ -118,36 +116,63 @@ DRONE_SENSOR_HFOV = 80.0   # horizontal FOV in degrees — DJI Air 3S main lens
 DRONE_CORRECT_DISTORTION = False
 
 # ─── Swarm Config ────────────────────────────────────────────────────
-SWARM_DRONE_COUNT = 4
+SWARM_DRONE_COUNT = int(os.environ.get("SWARM_DRONE_COUNT", "4"))
 
-DRONE_SOURCES = [
-    os.environ.get("CCTV_SOURCE_1", 'rtsp://127.0.0.1:8554/live/drone1'),
-    os.environ.get("CCTV_SOURCE_2", 'rtsp://127.0.0.1:8554/live/drone2'),
-    os.environ.get("CCTV_SOURCE_3", 'rtsp://127.0.0.1:8554/live/drone3'),
-    os.environ.get("CCTV_SOURCE_4", 'rtsp://127.0.0.1:8554/live/drone4'),
-]
+CCTV_SOURCES = {
+    "drone1":  os.environ.get("CCTV_SOURCE_1",  'rtsp://127.0.0.1:8554/live/drone1'),
+    "drone2":  os.environ.get("CCTV_SOURCE_2",  'rtsp://127.0.0.1:8554/live/drone2'),
+    "drone3":  os.environ.get("CCTV_SOURCE_3",  'rtsp://127.0.0.1:8554/live/drone3'),
+    "drone4":  os.environ.get("CCTV_SOURCE_4",  'rtsp://127.0.0.1:8554/live/drone4'),
+    "drone5":  os.environ.get("CCTV_SOURCE_5",  'rtsp://127.0.0.1:8554/live/drone5'),
+    "drone6":  os.environ.get("CCTV_SOURCE_6",  'rtsp://127.0.0.1:8554/live/drone6'),
+    "drone7":  os.environ.get("CCTV_SOURCE_7",  'rtsp://127.0.0.1:8554/live/drone7'),
+    "drone8":  os.environ.get("CCTV_SOURCE_8",  'rtsp://127.0.0.1:8554/live/drone8'),
+    "drone9":  os.environ.get("CCTV_SOURCE_9",  'rtsp://127.0.0.1:8554/live/drone9'),
+    "drone10": os.environ.get("CCTV_SOURCE_10", 'rtsp://127.0.0.1:8554/live/drone10'),
+    "drone11": os.environ.get("CCTV_SOURCE_11", 'rtsp://127.0.0.1:8554/live/drone11'),
+    "drone12": os.environ.get("CCTV_SOURCE_12", 'rtsp://127.0.0.1:8554/live/drone12'),
+    "drone13": os.environ.get("CCTV_SOURCE_13", 'rtsp://127.0.0.1:8554/live/drone13'),
+    "drone14": os.environ.get("CCTV_SOURCE_14", 'rtsp://127.0.0.1:8554/live/drone14'),
+    "drone15": os.environ.get("CCTV_SOURCE_15", 'rtsp://127.0.0.1:8554/live/drone15'),
+    "drone16": os.environ.get("CCTV_SOURCE_16", 'rtsp://127.0.0.1:8554/live/drone16'),
+    "drone17": os.environ.get("CCTV_SOURCE_17", 'rtsp://127.0.0.1:8554/live/drone17'),
+    "drone18": os.environ.get("CCTV_SOURCE_18", 'rtsp://127.0.0.1:8554/live/drone18'),
+    "drone19": os.environ.get("CCTV_SOURCE_19", 'rtsp://127.0.0.1:8554/live/drone19'),
+    "drone20": os.environ.get("CCTV_SOURCE_20", 'rtsp://127.0.0.1:8554/live/drone20'),
+    "drone21": os.environ.get("CCTV_SOURCE_21", 'rtsp://127.0.0.1:8554/live/drone21'),
+    "drone22": os.environ.get("CCTV_SOURCE_22", 'rtsp://127.0.0.1:8554/live/drone22'),
+    "drone23": os.environ.get("CCTV_SOURCE_23", 'rtsp://127.0.0.1:8554/live/drone23'),
+    "drone24": os.environ.get("CCTV_SOURCE_24", 'rtsp://127.0.0.1:8554/live/drone24'),
+    "drone25": os.environ.get("CCTV_SOURCE_25", 'rtsp://127.0.0.1:8554/live/drone25'),
+    "drone26": os.environ.get("CCTV_SOURCE_26", 'rtsp://127.0.0.1:8554/live/drone26'),
+    "drone27": os.environ.get("CCTV_SOURCE_27", 'rtsp://127.0.0.1:8554/live/drone27'),
+    "drone28": os.environ.get("CCTV_SOURCE_28", 'rtsp://127.0.0.1:8554/live/drone28'),
+    "drone29": os.environ.get("CCTV_SOURCE_29", 'rtsp://127.0.0.1:8554/live/drone29'),
+    "drone30": os.environ.get("CCTV_SOURCE_30", 'rtsp://127.0.0.1:8554/live/drone30'),
+    "drone31": os.environ.get("CCTV_SOURCE_31", 'rtsp://127.0.0.1:8554/live/drone31'),
+    "drone32": os.environ.get("CCTV_SOURCE_32", 'rtsp://127.0.0.1:8554/live/drone32'),
+    "drone33": os.environ.get("CCTV_SOURCE_33", 'rtsp://127.0.0.1:8554/live/drone33'),
+    "drone34": os.environ.get("CCTV_SOURCE_34", 'rtsp://127.0.0.1:8554/live/drone34'),
+    "drone35": os.environ.get("CCTV_SOURCE_35", 'rtsp://127.0.0.1:8554/live/drone35'),
+    "drone36": os.environ.get("CCTV_SOURCE_36", 'rtsp://127.0.0.1:8554/live/drone36'),
+    "drone37": os.environ.get("CCTV_SOURCE_37", 'rtsp://127.0.0.1:8554/live/drone37'),
+    "drone38": os.environ.get("CCTV_SOURCE_38", 'rtsp://127.0.0.1:8554/live/drone38'),
+    "drone39": os.environ.get("CCTV_SOURCE_39", 'rtsp://127.0.0.1:8554/live/drone39'),
+    "drone40": os.environ.get("CCTV_SOURCE_40", 'rtsp://127.0.0.1:8554/live/drone40'),
+}
 
-DRONE_NAMES = [
-    'Ghat 1', 'Ghat 2', 'Ghat 3', 'Ghat 4'
-]
+# Compatibility helper: make DRONE_SOURCES a list of the 40 URLs
+DRONE_SOURCES = [CCTV_SOURCES[f"drone{i}"] for i in range(1, 41)]
 
-DRONE_ALTITUDES_M = [30.0, 25.0, 30.0, 20.0]
+DRONE_NAMES = [f"Drone {i}" for i in range(1, 41)]
+
+DRONE_ALTITUDES_M = [30.0] * 40
 
 # GPS bounding boxes: [lat_min, lon_min, lat_max, lon_max]
-DRONE_GPS_BOUNDS = [
-    [16.9820, 81.7355, 16.9850, 81.7380],   # Drone 1 North
-    [16.9800, 81.7375, 16.9825, 81.7400],   # Drone 2 Main
-    [16.9775, 81.7390, 16.9805, 81.7415],   # Drone 3 South
-    [0.0, 0.0, 0.0, 0.0],                   # Drone 4 Dynamic (update at runtime)
-]
+DRONE_GPS_BOUNDS = [[16.9820, 81.7355, 16.9850, 81.7380] for _ in range(40)]
 
 # Safe headcount per 3x3 cell per drone (tune from field measurements)
-ZONE_CAPACITY = [
-    [[300, 400, 300], [350, 500, 350], [300, 400, 300]],   # Drone 1
-    [[400, 600, 400], [450, 700, 450], [400, 600, 400]],   # Drone 2
-    [[300, 400, 300], [350, 500, 350], [300, 400, 300]],   # Drone 3
-    [[300, 400, 300], [350, 500, 350], [300, 400, 300]],   # Drone 4
-]
+ZONE_CAPACITY = [[[300, 400, 300], [350, 500, 350], [300, 400, 300]] for _ in range(40)]
 
 BASELINE_PX_PER_M         = 50.0
 ENABLE_ALTITUDE_CORRECTION = False

@@ -1,0 +1,326 @@
+[
+  {
+    "id": "vip-1",
+    "name": "VIP-1",
+    "location": "Rjy",
+    "stream_path": "live/vip1",
+    "publish_user": "operator",
+    "publish_pass": "pushkar2026",
+    "stream_url": "http://localhost:8088/live/vip1/index.m3u8"
+  },
+  {
+    "id": "plaza-a-n4",
+    "name": "PLAZA-A-N4",
+    "location": "Rjy",
+    "stream_path": "live/plaza_a_n4",
+    "publish_user": "operator",
+    "publish_pass": "pushkar2026",
+    "stream_url": "http://localhost:8088/live/plaza_a_n4/index.m3u8"
+  },
+  {
+    "id": "plaza-b-n15",
+    "name": "PLAZA-B-N15",
+    "location": "Rjy",
+    "stream_path": "live/plaza_b_n15",
+    "publish_user": "operator",
+    "publish_pass": "pushkar2026",
+    "stream_url": "http://localhost:8088/live/plaza_b_n15/index.m3u8"
+  },
+  {
+    "id": "punyakshtram",
+    "name": "PUNYAKSHTRAM",
+    "location": "Pushkaralu",
+    "stream_path": "live/punyakshtram",
+    "publish_user": "operator",
+    "publish_pass": "pushkar2026",
+    "stream_url": "http://localhost:8088/live/punyakshtram/index.m3u8"
+  },
+  {
+    "id": "entry-e1",
+    "name": "ENTRY-E1",
+    "location": "Pushkaralu",
+    "stream_path": "live/entry_e1",
+    "publish_user": "operator",
+    "publish_pass": "pushkar2026",
+    "stream_url": "http://localhost:8088/live/entry_e1/index.m3u8"
+  },
+  {
+    "id": "entry-e2",
+    "name": "ENTRY-E2",
+    "location": "Pushkaralu",
+    "stream_path": "live/entry_e2",
+    "publish_user": "operator",
+    "publish_pass": "pushkar2026",
+    "stream_url": "http://localhost:8088/live/entry_e2/index.m3u8"
+  },
+  {
+    "id": "bathing-ghat-1",
+    "name": "BATHING-GHAT-1",
+    "location": "Rjy",
+    "stream_path": "live/bathing_ghat_1",
+    "publish_user": "operator",
+    "publish_pass": "pushkar2026",
+    "stream_url": "http://localhost:8088/live/bathing_ghat_1/index.m3u8"
+  },
+  {
+    "id": "bathing-ghat-2",
+    "name": "BATHING-GHAT-2",
+    "location": "Rjy",
+    "stream_path": "live/bathing_ghat_2",
+    "publish_user": "operator",
+    "publish_pass": "pushkar2026",
+    "stream_url": "http://localhost:8088/live/bathing_ghat_2/index.m3u8"
+  },
+  {
+    "id": "parking-z3",
+    "name": "PARKING-Z3",
+    "location": "Rjy",
+    "stream_path": "live/parking_z3",
+    "publish_user": "operator",
+    "publish_pass": "pushkar2026",
+    "stream_url": "http://localhost:8088/live/parking_z3/index.m3u8"
+  },
+  {
+    "id": "parking-z4",
+    "name": "PARKING-Z4",
+    "location": "Rjy",
+    "stream_path": "live/parking_z4",
+    "publish_user": "operator",
+    "publish_pass": "pushkar2026",
+    "stream_url": "http://localhost:8088/live/parking_z4/index.m3u8"
+  },
+  {
+    "id": "main-road-1",
+    "name": "MAIN-ROAD-1",
+    "location": "Rjy",
+    "stream_path": "live/main_road_1",
+    "publish_user": "operator",
+    "publish_pass": "pushkar2026",
+    "stream_url": "http://localhost:8088/live/main_road_1/index.m3u8"
+  },
+  {
+    "id": "main-road-2",
+    "name": "MAIN-ROAD-2",
+    "location": "Rjy",
+    "stream_path": "live/main_road_2",
+    "publish_user": "operator",
+    "publish_pass": "pushkar2026",
+    "stream_url": "http://localhost:8088/live/main_road_2/index.m3u8"
+  },
+  {
+    "id": "vip-entry",
+    "name": "VIP-ENTRY",
+    "location": "Pushkaralu",
+    "stream_path": "live/vip_entry",
+    "publish_user": "operator",
+    "publish_pass": "pushkar2026",
+    "stream_url": "http://localhost:8088/live/vip_entry/index.m3u8"
+  },
+  {
+    "id": "vip-exit",
+    "name": "VIP-EXIT",
+    "location": "Pushkaralu",
+    "stream_path": "live/vip_exit",
+    "publish_user": "operator",
+    "publish_pass": "pushkar2026",
+    "stream_url": "http://localhost:8088/live/vip_exit/index.m3u8"
+  },
+  {
+    "id": "temple-entrance",
+    "name": "TEMPLE-ENTRANCE",
+    "location": "Pushkaralu",
+    "stream_path": "live/temple_entrance",
+    "publish_user": "operator",
+    "publish_pass": "pushkar2026",
+    "stream_url": "http://localhost:8088/live/temple_entrance/index.m3u8"
+  },
+  {
+    "id": "temple-exit",
+    "name": "TEMPLE-EXIT",
+    "location": "Pushkaralu",
+    "stream_path": "live/temple_exit",
+    "publish_user": "operator",
+    "publish_pass": "pushkar2026",
+    "stream_url": "http://localhost:8088/live/temple_exit/index.m3u8"
+  },
+  {
+    "id": "temple-queue",
+    "name": "TEMPLE-QUEUE",
+    "location": "Pushkaralu",
+    "stream_path": "live/temple_queue",
+    "publish_user": "operator",
+    "publish_pass": "pushkar2026",
+    "stream_url": "http://localhost:8088/live/temple_queue/index.m3u8"
+  },
+  {
+    "id": "temple-prasadam",
+    "name": "TEMPLE-PRASADAM",
+    "location": "Pushkaralu",
+    "stream_path": "live/temple_prasadam",
+    "publish_user": "operator",
+    "publish_pass": "pushkar2026",
+    "stream_url": "http://localhost:8088/live/temple_prasadam/index.m3u8"
+  },
+  {
+    "id": "railway-stn-1",
+    "name": "RAILWAY-STN-1",
+    "location": "Rjy",
+    "stream_path": "live/railway_stn_1",
+    "publish_user": "operator",
+    "publish_pass": "pushkar2026",
+    "stream_url": "http://localhost:8088/live/railway_stn_1/index.m3u8"
+  },
+  {
+    "id": "railway-stn-2",
+    "name": "RAILWAY-STN-2",
+    "location": "Rjy",
+    "stream_path": "live/railway_stn_2",
+    "publish_user": "operator",
+    "publish_pass": "pushkar2026",
+    "stream_url": "http://localhost:8088/live/railway_stn_2/index.m3u8"
+  },
+  {
+    "id": "bus-stand-1",
+    "name": "BUS-STAND-1",
+    "location": "Rjy",
+    "stream_path": "live/bus_stand_1",
+    "publish_user": "operator",
+    "publish_pass": "pushkar2026",
+    "stream_url": "http://localhost:8088/live/bus_stand_1/index.m3u8"
+  },
+  {
+    "id": "bus-stand-2",
+    "name": "BUS-STAND-2",
+    "location": "Rjy",
+    "stream_path": "live/bus_stand_2",
+    "publish_user": "operator",
+    "publish_pass": "pushkar2026",
+    "stream_url": "http://localhost:8088/live/bus_stand_2/index.m3u8"
+  },
+  {
+    "id": "control-room",
+    "name": "CONTROL-ROOM",
+    "location": "Rjy",
+    "stream_path": "live/control_room",
+    "publish_user": "operator",
+    "publish_pass": "pushkar2026",
+    "stream_url": "http://localhost:8088/live/control_room/index.m3u8"
+  },
+  {
+    "id": "main-tower",
+    "name": "MAIN-TOWER",
+    "location": "Rjy",
+    "stream_path": "live/main_tower",
+    "publish_user": "operator",
+    "publish_pass": "pushkar2026",
+    "stream_url": "http://localhost:8088/live/main_tower/index.m3u8"
+  },
+  {
+    "id": "emergency-exit",
+    "name": "EMERGENCY-EXIT",
+    "location": "Pushkaralu",
+    "stream_path": "live/emergency_exit",
+    "publish_user": "operator",
+    "publish_pass": "pushkar2026",
+    "stream_url": "http://localhost:8088/live/emergency_exit/index.m3u8"
+  },
+  {
+    "id": "emergency-entry",
+    "name": "EMERGENCY-ENTRY",
+    "location": "Pushkaralu",
+    "stream_path": "live/emergency_entry",
+    "publish_user": "operator",
+    "publish_pass": "pushkar2026",
+    "stream_url": "http://localhost:8088/live/emergency_entry/index.m3u8"
+  },
+  {
+    "id": "emergency-exit-2",
+    "name": "EMERGENCY-EXIT-2",
+    "location": "Pushkaralu",
+    "stream_path": "live/emergency_exit_2",
+    "publish_user": "operator",
+    "publish_pass": "pushkar2026",
+    "stream_url": "http://localhost:8088/live/emergency_exit_2/index.m3u8"
+  },
+  {
+    "id": "station-road",
+    "name": "STATION-ROAD",
+    "location": "Rjy",
+    "stream_path": "live/station_road",
+    "publish_user": "operator",
+    "publish_pass": "pushkar2026",
+    "stream_url": "http://localhost:8088/live/station_road/index.m3u8"
+  },
+  {
+    "id": "ghat-road-1",
+    "name": "GHAT-ROAD-1",
+    "location": "Rjy",
+    "stream_path": "live/ghat_road_1",
+    "publish_user": "operator",
+    "publish_pass": "pushkar2026",
+    "stream_url": "http://localhost:8088/live/ghat_road_1/index.m3u8"
+  },
+  {
+    "id": "ghat-road-2",
+    "name": "GHAT-ROAD-2",
+    "location": "Rjy",
+    "stream_path": "live/ghat_road_2",
+    "publish_user": "operator",
+    "publish_pass": "pushkar2026",
+    "stream_url": "http://localhost:8088/live/ghat_road_2/index.m3u8"
+  },
+  {
+    "id": "police-post",
+    "name": "POLICE-POST",
+    "location": "Pushkaralu",
+    "stream_path": "live/police_post",
+    "publish_user": "operator",
+    "publish_pass": "pushkar2026",
+    "stream_url": "http://localhost:8088/live/police_post/index.m3u8"
+  },
+  {
+    "id": "police-post-2",
+    "name": "POLICE-POST-2",
+    "location": "Pushkaralu",
+    "stream_path": "live/police_post_2",
+    "publish_user": "operator",
+    "publish_pass": "pushkar2026",
+    "stream_url": "http://localhost:8088/live/police_post_2/index.m3u8"
+  },
+  {
+    "id": "police-post-3",
+    "name": "POLICE-POST-3",
+    "location": "Pushkaralu",
+    "stream_path": "live/police_post_3",
+    "publish_user": "operator",
+    "publish_pass": "pushkar2026",
+    "stream_url": "http://localhost:8088/live/police_post_3/index.m3u8"
+  },
+  {
+    "id": "roadside-1",
+    "name": "ROADSIDE-1",
+    "location": "Rjy",
+    "stream_path": "live/roadside_1",
+    "publish_user": "operator",
+    "publish_pass": "pushkar2026",
+    "stream_url": "http://localhost:8088/live/roadside_1/index.m3u8"
+  },
+  {
+    "id": "roadside-2",
+    "name": "ROADSIDE-2",
+    "location": "Rjy",
+    "stream_path": "live/roadside_2",
+    "publish_user": "operator",
+    "publish_pass": "pushkar2026",
+    "stream_url": "http://localhost:8088/live/roadside_2/index.m3u8"
+  },
+  {
+    "id": "command-control",
+    "name": "COMMAND-CONTROL",
+    "location": "Rjy",
+    "stream_path": "live/command_control",
+    "publish_user": "operator",
+    "publish_pass": "pushkar2026",
+    "stream_url": "http://localhost:8088/live/command_control/index.m3u8"
+  }
+]
