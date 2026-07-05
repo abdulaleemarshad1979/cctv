@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Centralised Drone Monitoring Portal - AP Police (Static Mockup)</title>
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
   <style>
     :root {
       --bg-main: #0d131f;
@@ -781,7 +782,46 @@
       container.classList.remove("hidden");
       container.innerHTML = "";
 
-      if (webrtcPortOpen) {
+      const isLocal = ["localhost", "127.0.0.1", "::1", ""].includes(window.location.hostname) || window.location.hostname.startsWith("192.168.");
+
+      if (!isLocal) {
+        // Cloud environment: Use HLS.js to stream HLS video feed proxied over FastAPI
+        const video = document.createElement("video");
+        video.className = "tile__video";
+        video.autoplay = true;
+        video.muted = true;
+        video.playsInline = true;
+        video.controls = true;
+        container.appendChild(video);
+
+        const streamUrl = `/stream/${cam.stream_path}/index.m3u8`;
+
+        if (typeof Hls !== "undefined" && Hls.isSupported()) {
+          const hls = new Hls({
+            maxMaxBufferLength: 10,
+            liveSyncDuration: 3,
+            enableWorker: true
+          });
+          hls.loadSource(streamUrl);
+          hls.attachMedia(video);
+          hls.on(Hls.Events.ERROR, function(event, data) {
+            if (data.fatal) {
+              switch (data.type) {
+                case Hls.ErrorTypes.NETWORK_ERROR:
+                  hls.startLoad();
+                  break;
+                case Hls.ErrorTypes.MEDIA_ERROR:
+                  hls.recoverMediaError();
+                  break;
+                default:
+                  break;
+              }
+            }
+          });
+        } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+          video.src = streamUrl;
+        }
+      } else if (webrtcPortOpen) {
         const iframe = document.createElement("iframe");
         iframe.className = "tile__iframe";
         iframe.allow = "autoplay; encrypted-media; picture-in-picture";

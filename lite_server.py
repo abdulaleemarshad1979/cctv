@@ -341,6 +341,25 @@ def update_stats(data: StatsUpdate):
 
     return {"status": "success"}
 
+import httpx
+from fastapi.responses import StreamingResponse
+
+@app.get("/stream/{path:path}")
+async def proxy_stream(path: str):
+    target_url = f"http://127.0.0.1:8888/{path}"
+    async with httpx.AsyncClient() as client:
+        try:
+            req = client.build_request("GET", target_url)
+            resp = await client.send(req, stream=True)
+            headers = {k: v for k, v in resp.headers.items() if k.lower() not in ("content-length", "connection", "keep-alive")}
+            return StreamingResponse(
+                resp.iter_raw(),
+                status_code=resp.status_code,
+                headers=headers
+            )
+        except Exception as e:
+            return Response(status_code=500, content=str(e))
+
 if __name__ == "__main__":
     import uvicorn
     # Start on port 8000
