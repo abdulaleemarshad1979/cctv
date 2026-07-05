@@ -22,3 +22,8 @@ Cargo.lock
 
 # Compiled binaries
 *.pyd
+
+# Local database and scratch directories
+db.sqlite3
+scratch/
+.agents/

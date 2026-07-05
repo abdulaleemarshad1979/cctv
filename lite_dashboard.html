@@ -1,0 +1,932 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Centralised Drone Monitoring Portal - AP Police (Static Mockup)</title>
+  <style>
+    :root {
+      --bg-main: #0d131f;
+      --bg-header: rgba(13, 19, 31, 0.85);
+      --border-color: rgba(30, 41, 59, 0.8);
+      --border-hover: rgba(51, 65, 85, 0.8);
+      --bg-tile: #121a28;
+      --bg-tile-header: #182336;
+      --text-main: #f1f5f9;
+      --text-muted: #94a3b8;
+      --text-blue: #60a5fa;
+      --text-gold: #f59e0b;
+      --accent-blue: #2563eb;
+      --accent-blue-hover: #1d4ed8;
+      --live-green: #10b981;
+      --error-red: #f87171;
+      --warning-amber: #f59e0b;
+      --badge-critical: #ef4444;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg-main);
+      color: var(--text-main);
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow-x: hidden;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ---------- Header ---------- */
+    .header {
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      background-color: var(--bg-header);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border-color);
+      padding: 16px 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    @media (min-width: 768px) {
+      .header {
+        flex-direction: row;
+        align-items: center;
+        justify-content: space-between;
+      }
+    }
+
+    .header__brand {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .logo-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(15, 23, 42, 0.6);
+      padding: 8px;
+      border-radius: 12px;
+      border: 1px solid rgba(30, 41, 59, 0.5);
+    }
+
+    .logo-icon {
+      width: 32px;
+      height: 32px;
+    }
+
+    .logo-icon--gold { color: var(--text-gold); }
+    .logo-icon--blue { color: var(--text-blue); }
+
+    .header__brand h2 {
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: 0.025em;
+      text-transform: uppercase;
+      color: var(--text-main);
+      line-height: 1.1;
+    }
+
+    .header__brand .subtitle {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-blue);
+      letter-spacing: 0.05em;
+      margin-top: 4px;
+    }
+
+    .header__brand .credit {
+      font-size: 10px;
+      color: var(--text-muted);
+      font-family: monospace;
+      margin-top: 2px;
+    }
+
+    .filter-group {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .pill {
+      background-color: rgba(15, 23, 42, 0.6);
+      border: 1px solid var(--border-color);
+      color: var(--text-muted);
+      padding: 6px 16px;
+      border-radius: 9999px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .pill:hover {
+      background-color: rgba(30, 41, 59, 0.8);
+      color: var(--text-main);
+    }
+
+    .pill.active {
+      background-color: var(--accent-blue);
+      border-color: var(--accent-blue);
+      color: #ffffff;
+      box-shadow: 0 10px 15px -3px rgba(37, 99, 235, 0.3);
+    }
+
+    .divider {
+      width: 1px;
+      height: 24px;
+      background-color: var(--border-color);
+      margin: 0 8px;
+      display: none;
+    }
+
+    @media (min-width: 640px) {
+      .divider { display: block; }
+    }
+
+    /* ---------- Grid Layout ---------- */
+    .grid-container {
+      padding: 24px;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(1, minmax(0, 1fr));
+      gap: 24px;
+    }
+
+    @media (min-width: 768px) {
+      .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+
+    @media (min-width: 1024px) {
+      .grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    }
+
+    /* ---------- Stream Cards ---------- */
+    .tile {
+      background-color: var(--bg-tile);
+      border-radius: 12px;
+      border: 1px solid var(--border-color);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      height: 330px;
+      box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
+      transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .tile:hover {
+      border-color: var(--border-hover);
+      transform: translateY(-2px);
+    }
+
+    .tile__header {
+      background-color: var(--bg-tile-header);
+      padding: 8px 16px;
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .tile__name {
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      color: var(--text-main);
+      text-transform: uppercase;
+    }
+
+    .tile__meta {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .tile__location {
+      font-size: 10px;
+      color: var(--text-muted);
+      font-family: monospace;
+    }
+
+    .tile__count {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--text-blue);
+      background-color: rgba(96, 165, 250, 0.15);
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-family: monospace;
+    }
+
+    .tile__zone-badge {
+      font-size: 9px;
+      font-weight: 800;
+      color: #fff;
+      padding: 2px 6px;
+      border-radius: 4px;
+      letter-spacing: 0.05em;
+    }
+
+    .tile__zone-badge.safe { background-color: rgba(16, 185, 129, 0.2); color: var(--live-green); border: 1px solid rgba(16, 185, 129, 0.3); }
+    .tile__zone-badge.warning { background-color: rgba(245, 158, 11, 0.2); color: var(--warning-amber); border: 1px solid rgba(245, 158, 11, 0.3); }
+    .tile__zone-badge.critical { background-color: rgba(239, 68, 68, 0.2); color: var(--badge-critical); border: 1px solid rgba(239, 68, 68, 0.3); }
+
+    .tile__status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background-color: var(--text-muted);
+      transition: background-color 0.3s ease;
+    }
+
+    .tile[data-status="online"] .tile__status-dot {
+      background-color: var(--live-green);
+      box-shadow: 0 0 8px var(--live-green);
+      animation: pulse 2s infinite;
+    }
+
+    /* Video frame area */
+    .tile__body {
+      flex: 1;
+      background-color: #080d16;
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .tile__video, .tile__iframe {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      border: none;
+    }
+
+    .tile__live-badge {
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(15, 23, 42, 0.75);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      padding: 4px 10px;
+      border-radius: 6px;
+      backdrop-filter: blur(4px);
+    }
+
+    .tile__live-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background-color: var(--live-green);
+      animation: pulse 1.5s infinite;
+    }
+
+    /* Glassmorphic HUD overlay */
+    .tile__hud {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: rgba(15, 23, 42, 0.85);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+      padding: 8px 12px;
+      font-size: 11px;
+      color: var(--text-main);
+      z-index: 5;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      transform: translateY(0);
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .tile__hud-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .tile__hud-metric {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+
+    .tile__hud-label {
+      font-size: 9px;
+      font-weight: 700;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .tile__hud-value-container {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .tile__hud-value {
+      font-family: monospace;
+      font-weight: 700;
+      color: var(--text-main);
+    }
+
+    .tile__hud-bar-bg {
+      width: 100%;
+      height: 4px;
+      background: rgba(255, 255, 255, 0.15);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+
+    .tile__hud-bar-fill {
+      height: 100%;
+      width: 0%;
+      border-radius: 2px;
+      transition: width 0.4s ease, background-color 0.3s ease;
+    }
+
+    .tile__hud-stats-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 8px;
+      border-top: 1px solid rgba(255, 255, 255, 0.05);
+      padding-top: 4px;
+    }
+
+    .tile__hud-stat {
+      display: flex;
+      justify-content: space-between;
+      font-size: 10px;
+    }
+
+    .tile__hud-stat-name {
+      color: var(--text-muted);
+    }
+
+    .tile__hud-stat-val {
+      font-family: monospace;
+      font-weight: 600;
+      color: var(--text-blue);
+    }
+
+    /* Warning Overlay */
+    .tile__warning-overlay {
+      position: absolute;
+      top: 40px;
+      left: 12px;
+      right: 12px;
+      background: rgba(239, 68, 68, 0.95);
+      color: #fff;
+      font-size: 10px;
+      font-weight: 700;
+      padding: 6px 10px;
+      border-radius: 6px;
+      text-align: center;
+      z-index: 6;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.5);
+      animation: blinker 1.5s linear infinite;
+      backdrop-filter: blur(4px);
+    }
+
+    @keyframes blinker {
+      50% { opacity: 0.85; }
+    }
+
+    .tile__live-text {
+      font-size: 9px;
+      font-weight: 800;
+      letter-spacing: 0.05em;
+      color: #fff;
+    }
+
+    /* Offline Placeholder */
+    .tile__placeholder {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: radial-gradient(circle at center, #111a2e 0%, #080d16 100%);
+      padding: 24px;
+      text-align: center;
+      z-index: 10;
+      transition: opacity 0.4s ease;
+    }
+
+    .tile__error-text {
+      font-size: 13px;
+      color: var(--text-muted);
+      max-width: 260px;
+      line-height: 1.5;
+      margin-bottom: 16px;
+    }
+
+    /* Actions Footer */
+    .tile__footer {
+      background-color: var(--bg-tile-header);
+      padding: 12px 16px;
+      border-top: 1px solid var(--border-color);
+      display: flex;
+      justify-content: flex-end;
+    }
+
+    .btn {
+      font-size: 12px;
+      font-weight: 600;
+      padding: 8px 20px;
+      border-radius: 8px;
+      cursor: pointer;
+      border: none;
+      transition: all 0.2s ease;
+    }
+
+    .btn--primary {
+      background-color: var(--accent-blue);
+      color: #fff;
+    }
+    .btn--primary:hover { background-color: var(--accent-blue-hover); }
+
+    .btn--start {
+      background-color: var(--accent-blue);
+      color: #fff;
+      width: 100%;
+    }
+    .btn--start:hover {
+      background-color: var(--accent-blue-hover);
+      box-shadow: 0 4px 12px rgba(37, 99, 235, 0.2);
+    }
+
+    .btn--stop {
+      background-color: rgba(239, 68, 68, 0.15);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      color: #ef4444;
+      width: 100%;
+    }
+    .btn--stop:hover {
+      background-color: #ef4444;
+      color: #fff;
+    }
+
+    .hidden { display: none !important; }
+
+    /* Bouncing loader */
+    .bouncing-loader {
+      display: flex;
+      justify-content: center;
+      gap: 6px;
+    }
+    .bouncing-loader > div {
+      width: 8px;
+      height: 8px;
+      background-color: var(--accent-blue);
+      border-radius: 50%;
+      animation: bouncing-loader 0.6s infinite alternate;
+    }
+    .bouncing-loader > div:nth-child(2) { animation-delay: 0.2s; }
+    .bouncing-loader > div:nth-child(3) { animation-delay: 0.4s; }
+
+    @keyframes bouncing-loader {
+      to {
+        opacity: 0.1;
+        transform: translateY(-8px);
+      }
+    }
+
+    @keyframes pulse {
+      0% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.15); opacity: 0.7; }
+      100% { transform: scale(1); opacity: 1; }
+    }
+
+    .empty-state {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 60px 24px;
+      color: var(--text-muted);
+      text-align: center;
+      grid-column: 1 / -1;
+    }
+
+    .empty-icon {
+      width: 48px;
+      height: 48px;
+      margin-bottom: 16px;
+      color: var(--border-hover);
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Premium Header -->
+  <header class="header">
+    <div class="header__brand">
+      <div class="logo-group">
+        <svg class="logo-icon logo-icon--gold" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 21a9.004 9.004 0 008.716-6.747M12 21a9.004 9.004 0 01-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 017.843 4.582M12 3a8.997 8.997 0 00-7.843 4.582m15.686 0A11.953 11.953 0 0112 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0121 12c0 .778-.099 1.533-.284 2.253m0 0A17.919 17.919 0 0112 16.5c-3.162 0-6.133-.815-8.716-2.247m0 0A9.015 9.015 0 013 12c0-.778.099-1.533.284-2.253" />
+        </svg>
+        <svg class="logo-icon logo-icon--blue" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12c0 1.268-.63 2.39-1.593 3.068a3.745 3.745 0 01-1.043 3.296 3.745 3.745 0 01-3.296 1.043A3.745 3.745 0 0112 21c-1.268 0-2.39-.63-3.068-1.593a3.746 3.746 0 01-3.296-1.043 3.745 3.745 0 01-1.043-3.296A3.745 3.745 0 013 12c0-1.268.63-2.39 1.593-3.068a3.745 3.745 0 011.043-3.296 3.746 3.746 0 013.296-1.043A3.746 3.746 0 0112 3c1.268 0 2.39.63 3.068 1.593a3.746 3.746 0 013.296 1.043 3.746 3.746 0 011.043 3.296A3.745 3.745 0 0121 12z" />
+        </svg>
+      </div>
+      <div>
+        <h2>Andhra Pradesh Police Department</h2>
+        <p class="subtitle">NTR District Police - CDMF (STATIC DASHBOARD)</p>
+        <p class="credit">Centralized Drone Monitoring Portal - SERVERLESS MODE</p>
+      </div>
+    </div>
+
+    <!-- Navigation & Filter Pills -->
+    <div class="filter-group">
+      <button class="pill active" data-filter="All">All</button>
+      <button class="pill" data-filter="Rjy">Rjy</button>
+      <button class="pill" data-filter="Pushkaralu">Pushkaralu</button>
+      <button class="pill" data-filter="Active">Active Drones</button>
+      <div class="divider"></div>
+      <button class="pill pill--logout" onclick="location.reload()">Reset Portal</button>
+    </div>
+  </header>
+
+  <!-- Main Grid -->
+  <main class="grid-container">
+    <div class="empty-state hidden" id="empty-message">
+      <svg class="empty-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+      </svg>
+      <p>No drones match the selected filter</p>
+    </div>
+
+    <div class="grid" id="drone-grid">
+      <!-- Grid items are injected dynamically below -->
+    </div>
+  </main>
+
+  <script>
+    let cameras = [];
+    let activeFilter = "All";
+    let webrtcPortOpen = false;
+
+    // Fetch cameras from the backend
+    async function loadCamerasFromBackend() {
+      try {
+        const res = await fetch("/cameras");
+        cameras = await res.json();
+        renderGrid();
+      } catch (e) {
+        console.error("[CDMP] Failed to load cameras from backend:", e);
+      }
+    }
+
+    // Detect if MediaMTX WebRTC server (port 8889) is active
+    async function checkWebRTC() {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 500);
+        await fetch(`http://${window.location.hostname}:8889/`, {
+          method: "HEAD",
+          mode: "no-cors",
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+        webrtcPortOpen = true;
+        console.log("[CDMP] MediaMTX WebRTC detected. Using WebRTC on port 8889.");
+      } catch (e) {
+        webrtcPortOpen = false;
+        console.log("[CDMP] MediaMTX WebRTC not running. Defaulting to local video loops.");
+      }
+    }
+
+    // Build the grid cards dynamically
+    function renderGrid() {
+      const grid = document.getElementById("drone-grid");
+      grid.innerHTML = "";
+
+      let visibleCount = 0;
+      cameras.forEach(cam => {
+        const matchesFilter = 
+          activeFilter === "All" ||
+          (activeFilter === "Rjy" && cam.location === "Rjy") ||
+          (activeFilter === "Pushkaralu" && cam.location === "Pushkaralu") ||
+          (activeFilter === "Active" && cam.status === "online");
+
+        if (!matchesFilter) return;
+        visibleCount++;
+
+        const isOnline = cam.status === "online";
+        const isConnecting = cam.status === "connecting";
+
+        const card = document.createElement("div");
+        card.className = "tile";
+        card.setAttribute("data-id", cam.id);
+        card.setAttribute("data-location", cam.location);
+        card.setAttribute("data-status", cam.status);
+
+        card.innerHTML = `
+          <header class="tile__header">
+            <span class="tile__name">${cam.name}</span>
+            <div class="tile__meta">
+              <span class="tile__count ${isOnline ? '' : 'hidden'}" id="count-${cam.id}">${cam.people_count || 0} pax</span>
+              <span class="tile__zone-badge ${(cam.comp_zone || 'SAFE').toLowerCase()} ${isOnline ? '' : 'hidden'}" id="zone-${cam.id}">${cam.comp_zone || 'SAFE'}</span>
+              <span class="tile__location">${cam.location}</span>
+              <span class="tile__status-dot"></span>
+            </div>
+          </header>
+          <div class="tile__body">
+            <!-- Video Display Container -->
+            <div class="tile__player-container w-full h-full ${isOnline ? '' : 'hidden'}" id="player-container-${cam.id}"></div>
+            
+            <div class="tile__live-badge ${isOnline ? '' : 'hidden'}" id="live-${cam.id}">
+              <span class="tile__live-dot"></span>
+              <span class="tile__live-text">LIVE</span>
+            </div>
+
+            <!-- Sleek Glassmorphic HUD -->
+            <div class="tile__hud ${isOnline ? '' : 'hidden'}" id="hud-${cam.id}">
+              <div class="tile__hud-row">
+                <div class="tile__hud-metric">
+                  <div class="tile__hud-value-container">
+                    <span class="tile__hud-label">Pressure</span>
+                    <span class="tile__hud-value" id="hud-pressure-${cam.id}">0%</span>
+                  </div>
+                  <div class="tile__hud-bar-bg">
+                    <div class="tile__hud-bar-fill" id="hud-pressure-bar-${cam.id}"></div>
+                  </div>
+                </div>
+                <div class="tile__hud-metric">
+                  <div class="tile__hud-value-container">
+                    <span class="tile__hud-label">Stampede Risk</span>
+                    <span class="tile__hud-value" id="hud-stampede-${cam.id}">0%</span>
+                  </div>
+                  <div class="tile__hud-bar-bg">
+                    <div class="tile__hud-bar-fill" id="hud-stampede-bar-${cam.id}"></div>
+                  </div>
+                </div>
+              </div>
+              <div class="tile__hud-stats-grid">
+                <div class="tile__hud-stat">
+                  <span class="tile__hud-stat-name">Flow Speed</span>
+                  <span class="tile__hud-stat-val" id="hud-flow-${cam.id}">0.0</span>
+                </div>
+                <div class="tile__hud-stat">
+                  <span class="tile__hud-stat-name">Turbulence</span>
+                  <span class="tile__hud-stat-val" id="hud-turb-${cam.id}">0.0</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Glowing Warning Banner -->
+            <div class="tile__warning-overlay hidden" id="warning-overlay-${cam.id}">
+              <span id="warning-text-${cam.id}">WARNING: HIGH RISK</span>
+            </div>
+            
+            <div class="tile__placeholder ${isOnline ? 'hidden' : ''}" id="placeholder-${cam.id}">
+              <p class="tile__error-text" id="placeholder-text-${cam.id}">
+                ${isConnecting ? 'Connecting to drone...' : 'Drone feed disconnected'}
+              </p>
+              <div class="bouncing-loader ${isConnecting ? '' : 'hidden'}" id="loader-${cam.id}">
+                <div></div>
+                <div></div>
+                <div></div>
+              </div>
+            </div>
+          </div>
+          <footer class="tile__footer">
+            <button class="btn btn--start ${isOnline || isConnecting ? 'hidden' : ''}" id="btn-start-${cam.id}" onclick="connectFeed('${cam.id}')">Connect Feed</button>
+            <button class="btn btn--stop ${isOnline || isConnecting ? '' : 'hidden'}" id="btn-stop-${cam.id}" onclick="disconnectFeed('${cam.id}')">Disconnect</button>
+          </footer>
+        `;
+        grid.appendChild(card);
+
+        if (isOnline) {
+          setupVideoFeed(cam);
+          updateLiveStats(cam);
+        }
+      });
+
+      const emptyMsg = document.getElementById("empty-message");
+      if (visibleCount === 0) {
+        emptyMsg.classList.remove("hidden");
+      } else {
+        emptyMsg.classList.add("hidden");
+      }
+    }
+
+    // Connect Feed Trigger
+    async function connectFeed(id) {
+      const cam = cameras.find(c => c.id === id);
+      if (cam) cam.status = "connecting";
+      renderGrid();
+
+      try {
+        await fetch(`/cameras/${id}/start`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({})
+        });
+      } catch (e) {
+        console.error("[CDMP] Error connecting feed:", e);
+        if (cam) cam.status = "offline";
+        renderGrid();
+      }
+    }
+
+    // Disconnect Feed Trigger
+    async function disconnectFeed(id) {
+      try {
+        await fetch(`/cameras/${id}/stop`, { method: "POST" });
+        const cam = cameras.find(c => c.id === id);
+        if (cam) {
+          cam.status = "offline";
+          cam.people_count = 0;
+          cam.comp_zone = "SAFE";
+        }
+        renderGrid();
+      } catch (e) {
+        console.error("[CDMP] Error disconnecting feed:", e);
+      }
+    }
+
+    // Setup Video playback source (WebRTC live or fallback direct MP4)
+    function setupVideoFeed(cam) {
+      const container = document.getElementById(`player-container-${cam.id}`);
+      if (!container) return;
+      container.classList.remove("hidden");
+      container.innerHTML = "";
+
+      if (webrtcPortOpen) {
+        const iframe = document.createElement("iframe");
+        iframe.className = "tile__iframe";
+        iframe.allow = "autoplay; encrypted-media; picture-in-picture";
+        iframe.allowFullscreen = true;
+        iframe.src = `http://${window.location.hostname}:8889/${cam.stream_path}/`;
+        container.appendChild(iframe);
+      } else {
+        const video = document.createElement("video");
+        video.className = "tile__video";
+        video.autoplay = true;
+        video.loop = true;
+        video.muted = true;
+        video.playsInline = true;
+        video.controls = true;
+        
+        const source = document.createElement("source");
+        source.src = cam.fallback_video || "Videos/Crowd.mp4";
+        source.type = "video/mp4";
+        video.appendChild(source);
+        container.appendChild(video);
+      }
+    }
+
+    // Dynamic Polling for real-time camera updates
+    async function pollCameras() {
+      try {
+        const res = await fetch("/cameras");
+        const newCameras = await res.json();
+        
+        let statusChanged = false;
+        newCameras.forEach(newCam => {
+          const oldCam = cameras.find(c => c.id === newCam.id);
+          
+          if (!oldCam || oldCam.status !== newCam.status) {
+            statusChanged = true;
+          } else if (newCam.status === "online") {
+            // Update stats dynamically in the DOM
+            updateLiveStats(newCam);
+          }
+        });
+
+        cameras = newCameras;
+        if (statusChanged) {
+          renderGrid();
+        }
+      } catch (e) {
+        console.error("[CDMP] Polling error:", e);
+      }
+    }
+
+    // Dynamic Live Stats HUD updating without re-rendering card player
+    function updateLiveStats(cam) {
+      // 1. Header people count
+      const countEl = document.getElementById(`count-${cam.id}`);
+      if (countEl) {
+        countEl.textContent = `${cam.people_count || 0} pax`;
+        countEl.classList.remove("hidden");
+      }
+
+      // 2. Header zone badge
+      const zoneEl = document.getElementById(`zone-${cam.id}`);
+      if (zoneEl) {
+        zoneEl.textContent = cam.comp_zone || 'SAFE';
+        zoneEl.className = `tile__zone-badge ${(cam.comp_zone || 'SAFE').toLowerCase()}`;
+        zoneEl.classList.remove("hidden");
+      }
+
+      // 3. HUD pressure text & bar
+      const pressureVal = Math.round(cam.pressure || 0);
+      const pressureEl = document.getElementById(`hud-pressure-${cam.id}`);
+      if (pressureEl) pressureEl.textContent = `${pressureVal}%`;
+      
+      const pressureBar = document.getElementById(`hud-pressure-bar-${cam.id}`);
+      if (pressureBar) {
+        pressureBar.style.width = `${pressureVal}%`;
+        // Dynamic bar color based on pressure
+        let color = "var(--live-green)";
+        if (pressureVal >= 75) color = "var(--badge-critical)";
+        else if (pressureVal >= 50) color = "var(--warning-amber)";
+        else if (pressureVal >= 25) color = "var(--text-blue)";
+        pressureBar.style.backgroundColor = color;
+      }
+
+      // 4. HUD stampede text & bar
+      const stampedeVal = Math.round((cam.stampede_prob || 0) * 100);
+      const stampedeEl = document.getElementById(`hud-stampede-${cam.id}`);
+      if (stampedeEl) stampedeEl.textContent = `${stampedeVal}%`;
+      
+      const stampedeBar = document.getElementById(`hud-stampede-bar-${cam.id}`);
+      if (stampedeBar) {
+        stampedeBar.style.width = `${stampedeVal}%`;
+        let color = "var(--live-green)";
+        if (stampedeVal >= 75) color = "var(--badge-critical)";
+        else if (stampedeVal >= 50) color = "var(--warning-amber)";
+        else if (stampedeVal >= 25) color = "var(--text-blue)";
+        stampedeBar.style.backgroundColor = color;
+      }
+
+      // 5. Flow Speed & Turbulence
+      const flowEl = document.getElementById(`hud-flow-${cam.id}`);
+      if (flowEl) flowEl.textContent = (cam.motion_speed || 0.0).toFixed(2);
+
+      const turbEl = document.getElementById(`hud-turb-${cam.id}`);
+      if (turbEl) turbEl.textContent = (cam.turbulence || 0.0).toFixed(2);
+
+      // 6. Warnings and Alerts
+      const warningOverlay = document.getElementById(`warning-overlay-${cam.id}`);
+      const warningText = document.getElementById(`warning-text-${cam.id}`);
+      
+      let alertMsg = "";
+      if (cam.gps_alerts && cam.gps_alerts.length > 0) {
+        alertMsg = cam.gps_alerts[0].message || "CRITICAL RISK DETECTED";
+      } else if (cam.opposing_alert) {
+        alertMsg = cam.opposing_alert;
+      } else if (cam.hotspot_alert) {
+        alertMsg = cam.hotspot_alert;
+      }
+
+      if (alertMsg && (cam.comp_zone === "HIGH" || cam.comp_zone === "CRITICAL")) {
+        if (warningText) warningText.textContent = alertMsg;
+        if (warningOverlay) warningOverlay.classList.remove("hidden");
+      } else {
+        if (warningOverlay) warningOverlay.classList.add("hidden");
+      }
+    }
+
+    // Setup filter group triggers
+    document.querySelectorAll(".pill").forEach(pill => {
+      pill.addEventListener("click", () => {
+        if (pill.classList.contains("pill--logout")) return;
+        document.querySelectorAll(".pill").forEach(p => p.classList.remove("active"));
+        pill.classList.add("active");
+        activeFilter = pill.getAttribute("data-filter");
+        renderGrid();
+      });
+    });
+
+    // Initialize Page
+    async function init() {
+      await checkWebRTC();
+      await loadCamerasFromBackend();
+      setInterval(pollCameras, 2000);
+    }
+
+    init();
+  </script>
+</body>
+</html>

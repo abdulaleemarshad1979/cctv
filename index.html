@@ -315,7 +315,7 @@
         // Retrieve initial configuration from Query Parameters, localStorage, or defaults
         const urlParams = new URLSearchParams(window.location.search);
         
-        let customHlsUrl = urlParams.get('hls') || localStorage.getItem('veda_hls_url') || "http://localhost:8088/live";
+        let customHlsUrl = urlParams.get('hls') || localStorage.getItem('veda_hls_url') || "";
         let customApiUrl = urlParams.get('api') || localStorage.getItem('veda_api_url') || "";
         
         // Save initial values if query parameters were used to ensure persistence
@@ -366,7 +366,28 @@
             }
         }
 
-        function restartAllStreams() {
+        async function initHlsUrl() {
+            if (!customHlsUrl) {
+                let detectedPort = "8088";
+                try {
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 600);
+                    await fetch(`http://${window.location.hostname}:8888/`, {
+                        method: 'HEAD',
+                        mode: 'no-cors',
+                        signal: controller.signal
+                    });
+                    clearTimeout(timeoutId);
+                    detectedPort = "8888";
+                } catch (e) {
+                    // default to 8088
+                }
+                customHlsUrl = `http://${window.location.hostname || "localhost"}:${detectedPort}/live`;
+            }
+        }
+
+        async function restartAllStreams() {
+            await initHlsUrl();
             setupStream('drone1', videoElements['drone1']);
             setupStream('drone2', videoElements['drone2']);
             setupStream('drone3', videoElements['drone3']);

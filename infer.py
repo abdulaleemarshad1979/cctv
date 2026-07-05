@@ -243,6 +243,7 @@ def _clear_q(q):
 def _producer():
     global _frame_data, _stride
     source = drone_stream.resolve_source(config.VIDEO_SOURCE)
+    fallback_active = False
     
     while not _stop.is_set():
         sh = drone_stream.DroneStreamHandler(
@@ -252,13 +253,39 @@ def _producer():
             transport=config.RTSP_TRANSPORT
         )
         if not sh.is_opened():
-            print(f"[ERROR] Cannot open source {source}. Offline. Retrying in 3.0s...")
+            print(f"[ERROR] Cannot open source {source}. Offline.")
+            # If the source is a network stream and we haven't fallen back yet, try a local video file
+            if not fallback_active and isinstance(source, str) and source.startswith(("rtsp://", "rtsps://", "rtmp://", "rtmps://", "http://", "https://")):
+                print("[INFO] Attempting fallback to local video file...")
+                video_dir = os.path.join(config.BASE_DIR, "Videos")
+                video_files = []
+                if os.path.exists(video_dir):
+                    video_files = [f for f in os.listdir(video_dir) if f.endswith(".mp4")]
+                if video_files:
+                    video_files.sort()
+                    # Determine drone name / index from environment
+                    drone_id_env = os.environ.get("DRONE_ID", "drone1")
+                    camera_index = sum(ord(c) for c in drone_id_env)
+                    selected_video = video_files[camera_index % len(video_files)]
+                    source = os.path.join("Videos", selected_video)
+                    fallback_active = True
+                    print(f"[INFO] Switched source to fallback local video: {source}")
+                    continue
+            
+            print("Retrying in 3.0s...")
             time.sleep(3.0)
             continue
 
         src_fps = sh.get_fps()
         src_w, src_h = sh.get_resolution()
         print(f"[INFO] Source FPS={src_fps:.1f}  live={sh.is_live}  resolution={src_w}x{src_h}")
+        
+        # Dynamically set target inference resolution based on the source resolution
+        target_w, target_h = config.get_dynamic_infer_resolution(src_w, src_h)
+        config.INFER_WIDTH = target_w
+        config.INFER_HEIGHT = target_h
+        print(f"[INFO] Dynamically adjusted inference resolution to {target_w}x{target_h} based on source size {src_w}x{src_h}")
+
         with _lock:
             global _is_live
             _is_live = sh.is_live
@@ -328,6 +355,12 @@ def _inference_worker():
     stamp_pred  = StampedePredictor(history)
     pressure_smooth = 0.0
 
+    # Initialize close-up detectors (Haar Frontal Face & HOG Pedestrian)
+    face_cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
+    face_cascade = cv2.CascadeClassifier(face_cascade_path)
+    hog = cv2.HOGDescriptor()
+    hog.setSVMDetector(cv2.HOGDescriptor_getDefaultPeopleDetector())
+
     while not _stop.is_set():
         try:
             frame, _ = _frame_q.get(timeout=0.25)
@@ -362,6 +395,46 @@ def _inference_worker():
                              config.WATCH_THRESHOLD,
                              config.HIGH_THRESHOLD)
         scores, _      = zm.analyze_zones(dmap_np)
+
+        # ── Close-up Person Detection (Hybrid Integration) ──
+        h_f, w_f = frame.shape[:2]
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        
+        # 1. Frontal Face Detection (Haar Cascade)
+        faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=4, minSize=(40, 40))
+        
+        # 2. Pedestrian Detection (HOG)
+        small_w = 400
+        small_h = int(small_w * h_f / w_f)
+        small_gray = cv2.resize(gray, (small_w, small_h), interpolation=cv2.INTER_AREA)
+        rects, weights = hog.detectMultiScale(small_gray, winStride=(8, 8), padding=(8, 8), scale=1.05)
+        
+        closeup_grid = np.zeros((3, 3), dtype=np.float32)
+        
+        # Map faces to the 3x3 grid
+        for (x, y, w, h) in faces:
+            cx, cy = x + w / 2, y + h / 2
+            r_c = int(cy / h_f * 3)
+            c_c = int(cx / w_f * 3)
+            r_c = max(0, min(2, r_c))
+            c_c = max(0, min(2, c_c))
+            closeup_grid[r_c, c_c] += 1.0
+
+        # Map pedestrians to the 3x3 grid
+        for (x, y, w, h) in rects:
+            cx, cy = x + w / 2, y + h / 2
+            r_c = int(cy / small_h * 3)
+            c_c = int(cx / small_w * 3)
+            r_c = max(0, min(2, r_c))
+            c_c = max(0, min(2, c_c))
+            closeup_grid[r_c, c_c] = max(closeup_grid[r_c, c_c], 1.0)
+            
+        # Combine density map scores with discrete detection counts
+        if scores is not None:
+            scores = np.maximum(scores, closeup_grid)
+            
+        # Re-evaluate the overall headcount/density score
+        ds = max(ds, float(scores.sum()))
 
         # Run Motion and Flow analytics on the frame
         speed_grid, motion_speed, turbulence = motion_anal.analyze_motion(frame)
@@ -668,6 +741,28 @@ while not _stop.is_set():
     # ── RTMP Streaming ────────────────────────────────────────────
     if rtmp_target:
         if rtmp_proc is None:
+            # Check if MediaMTX needs to be started
+            import socket
+            def is_port_in_use(port):
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                    return s.connect_ex(('127.0.0.1', port)) == 0
+                    
+            if not (is_port_in_use(1935) or is_port_in_use(8554) or is_port_in_use(8088)):
+                mediamtx_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mediamtx.exe")
+                if os.path.exists(mediamtx_path):
+                    print("[STREAM] Starting MediaMTX process...")
+                    try:
+                        subprocess.Popen(
+                            [mediamtx_path],
+                            cwd=os.path.dirname(os.path.abspath(__file__)),
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                            creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
+                        )
+                        time.sleep(1.0)
+                    except Exception as e:
+                        print(f"[STREAM] Failed to start MediaMTX: {e}")
+
             ffmpeg_path = None
             if shutil.which("ffmpeg"):
                 ffmpeg_path = "ffmpeg"
@@ -739,6 +834,37 @@ while not _stop.is_set():
                 drop_rate_pct=health_stats["drop_rate_%"],
                 fps=health_stats["live_fps"]
             )
+            
+            # Send real-time stats to Django backend if env vars are present
+            drone_id_env = os.environ.get("DRONE_ID")
+            django_url = os.environ.get("DJANGO_UPDATE_URL")
+            if drone_id_env and django_url:
+                try:
+                    import requests
+                    def send_post():
+                        try:
+                            requests.post(
+                                django_url,
+                                json={
+                                    "drone_id": drone_id_env,
+                                    "density_score": float(density_score),
+                                    "comp_zone": comp_zone,
+                                    "status": "online",
+                                    "pressure": float(pressure_smooth),
+                                    "stampede_prob": float(sp_result.get("smooth_prob", 0.0)),
+                                    "motion_speed": float(motion_speed),
+                                    "turbulence": float(turbulence),
+                                    "hotspot_alert": hs_result.get("alert_text", ""),
+                                    "opposing_alert": opp_result.get("alert_text", ""),
+                                    "gps_alerts": gps_alerts
+                                },
+                                timeout=0.5
+                            )
+                        except Exception:
+                            pass
+                    threading.Thread(target=send_post, daemon=True).start()
+                except Exception:
+                    pass
 
     t_waitkey_start = time.perf_counter()
     key = cv2.waitKey(1) & 0xFF

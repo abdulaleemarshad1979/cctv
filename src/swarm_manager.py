@@ -159,6 +159,8 @@ class DroneState:
         self.cap_ts      = 0.0
         self.frame_q     = queue.Queue(maxsize=1)
         self.is_live     = False
+        self.infer_w     = config.INFER_WIDTH
+        self.infer_h     = config.INFER_HEIGHT
 
         # Inference outputs
         self.dmap_np        = None
@@ -344,14 +346,27 @@ class SwarmManager:
             resolved_src, _ = DRONE_DB[src]
 
         start_t   = time.monotonic()
+        fallback_active = False
 
         while not self._stop.is_set():
             handler = DroneStreamHandler(resolved_src, transport=config.RTSP_TRANSPORT)
             if not handler.is_opened():
                 ds.online = False
-                # Print once in a while or silently retry
+                # If the source is a network stream and we haven't fallen back yet, try a local video file
+                if not fallback_active and isinstance(resolved_src, str) and resolved_src.startswith(("rtsp://", "rtsps://", "rtmp://", "rtmps://", "http://", "https://")):
+                    print(f"[SWARM] Drone {idx+1} ({ds.name}) RTSP {resolved_src} offline. Falling back to local video for simulation.")
+                    video_files = ["Kumbh.mp4", "mecca.mp4", "stadium.mp4", "concert.mp4", "Crowd.mp4"]
+                    local_sources = []
+                    for f in video_files:
+                        p = os.path.join("Videos", f)
+                        if os.path.exists(p):
+                            local_sources.append(p)
+                    if local_sources:
+                        resolved_src = local_sources[idx % len(local_sources)]
+                        fallback_active = True
+                        print(f"[SWARM] Drone {idx+1} source set to fallback local video: {resolved_src}")
+                        continue
                 print(f"[SWARM] Drone {idx+1} ({ds.name}): Offline. Retrying connection to {resolved_src} in 3.0s...")
-                # Avoid tight loop on quick failures
                 time.sleep(3.0)
                 continue
 
@@ -359,9 +374,14 @@ class SwarmManager:
             ds.online = True
             frame_no  = 0
             src_fps   = handler.get_fps()
+            src_w, src_h = handler.get_resolution()
+            target_w, target_h = config.get_dynamic_infer_resolution(src_w, src_h)
             nft       = time.monotonic()
             with ds.lock:
                 ds.is_live = handler.is_live
+                ds.infer_w = target_w
+                ds.infer_h = target_h
+                print(f"[SWARM] Drone {idx+1} ({ds.name}) dynamic inference resolution: {target_w}x{target_h} (source: {src_w}x{src_h})")
 
             while not self._stop.is_set():
                 ok, frame = handler.read_frame()
@@ -451,6 +471,12 @@ class SwarmManager:
                                  std =[0.229, 0.224, 0.225]),
         ])
 
+        # Initialize close-up detectors (Haar Frontal Face & HOG Pedestrian)
+        face_cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
+        face_cascade = cv2.CascadeClassifier(face_cascade_path)
+        hog = cv2.HOGDescriptor()
+        hog.setSVMDetector(cv2.HOGDescriptor_getDefaultPeopleDetector())
+
         while not self._stop.is_set():
             try:
                 frame, cap_ts = ds.frame_q.get(timeout=0.5)
@@ -459,11 +485,14 @@ class SwarmManager:
 
             # Preprocess
             t0 = time.perf_counter()
+            with ds.lock:
+                inf_w = ds.infer_w
+                inf_h = ds.infer_h
             if getattr(config, "CLEAN_INPUT_OVERLAYS", True):
                 frame_for_infer = density_filter.suppress_broadcast_overlays(frame)
             else:
                 frame_for_infer = frame
-            small = cv2.resize(frame_for_infer, (config.INFER_WIDTH, config.INFER_HEIGHT),
+            small = cv2.resize(frame_for_infer, (inf_w, inf_h),
                                interpolation=cv2.INTER_AREA)
             rgb   = cv2.cvtColor(small, cv2.COLOR_BGR2RGB)
             tensor = tfm(Image.fromarray(rgb)).unsqueeze(0).to(device)
@@ -508,7 +537,7 @@ class SwarmManager:
                 import math
                 hfov = getattr(config, 'DRONE_SENSOR_HFOV', 84.0)
                 gw   = 2.0 * ds.altitude_m * math.tan(math.radians(hfov / 2.0))
-                ppm  = config.INFER_WIDTH / max(gw, 0.1)
+                ppm  = inf_w / max(gw, 0.1)
                 corr_factor = (BASELINE_PX_PER_M / max(ppm, 0.01)) ** 2
                 dmap_np_corr = dmap_np * corr_factor
             else:
@@ -521,6 +550,46 @@ class SwarmManager:
                          config.WATCH_THRESHOLD,
                          config.HIGH_THRESHOLD)
             scores, _ = ds.zone_mon.analyze_zones(dmap_np_corr)
+
+            # ── Close-up Person Detection (Hybrid Integration) ──
+            h_f, w_f = frame.shape[:2]
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            
+            # 1. Frontal Face Detection (Haar Cascade)
+            faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=4, minSize=(40, 40))
+            
+            # 2. Pedestrian Detection (HOG)
+            small_w = 400
+            small_h = int(small_w * h_f / w_f)
+            small_gray = cv2.resize(gray, (small_w, small_h), interpolation=cv2.INTER_AREA)
+            rects, weights = hog.detectMultiScale(small_gray, winStride=(8, 8), padding=(8, 8), scale=1.05)
+            
+            closeup_grid = np.zeros((3, 3), dtype=np.float32)
+            
+            # Map faces to the 3x3 grid
+            for (x, y, w, h) in faces:
+                cx, cy = x + w / 2, y + h / 2
+                r_c = int(cy / h_f * 3)
+                c_c = int(cx / w_f * 3)
+                r_c = max(0, min(2, r_c))
+                c_c = max(0, min(2, c_c))
+                closeup_grid[r_c, c_c] += 1.0
+
+            # Map pedestrians to the 3x3 grid
+            for (x, y, w, h) in rects:
+                cx, cy = x + w / 2, y + h / 2
+                r_c = int(cy / small_h * 3)
+                c_c = int(cx / small_w * 3)
+                r_c = max(0, min(2, r_c))
+                c_c = max(0, min(2, c_c))
+                closeup_grid[r_c, c_c] = max(closeup_grid[r_c, c_c], 1.0)
+                
+            # Combine density map scores with discrete detection counts
+            if scores is not None:
+                scores = np.maximum(scores, closeup_grid)
+                
+            # Re-evaluate the overall headcount/density score
+            ds_val = max(ds_val, float(scores.sum()))
 
             # ── Occupancy % per cell ─────────────────────────────
             cap_grid = np.array(ZONE_CAPACITY[min(idx, len(ZONE_CAPACITY)-1)],
@@ -634,6 +703,26 @@ class SwarmManager:
                 idx, ds.name, time.monotonic() - cap_ts, infer_time,
                 ds.reconnect_count, ds.drop_rate_pct, ds.live_fps
             )
+
+            # Push real-time analytics to dashboard portal
+            try:
+                import requests
+                stats = {
+                    "drone_id": f"drone-{idx+1}",
+                    "density_score": float(ds_val),
+                    "comp_zone": comp_zone,
+                    "status": "online" if ds.online else "offline",
+                    "pressure": float(pressure_s),
+                    "stampede_prob": float(sp_res.get("smooth_prob", 0.0)),
+                    "motion_speed": float(motion_speed),
+                    "turbulence": float(turbulence),
+                    "hotspot_alert": hs_res.get("alert_text", ""),
+                    "opposing_alert": opp_res.get("alert_text", ""),
+                    "gps_alerts": gps_alerts
+                }
+                requests.post("http://127.0.0.1:8000/cameras/update_stats", json=stats, timeout=0.2)
+            except Exception:
+                pass
 
             self._update_unified()
 
@@ -803,25 +892,44 @@ class SwarmManager:
                     time.sleep(0.001)
 
             tensors = [r[1] for r in requests]
-            if len(tensors) == 1:
-                batched_tensor = tensors[0]
-            else:
-                batched_tensor = torch.cat(tensors, dim=0)
-
-            try:
-                with torch.inference_mode():
-                    out = mdl(batched_tensor)
-                dmap_batch = out[0] if isinstance(out, (tuple, list)) else out
+            shapes = {t.shape for t in tensors}
+            
+            if len(shapes) == 1:
+                # All tensors have the exact same shape, safe to batch!
+                if len(tensors) == 1:
+                    batched_tensor = tensors[0]
+                else:
+                    batched_tensor = torch.cat(tensors, dim=0)
                 
-                # Split and scatter back
-                for i, r in enumerate(requests):
-                    idx, _, done_event, result_container = r
-                    # Slice from the batch output
-                    single_dmap = dmap_batch[i]
-                    result_container["dmap_np"] = single_dmap.squeeze().detach().float().cpu().numpy()
-                    done_event.set()
-            except Exception as e:
-                print(f"[SWARM-DISPATCHER] Error during batched inference: {e}")
+                try:
+                    with torch.inference_mode():
+                        out = mdl(batched_tensor)
+                    dmap_batch = out[0] if isinstance(out, (tuple, list)) else out
+                    
+                    # Split and scatter back
+                    for i, r in enumerate(requests):
+                        idx, _, done_event, result_container = r
+                        # Slice from the batch output
+                        single_dmap = dmap_batch[i]
+                        result_container["dmap_np"] = single_dmap.squeeze().detach().float().cpu().numpy()
+                        done_event.set()
+                except Exception as e:
+                    print(f"[SWARM-DISPATCHER] Error during batched inference: {e}")
+                    for r in requests:
+                        r[2].set()
+            else:
+                # Mismatched shapes present, run sequentially to avoid torch.cat failures
+                for r in requests:
+                    idx, tensor, done_event, result_container = r
+                    try:
+                        with torch.inference_mode():
+                            out = mdl(tensor)
+                        dmap_single = out[0] if isinstance(out, (tuple, list)) else out
+                        result_container["dmap_np"] = dmap_single.squeeze().detach().float().cpu().numpy()
+                        done_event.set()
+                    except Exception as e:
+                        print(f"[SWARM-DISPATCHER] Error during sequential fallback inference for Drone {idx+1}: {e}")
+                        done_event.set()
                 for r in requests:
                     r[2].set()
 

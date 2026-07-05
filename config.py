@@ -75,6 +75,14 @@ def get_infer_resolution():
             get_infer_resolution._cached = (512, 288)
     return get_infer_resolution._cached
 
+def get_dynamic_infer_resolution(src_w, src_h):
+    is_cuda = is_cuda_available()
+    max_w, max_h = (1024, 576) if is_cuda else (768, 432)
+    scale = min(1.0, max_w / src_w, max_h / src_h)
+    target_w = max(32, (int(src_w * scale) // 32) * 32)
+    target_h = max(32, (int(src_h * scale) // 32) * 32)
+    return target_w, target_h
+
 def __getattr__(name):
     if name == "INFER_WIDTH":
         return get_infer_resolution()[0]

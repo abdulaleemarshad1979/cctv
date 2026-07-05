@@ -96,7 +96,16 @@ def async_load_model():
 swarm_sources = DRONE_SOURCES[:SWARM_DRONE_COUNT]
 use_videos = os.environ.get("USE_VIDEOS", "").lower() in ("1", "true", "yes") or "--videos" in sys.argv
 
-if use_videos:
+# Check if any RTSP source is offline/unreachable
+from src.drone_stream import check_connection
+rtsp_reachable = True
+for src in swarm_sources:
+    if isinstance(src, str) and src.startswith(("rtsp://", "rtsps://", "rtmp://", "rtmps://", "http://", "https://")):
+        if not check_connection(src, timeout=0.5):
+            rtsp_reachable = False
+            break
+
+if use_videos or not rtsp_reachable:
     video_files = ["Kumbh.mp4", "mecca.mp4", "stadium.mp4", "concert.mp4", "Crowd.mp4"]
     local_sources = []
     for f in video_files:
@@ -105,7 +114,7 @@ if use_videos:
             local_sources.append(p)
     if local_sources:
         swarm_sources = [local_sources[i % len(local_sources)] for i in range(SWARM_DRONE_COUNT)]
-        print(f"[SWARM-INFER] Test mode: Using local videos: {swarm_sources}")
+        print(f"[SWARM-INFER] RTSP offline or --videos flag set. Falling back to local videos: {swarm_sources}")
     else:
         print("[SWARM-INFER] Warning: No test videos found in Videos/ directory.")
 
