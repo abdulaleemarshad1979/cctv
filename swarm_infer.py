@@ -26,7 +26,8 @@ from src import overlay, geo_alert
 from src.swarm_manager import SwarmManager, SWARM_DRONE_COUNT, DRONE_SOURCES, DRONE_NAMES
 
 # ── Load model once, share across all drones ─────────────────────────
-from dm_count.models import vgg19
+# ponytail: import build_fusion_model to support combined model inference in swarm mode
+from fusion.models import build_fusion_model
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 if device.type == "cpu":
@@ -57,27 +58,10 @@ class ONNXModelWrapper:
 
 
 def _load_model():
-    if getattr(config, "INFERENCE_BACKEND", "torch") == "onnx":
-        onnx_path = config.WEIGHTS_PATH.replace(".pth", ".onnx")
-        if not os.path.exists(onnx_path):
-            raise FileNotFoundError(f"ONNX model not found at {onnx_path}. Run tools/export_onnx.py first.")
-        print(f"[INFO] Loading ONNX model from {onnx_path}...")
-        return ONNXModelWrapper(onnx_path)
-
-    if not os.path.exists(config.WEIGHTS_PATH):
-        raise FileNotFoundError(f"Model not found: {config.WEIGHTS_PATH}")
-    ckpt = torch.load(config.WEIGHTS_PATH, map_location=device)
-    if isinstance(ckpt, dict):
-        for k in ("state_dict", "model_state_dict", "model", "ema"):
-            if k in ckpt and isinstance(ckpt[k], dict):
-                ckpt = ckpt[k]; break
-    sd = {k.replace("module.", "").replace("model.", ""): v
-          for k, v in ckpt.items() if isinstance(v, torch.Tensor)}
-    m = vgg19(pretrained=False)
-    try:   m.load_state_dict(sd, strict=True)
-    except RuntimeError: m.load_state_dict(sd, strict=False)
-    m.to(device).eval()
-    print("[SWARM-INFER] Model loaded.")
+    # ponytail: Fusion model is now the only model option and runs automatically
+    print("[SWARM-INFER] Loading DM-Count + CSRNet fusion model...")
+    m = build_fusion_model(config, device)
+    print("[SWARM-INFER] Fusion model ready.")
     return m
 
 model = None

@@ -45,6 +45,28 @@ WEIGHTS_PATH = os.path.join(
     BASE_DIR, "dm_count", "pretrained_models", "model_nwpu.pth"
 )
 
+# ─── CSRNet + Fusion layer ──────────────────────────────────────────────
+# ponytail: Fusion is now the only model and runs automatically
+USE_FUSION = True
+
+CSRNET_WEIGHTS_PATH = os.environ.get(
+    "CSRNET_WEIGHTS_PATH",
+    os.path.join(BASE_DIR, "csrnet", "pretrained_models", "csrnet_shtechA.pth"),
+)
+
+# Trained fusion-head checkpoint (see fusion/train_fusion.py). If this file
+# doesn't exist, the fusion head runs untrained, which is equivalent to a
+# safe fixed 50/50 average of DM-Count and CSRNet.
+FUSION_HEAD_WEIGHTS_PATH = os.environ.get(
+    "FUSION_HEAD_WEIGHTS_PATH",
+    os.path.join(BASE_DIR, "fusion", "pretrained_models", "fusion_head.pth"),
+)
+
+# Fallback fixed weights, only used if you explicitly call the model in
+# mode="static" instead of the learned gate.
+FUSION_DM_WEIGHT  = float(os.environ.get("FUSION_DM_WEIGHT", "0.5"))
+FUSION_CSR_WEIGHT = float(os.environ.get("FUSION_CSR_WEIGHT", "0.5"))
+
 # ─── Outputs ──────────────────────────────────────────────────────────
 SAVE_ANNOTATED_VIDEO = False
 ANNOTATED_VIDEO_PATH = os.path.join(BASE_DIR, "outputs", "annotated_output.mp4")

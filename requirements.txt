@@ -20,3 +20,6 @@ fastapi
 uvicorn
 pydantic
 httpx
+
+# Fusion layer training dependency
+h5py>=3.1.0

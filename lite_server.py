@@ -12,8 +12,8 @@ from pydantic import BaseModel
 
 app = FastAPI(title="AP Police Drone Monitoring Portal (LITE)")
 
-# Mount static files directly from monitor/static
-app.mount("/static", StaticFiles(directory="monitor/static"), name="static")
+# Mount static files directly from static
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # In-memory cameras database and processes
 cameras_db = []
@@ -24,6 +24,8 @@ def load_cameras():
     global cameras_db
     cameras_db = []
     video_files = ["Kumbh.mp4", "mecca.mp4", "stadium.mp4", "concert.mp4", "Crowd.mp4"]
+    
+    # Load 40 Drone Feeds (using Fusion model)
     for i in range(1, 41):
         v_file = video_files[(i - 1) % len(video_files)]
         fallback_path = f"Videos/{v_file}" if os.path.exists(os.path.join(os.getcwd(), "Videos", v_file)) else "Videos/Crowd.mp4"
@@ -31,7 +33,34 @@ def load_cameras():
             "id": f"drone-{i}",
             "name": f"DRONE {i}",
             "location": "Pushkaralu" if i % 2 == 0 else "Rjy",
+            "category": "DRONE",
             "stream_path": f"live/drone{i}",
+            "publish_user": "operator",
+            "publish_pass": "pushkar2026",
+            "fallback_video": fallback_path,
+            "status": "offline",
+            "error_type": "stream not found",
+            "people_count": 0,
+            "comp_zone": "SAFE",
+            "pressure": 0.0,
+            "stampede_prob": 0.0,
+            "motion_speed": 0.0,
+            "turbulence": 0.0,
+            "hotspot_alert": "",
+            "opposing_alert": "",
+            "gps_alerts": []
+        })
+
+    # Load 20 CCTV Feeds (using YOLOv11 model)
+    for i in range(1, 21):
+        v_file = video_files[(i - 1) % len(video_files)]
+        fallback_path = f"Videos/{v_file}" if os.path.exists(os.path.join(os.getcwd(), "Videos", v_file)) else "Videos/Crowd.mp4"
+        cameras_db.append({
+            "id": f"cctv-{i}",
+            "name": f"CCTV CAMERA {i}",
+            "location": "Pushkaralu" if i % 2 == 0 else "Rjy",
+            "category": "CCTV",
+            "stream_path": f"live/cctv{i}",
             "publish_user": "operator",
             "publish_pass": "pushkar2026",
             "fallback_video": fallback_path,
@@ -160,6 +189,7 @@ def start_stream(camera, source_url):
     env["HEADLESS"] = "1"
     env["RTMP_TARGET"] = rtmp_target
     env["DRONE_ID"] = str(drone_id)
+    env["CAMERA_CATEGORY"] = camera.get("category", "DRONE")
     env["DJANGO_UPDATE_URL"] = "http://127.0.0.1:8000/cameras/update_stats"
 
     p = subprocess.Popen(
@@ -314,9 +344,11 @@ def stop_camera(drone_id: str):
 def update_stats(data: StatsUpdate):
     drone_id = data.drone_id.lower().strip()
     
-    # Normalize incoming drone ID (e.g., drone1 -> drone-1)
+    # Normalize incoming drone/cctv ID (e.g., drone1 -> drone-1, cctv1 -> cctv-1)
     if "drone" in drone_id and "-" not in drone_id:
         drone_id = drone_id.replace("drone", "drone-")
+    elif "cctv" in drone_id and "-" not in drone_id:
+        drone_id = drone_id.replace("cctv", "cctv-")
 
     matched_camera = None
     for cam in cameras_db:
@@ -346,7 +378,7 @@ from fastapi.responses import StreamingResponse
 
 @app.get("/stream/{path:path}")
 async def proxy_stream(path: str):
-    target_url = f"http://127.0.0.1:8888/{path}"
+    target_url = f"http://127.0.0.1:8088/{path}"
     async with httpx.AsyncClient() as client:
         try:
             req = client.build_request("GET", target_url)
