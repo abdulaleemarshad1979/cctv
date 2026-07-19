@@ -16,18 +16,17 @@ class ZoneMonitor:
             return np.zeros((self.rows, self.cols)), np.zeros((self.rows, self.cols))
 
         h, w = dmap_np.shape[:2]
-        cell_w = w // self.cols
-        ROW_BOUNDARIES = [0.0, 0.30, 0.62, 1.0]
-
         scores = np.zeros((self.rows, self.cols))
         normalized_scores = np.zeros((self.rows, self.cols))
 
         for r in range(self.rows):
-            r_start = int(ROW_BOUNDARIES[r] * h)
-            r_end = int(ROW_BOUNDARIES[r+1] * h) if r < self.rows - 1 else h
+            # Use the same exact equal-thirds geometry as YOLO and the overlay.
+            # Integer edge calculation also covers every pixel exactly once.
+            r_start = r * h // self.rows
+            r_end = (r + 1) * h // self.rows
             for c in range(self.cols):
-                c_start = c * cell_w
-                c_end = (c + 1) * cell_w if c < self.cols - 1 else w
+                c_start = c * w // self.cols
+                c_end = (c + 1) * w // self.cols
 
                 cell = dmap_np[r_start:r_end, c_start:c_end]
                 cell_sum = float(cell.sum())

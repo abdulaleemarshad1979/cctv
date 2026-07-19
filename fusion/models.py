@@ -50,9 +50,8 @@ Design
    This is the actual "fusion layer" — everything else is just the two
    existing pretrained backbones. It is intentionally small (~5k params) so
    it can be trained in minutes on a handful of density-map-labelled images,
-   or even used untrained: the gate conv is zero-initialized, so
-   sigmoid(0) = 0.5 and the model starts out as a plain 50/50 average of the
-   two backbones, which is already a safe, reasonable default.
+   A learned gate is used only when its checkpoint exists. Otherwise inference
+   uses the configured conservative static blend of the two trained backbones.
 
 4. `mu_sum` (total head-count) is `fused.sum()`. We keep the OT-style
    normalized copy `mu_normed` too, purely so this module presents the same
@@ -121,8 +120,9 @@ class FusionCountingModel(nn.Module):
 
         # Static fallback weights, used only if you want a fixed weighted
         # average instead of the learned gate (see `mode="static"` below).
-        self.dm_weight = dm_weight
-        self.csr_weight = csr_weight
+        weight_total = max(float(dm_weight) + float(csr_weight), 1e-6)
+        self.dm_weight = float(dm_weight) / weight_total
+        self.csr_weight = float(csr_weight) / weight_total
 
         if freeze_backbones:
             self.set_backbones_trainable(False)
@@ -172,11 +172,17 @@ class FusionCountingModel(nn.Module):
     def load_backbone_weights(self, dm_count_path=None, csrnet_path=None, device="cpu"):
         if dm_count_path:
             sd = _clean_state_dict(torch.load(dm_count_path, map_location=device))
-            self.dm_model.load_state_dict(sd, strict=False)
+            try:
+                self.dm_model.load_state_dict(sd, strict=True)
+            except RuntimeError as exc:
+                raise RuntimeError(f"DM-Count checkpoint is incompatible: {exc}") from exc
             print(f"[Fusion] Loaded DM-Count weights from {dm_count_path}")
         if csrnet_path:
             sd = _clean_state_dict(torch.load(csrnet_path, map_location=device))
-            self.csr_model.load_state_dict(sd, strict=False)
+            try:
+                self.csr_model.load_state_dict(sd, strict=True)
+            except RuntimeError as exc:
+                raise RuntimeError(f"CSRNet checkpoint is incompatible: {exc}") from exc
             print(f"[Fusion] Loaded CSRNet weights from {csrnet_path}")
 
     def load_fusion_head(self, path, device="cpu"):
@@ -234,6 +240,7 @@ def build_fusion_model(config, device):
             model.load_fusion_head(fusion_head_path, device=device)
         else:
             print(f"[Fusion] No trained fusion head at {fusion_head_path} — "
-                  f"using untrained 50/50 gate (still valid, just not tuned).")
+                  f"using configured static trained-backbone blend "
+                  f"({model.dm_weight:.2f} DM / {model.csr_weight:.2f} CSR).")
     model.to(device).eval()
     return model

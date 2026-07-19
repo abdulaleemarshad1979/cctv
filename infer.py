@@ -44,11 +44,11 @@ from src import (
 from src.history_buffer         import HistoryBuffer
 from src.hotspot_tracker        import HotspotTracker
 from src.opposing_flow_detector import OpposingFlowDetector
-from src.stampede_predictor     import StampedePredictor
+from src.crowd_risk_estimator   import CrowdRiskEstimator
+from src.counting_accuracy      import TemporalCountStabilizer, allocate_zone_counts
 
 # ── model setup ───────────────────────────────────────────────────────
-# ponytail: import build_fusion_model to support combined model inference
-from fusion.models import build_fusion_model
+from models.model_registry import load_counting_model
 
 device     = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 AMP_ENABLED = device.type == "cuda"
@@ -94,7 +94,7 @@ def make_pseudo_density_map(boxes, shape, frame_shape):
     scale_x = infer_w / frame_w
     
     for box in boxes:
-        xyxy = box.xyxy[0].cpu().numpy()
+        xyxy = np.asarray(box, dtype=np.float32)
         x_c = (xyxy[0] + xyxy[2]) / 2.0 * scale_x
         y_c = (xyxy[1] + xyxy[3]) / 2.0 * scale_y
         
@@ -115,19 +115,98 @@ def make_pseudo_density_map(boxes, shape, frame_shape):
 
 
 def _load_model():
-    if is_yolo_mode:
-        print("[INFO] Loading YOLOv11 (YOLO v26) model for CCTV counting...")
-        from ultralytics import YOLO
-        yolo_path = os.path.join(os.getcwd(), "yolo11n.pt")
-        m = YOLO(yolo_path)
-        print("[INFO] YOLO model ready.")
-        return m
-    else:
-        # ponytail: Fusion model is now the only model option and runs automatically
-        print("[INFO] Loading DM-Count + CSRNet fusion model...")
-        m = build_fusion_model(config, device)
-        print("[INFO] Fusion model ready.")
-        return m
+    requested_model = getattr(config, "DRONE_MODEL", "fusion").lower()
+    model_name = requested_model
+    csrnet_path = getattr(config, "CSRNET_WEIGHTS_PATH", "")
+    fusion_head_path = getattr(config, "FUSION_HEAD_WEIGHTS_PATH", "")
+    has_csrnet = bool(csrnet_path and os.path.exists(csrnet_path))
+    has_fusion_head = bool(fusion_head_path and os.path.exists(fusion_head_path))
+    if requested_model == "fusion" and not has_csrnet:
+        model_name = "dm_count"
+        print(
+            "[ACCURACY] Trained CSRNet checkpoint is missing; "
+            "using trained DM-Count only instead of an untrained fusion branch."
+        )
+    elif requested_model == "fusion" and not has_fusion_head:
+        print(
+            "[ACCURACY] Using conservative fusion of the trained DM-Count "
+            "and CSRNet backbones; no learned fusion-head checkpoint is installed."
+        )
+    elif requested_model == "csrnet" and not has_csrnet:
+        model_name = "dm_count"
+        print(
+            "[ACCURACY] Trained CSRNet checkpoint is missing; "
+            "using trained DM-Count instead of a random CSRNet backend."
+        )
+
+    print(f"[INFO] Loading production model: {model_name}...")
+    fm = load_counting_model(model_name, device)
+    print(f"[INFO] Model {model_name} ready.")
+
+    print("[INFO] Loading YOLOv11 model for hybrid detection...")
+    from ultralytics import YOLO
+    yolo_path = os.path.join(os.getcwd(), "yolo11n.pt")
+    ym = YOLO(yolo_path)
+    print("[INFO] YOLO model ready.")
+    counter_label = (
+        "DM-Count (NWPU)"
+        if model_name == "dm_count"
+        else "Fusion (DM-Count+CSRNet)"
+        if model_name == "fusion"
+        else "CSRNet"
+    )
+    return {
+        "fusion": fm,
+        "yolo": ym,
+        "counter_name": model_name,
+        "counter_label": counter_label,
+    }
+
+
+def _track_people(frame):
+    """Track people and return ``(box, confidence)`` pairs."""
+    yolo = model["yolo"]
+    yolo_imgsz = (
+        getattr(config, "YOLO_IMG_SIZE", 960)
+        if getattr(config, "YOLO_HIGH_ACCURACY", True)
+        else 640
+    )
+    try:
+        results = yolo.track(
+            source=frame,
+            persist=True,
+            classes=[0],
+            imgsz=yolo_imgsz,
+            conf=getattr(config, "YOLO_CONFIDENCE", 0.20),
+            iou=getattr(config, "YOLO_IOU", 0.55),
+            max_det=getattr(config, "YOLO_MAX_DETECTIONS", 3000),
+            agnostic_nms=True,
+            verbose=False,
+        )
+    except Exception as exc:
+        # Keep counting available if the optional tracker dependency is missing.
+        if not getattr(_track_people, "_fallback_reported", False):
+            print(f"[YOLO] Tracker unavailable ({exc}); using person detection fallback.")
+            _track_people._fallback_reported = True
+        results = yolo(
+            frame,
+            classes=[0],
+            imgsz=yolo_imgsz,
+            conf=getattr(config, "YOLO_CONFIDENCE", 0.20),
+            iou=getattr(config, "YOLO_IOU", 0.55),
+            max_det=getattr(config, "YOLO_MAX_DETECTIONS", 3000),
+            agnostic_nms=True,
+            verbose=False,
+        )
+
+    if not results or results[0].boxes is None:
+        return []
+
+    return [
+        (box.xyxy[0].detach().cpu().tolist(), float(box.conf[0]))
+        for box in results[0].boxes
+        if int(box.cls[0]) == 0
+    ]
 
 
 model = None
@@ -192,13 +271,28 @@ if os.environ.get("VERIFY_PREPROCESS", "1") in ("1", "true", "yes", "on"):
 
 def _infer(tensor):
     with torch.inference_mode():
+        fm = model["fusion"]
         if AMP_ENABLED:
             with torch.cuda.amp.autocast(dtype=torch.float16):
-                out = model(tensor)
+                out = fm(tensor)
         else:
-            out = model(tensor)
+            out = fm(tensor)
     dm = out[0] if isinstance(out, (tuple, list)) else out
     return dm
+
+
+def _infer_density_map(frame):
+    """Run DM/fusion inference with horizontal-flip test-time augmentation."""
+    tensor = _preprocess(frame)
+    if getattr(config, "COUNT_FLIP_TTA", True):
+        batch = torch.cat((tensor, torch.flip(tensor, dims=[3])), dim=0)
+        dmaps = _infer(batch).detach().float()
+        original = dmaps[0]
+        mirrored = torch.flip(dmaps[1], dims=[2])
+        dmap = 0.5 * (original + mirrored)
+    else:
+        dmap = _infer(tensor).squeeze(0).detach().float()
+    return dmap.squeeze().cpu().numpy()
 
 
 def _adapt_stride(elapsed):
@@ -234,6 +328,10 @@ _proc_fps      = 0.0
 _zone_scores   = None          # np (3,3)
 _is_live       = False
 _yolo_boxes    = []
+_is_simulation = False
+_counting_mode_active = os.environ.get("COUNTING_MODE_ACTIVE", "1").lower() in (
+    "1", "true", "yes", "on"
+)
 
 # Decoupled analytics state
 _speed_grid      = np.zeros((3, 3), dtype=np.float32)
@@ -250,6 +348,28 @@ _analytics_ts    = 0.0
 
 _frame_q = queue.Queue(maxsize=1)
 _health_stats = {"reconnects": 0, "drop_rate_%": 0.0, "live_fps": 0.0}
+
+
+def _mode_sync_worker():
+    """Keep the video worker's mode in sync independently of stats posts."""
+    global _counting_mode_active
+
+    mode_url = os.environ.get("MODE_STATUS_URL", "").strip()
+    if not mode_url:
+        return
+
+    import requests
+
+    while not _stop.is_set():
+        try:
+            response = requests.get(mode_url, timeout=2.0)
+            response.raise_for_status()
+            active = bool(response.json().get("counting_mode", True))
+            with _lock:
+                _counting_mode_active = active
+        except Exception:
+            pass
+        _stop.wait(0.5)
 
 
 def _clear_q(q):
@@ -275,7 +395,7 @@ def _producer():
         if not sh.is_opened():
             print(f"[ERROR] Cannot open source {source}. Offline.")
             # If the source is a network stream and we haven't fallen back yet, try a local video file
-            if not fallback_active and isinstance(source, str) and source.startswith(("rtsp://", "rtsps://", "rtmp://", "rtmps://", "http://", "https://")):
+            if config.ALLOW_DEMO_FALLBACK and not fallback_active and isinstance(source, str) and source.startswith(("rtsp://", "rtsps://", "rtmp://", "rtmps://", "http://", "https://")):
                 print("[INFO] Attempting fallback to local video file...")
                 video_dir = os.path.join(config.BASE_DIR, "Videos")
                 video_files = []
@@ -289,6 +409,9 @@ def _producer():
                     selected_video = video_files[camera_index % len(video_files)]
                     source = os.path.join("Videos", selected_video)
                     fallback_active = True
+                    with _lock:
+                        global _is_simulation
+                        _is_simulation = True
                     print(f"[INFO] Switched source to fallback local video: {source}")
                     continue
             
@@ -372,8 +495,14 @@ def _inference_worker():
     history     = HistoryBuffer(max_seconds=30.0, fps_estimate=5.0)
     hs_tracker  = HotspotTracker(history)
     opp_det     = OpposingFlowDetector()
-    stamp_pred  = StampedePredictor(history)
+    risk_est    = CrowdRiskEstimator(history)
     pressure_smooth = 0.0
+    count_stabilizer = TemporalCountStabilizer(
+        window_size=getattr(config, "COUNT_TEMPORAL_WINDOW", 3),
+        ema_alpha=getattr(config, "COUNT_EMA_ALPHA", 0.65),
+        calibration_scale=getattr(config, "COUNT_CALIBRATION_SCALE", 1.0),
+        calibration_bias=getattr(config, "COUNT_CALIBRATION_BIAS", 0.0),
+    )
 
     # Initialize close-up detectors (Haar Frontal Face & HOG Pedestrian)
     face_cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
@@ -387,25 +516,57 @@ def _inference_worker():
         except queue.Empty:
             continue
 
+        # Viewing Mode is deliberately video-only. Do not run YOLO, the
+        # DM-Count/CSRNet fusion model, motion analytics, or risk analytics.
+        with _lock:
+            counting_mode_active = _counting_mode_active
+        if not counting_mode_active:
+            count_stabilizer.reset()
+            continue
+
         t0       = time.perf_counter()
         if is_yolo_mode:
-            # Run YOLO inference
-            results = model(frame, verbose=False)
-            boxes = results[0].boxes
-            person_boxes = [box for box in boxes if int(box.cls[0]) == 0]
-            dmap_np = make_pseudo_density_map(person_boxes, (config.INFER_HEIGHT, config.INFER_WIDTH), frame.shape[:2])
-            yolo_boxes_val = [box.xyxy[0].cpu().tolist() for box in person_boxes]
-            ds = float(len(person_boxes))
+            # CCTV feeds use YOLO person tracking as their count source.
+            tracked_people = _track_people(frame)
+            yolo_boxes_val = [
+                box for box, confidence in tracked_people
+                if confidence >= getattr(config, "YOLO_DOT_CONFIDENCE", 0.10)
+            ]
+            count_boxes_val = [
+                box for box, confidence in tracked_people
+                if confidence >= getattr(config, "YOLO_COUNT_CONFIDENCE", 0.30)
+            ]
+            dmap_np = make_pseudo_density_map(
+                count_boxes_val,
+                (config.INFER_HEIGHT, config.INFER_WIDTH),
+                frame.shape[:2],
+            )
         else:
-            tensor   = _preprocess(frame)
-            dmap_out = _infer(tensor)
-            dmap_np  = dmap_out.squeeze().detach().float().cpu().numpy()
+            # 1) Fusion density map (kept for risk visualization)
+            dmap_np = _infer_density_map(frame)
             dmap_np  = density_filter.clean_density_map(
                 dmap_np,
-                source_frame_bgr=frame,
+                # The input image was already cleaned before inference. Do not
+                # delete predicted density afterwards: its integral is the count.
+                source_frame_bgr=None,
                 speckle_ratio=getattr(config, "DENSITY_SPECKLE_RATIO", 0.015),
             )
-            yolo_boxes_val = []
+
+            # 2) YOLOv11 for human detections (used for counting + per-zone headcounts)
+            tracked_people = _track_people(frame)
+            yolo_boxes_val = [
+                box for box, confidence in tracked_people
+                if confidence >= getattr(config, "YOLO_DOT_CONFIDENCE", 0.10)
+            ]
+            count_boxes_val = [
+                box for box, confidence in tracked_people
+                if confidence >= getattr(config, "YOLO_COUNT_CONFIDENCE", 0.30)
+            ]
+
+        # Only high-confidence detections influence the numeric count. The
+        # lower threshold is visual-only so tiny aerial people still get dots.
+        people_count = float(len(count_boxes_val))
+
 
         with _lock:
             is_live_val = _is_live
@@ -420,54 +581,36 @@ def _inference_worker():
             dmap_np = dmap_np * corr_factor
 
         ds_metrics, pd, hr, rs = risk_engine.compute_pressure_metrics(dmap_np)
-        zv, zc         = risk_engine.get_risk_zone(rs,
-                             config.SAFE_THRESHOLD,
-                             config.WATCH_THRESHOLD,
-                             config.HIGH_THRESHOLD)
+        zv, zc         = risk_engine.get_risk_zone(
+            rs,
+            config.SAFE_THRESHOLD,
+            config.WATCH_THRESHOLD,
+            config.HIGH_THRESHOLD,
+        )
         scores, _      = zm.analyze_zones(dmap_np)
 
-        if not is_yolo_mode:
-            # ── Close-up Person Detection (Hybrid Integration) ──
-            h_f, w_f = frame.shape[:2]
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            
-            # 1. Frontal Face Detection (Haar Cascade)
-            faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=4, minSize=(40, 40))
-            
-            # 2. Pedestrian Detection (HOG)
-            small_w = 400
-            small_h = int(small_w * h_f / w_f)
-            small_gray = cv2.resize(gray, (small_w, small_h), interpolation=cv2.INTER_AREA)
-            rects, weights = hog.detectMultiScale(small_gray, winStride=(8, 8), padding=(8, 8), scale=1.05)
-            
-            closeup_grid = np.zeros((3, 3), dtype=np.float32)
-            
-            # Map faces to the 3x3 grid
-            for (x, y, w, h) in faces:
-                cx, cy = x + w / 2, y + h / 2
-                r_c = int(cy / h_f * 3)
-                c_c = int(cx / w_f * 3)
-                r_c = max(0, min(2, r_c))
-                c_c = max(0, min(2, c_c))
-                closeup_grid[r_c, c_c] += 1.0
+        # ── Per-zone headcount from YOLO dots (always) ──
+        h_f, w_f = frame.shape[:2]
+        zone_headcounts = np.zeros((3, 3), dtype=np.float32)
+        for box in count_boxes_val:
+            bx1, by1, bx2, by2 = box
+            cx = (bx1 + bx2) / 2
+            cy = (by1 + by2) / 2
+            r_c = int(cy / h_f * 3)
+            c_c = int(cx / w_f * 3)
+            r_c = max(0, min(2, r_c))
+            c_c = max(0, min(2, c_c))
+            zone_headcounts[r_c, c_c] += 1.0
 
-            # Map pedestrians to the 3x3 grid
-            for (x, y, w, h) in rects:
-                cx, cy = x + w / 2, y + h / 2
-                r_c = int(cy / small_h * 3)
-                c_c = int(cx / small_w * 3)
-                r_c = max(0, min(2, r_c))
-                c_c = max(0, min(2, c_c))
-                closeup_grid[r_c, c_c] = max(closeup_grid[r_c, c_c], 1.0)
-                
-            # Combine density map scores with discrete detection counts
-            if scores is not None:
-                scores = np.maximum(scores, closeup_grid)
-                
-            # Re-evaluate the overall headcount/density score
-            ds = max(ds_metrics, float(scores.sum()))
+        # The trained density model counts occluded people; YOLO supplies a
+        # hard detected-person floor. Stabilization removes one-frame spikes.
+        if not is_yolo_mode:
+            ds = count_stabilizer.update(float(ds_metrics), people_count)
+            scores = allocate_zone_counts(scores, zone_headcounts, ds)
         else:
-            ds = max(ds, float(scores.sum()) if scores is not None else ds)
+            ds = count_stabilizer.update(people_count, people_count)
+            scores = allocate_zone_counts(zone_headcounts, zone_headcounts, ds)
+
 
         # Run Motion and Flow analytics on the frame
         speed_grid, motion_speed, turbulence = motion_anal.analyze_motion(frame)
@@ -491,25 +634,6 @@ def _inference_worker():
                       else {"danger_grid": None, "max_score": 0.0,
                             "any_dangerous": False, "alert_text": ""})
 
-        # ponytail: if the stream is empty/test, simulate a realistic crowd so the dashboard displays active crowd stats
-        if ds < 5.0:
-            import math
-            t_sec = time.time()
-            sim_count = 135.0 + 15.0 * math.sin(t_sec / 10.0)
-            ds = sim_count
-            pd = 0.45 + 0.05 * math.cos(t_sec / 15.0)
-            hr = 0.15 + 0.02 * math.sin(t_sec / 12.0)
-            rs = 0.35 + 0.04 * math.sin(t_sec / 8.0)
-            zv, zc = risk_engine.get_risk_zone(
-                rs,
-                config.SAFE_THRESHOLD, config.WATCH_THRESHOLD, config.HIGH_THRESHOLD
-            )
-            base_cell = sim_count / 9.0
-            scores = np.ones((3, 3), dtype=np.float32) * base_cell
-            motion_speed = 1.1 + 0.1 * math.sin(t_sec / 5.0)
-            turbulence = 0.35 + 0.05 * math.cos(t_sec / 7.0)
-            crowd_present = True
-
         # Composite risk
         comp_risk = risk_track.compute_composite_risk(
             ds, pd, hr, motion_speed, turbulence
@@ -526,8 +650,9 @@ def _inference_worker():
 
         # Push to history
         hs_result    = {"trend_matrix": None, "alert_text": "", "expanding": False}
-        sp_result    = {"smooth_prob": 0.0, "label": "SAFE",
-                        "label_color": (0,255,0), "alert_text": "", "terms": {}}
+        sp_result    = {"risk_index": 0.0, "risk_level": "SAFE", "confidence": 1.0,
+                        "primary_causes": [], "label": "SAFE", "label_color": (0, 255, 0),
+                        "alert_text": "", "smooth_prob": 0.0, "terms": {}}
 
         if scores is not None and crowd_present:
             history.push(
@@ -538,7 +663,7 @@ def _inference_worker():
                 zone_scores=scores, zone_motions=speed_grid,
             )
             hs_result = hs_tracker.update(scores)
-            sp_result = stamp_pred.predict(
+            sp_result = risk_est.estimate(
                 density_score=ds,
                 motion_speed=motion_speed,
                 turbulence=turbulence,
@@ -546,7 +671,7 @@ def _inference_worker():
             )
 
             # GPS alerts for HIGH/CRITICAL cells
-            gps_alerts = []
+            geo_alerts = []
             cap_grid = np.array(config.ZONE_CAPACITY[0], dtype=float)
             lat_min, lon_min, lat_max, lon_max = config.DRONE_GPS_BOUNDS[0]
             
@@ -582,9 +707,10 @@ def _inference_worker():
                                 f"GPS: {gps_str} — estimated {int(scores[r, c])} people"
                             ),
                         }
-                        gps_alerts.append(ga)
-            if gps_alerts:
-                geo_alert.dispatch(gps_alerts)
+                        geo_alerts.append(ga)
+            if geo_alerts:
+                geo_alert.dispatch(geo_alerts)
+
 
         elapsed = time.perf_counter() - t0
         now     = time.perf_counter()
@@ -617,22 +743,24 @@ def _inference_worker():
             _pressure_smooth = pressure_smooth
             _sp_result       = sp_result
             _hs_result       = hs_result
-            _yolo_boxes      = yolo_boxes_val if is_yolo_mode else []
+            _yolo_boxes      = yolo_boxes_val
             _analytics_ts    = time.monotonic()
 
 
 threading.Thread(target=_producer,          daemon=True, name="Producer").start()
 threading.Thread(target=_inference_worker,  daemon=True, name="Inference").start()
+threading.Thread(target=_mode_sync_worker,   daemon=True, name="ModeSync").start()
 
 # ── display window ────────────────────────────────────────────────────
 if os.environ.get("HEADLESS", "0") != "1":
     cv2.namedWindow(config.WINDOW_NAME, cv2.WINDOW_NORMAL)
     cv2.resizeWindow(config.WINDOW_NAME, config.DISPLAY_WIDTH, config.DISPLAY_HEIGHT)
-print("[INFO] Keys: q=quit  g=toggle-grid  r=record  l=CSV  s=stampede-panel")
+print("[INFO] Keys: q=quit  g=toggle-grid  h=toggle-heatmap  r=record  l=CSV  s=stampede-panel")
 
 # ── component instances ───────────────────────────────────────────────
 show_stampede    = True
 show_grid        = True
+show_heatmap     = False
 recording        = False
 
 crowd_log   = logger.CrowdLogger(config.CSV_LOG_PATH, enabled=config.WRITE_CSV_LOG)
@@ -679,7 +807,9 @@ while not _stop.is_set():
         zone_scores   = _zone_scores
         health_stats  = _health_stats
         is_live_val   = _is_live
+        is_simulation_val = _is_simulation
         yolo_boxes    = _yolo_boxes
+        counting_mode_active = _counting_mode_active
         
         # Grab decoupled analytics state
         speed_grid      = _speed_grid.copy() if _speed_grid is not None else np.zeros((3, 3), dtype=np.float32)
@@ -733,67 +863,82 @@ while not _stop.is_set():
 
     # ── draw ────────────────────────────────────────────────────────
     t_overlay_start = time.perf_counter()
-    overlay.draw_top_banner(disp, comp_zone, comp_color, pressure_smooth)
-    
-    # ── draw YOLO boxes ──
-    if is_yolo_mode and yolo_boxes:
-        h_orig, w_orig = frame.shape[:2]
-        h_disp, w_disp = disp.shape[:2]
-        scale_y = h_disp / h_orig
-        scale_x = w_disp / w_orig
-        for box in yolo_boxes:
-            x1 = int(box[0] * scale_x)
-            y1 = int(box[1] * scale_y)
-            x2 = int(box[2] * scale_x)
-            y2 = int(box[3] * scale_y)
-            cv2.rectangle(disp, (x1, y1), (x2, y2), (255, 0, 0), 1) # Blue bounding box
-            cv2.putText(disp, "person", (x1, max(y1 - 4, 10)),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.35, (255, 0, 0), 1, cv2.LINE_AA)
+    if counting_mode_active:
+        overlay.draw_top_banner(disp, comp_zone, comp_color, pressure_smooth)
+        
+        # ── draw YOLO dots (mapping humans) ──
+        if yolo_boxes:
+            h_orig, w_orig = frame.shape[:2]
+            h_disp, w_disp = disp.shape[:2]
+            scale_y = h_disp / h_orig
+            scale_x = w_disp / w_orig
+            for box in yolo_boxes:
+                x1 = int(box[0] * scale_x)
+                y1 = int(box[1] * scale_y)
+                x2 = int(box[2] * scale_x)
+                y2 = int(box[3] * scale_y)
+                cx = (x1 + x2) // 2
+                cy = (y1 + y2) // 2
+                # Draw a solid green dot with a black border to map the human
+                cv2.circle(disp, (cx, cy), 6, (0, 255, 0), -1)
+                cv2.circle(disp, (cx, cy), 7, (0, 0, 0), 1)
 
-    # Draw model indicator below banner
-    model_label = "YOLO v26 Counting" if is_yolo_mode else "Fusion Model (DM-Count+CSRNet)"
-    cv2.putText(disp, f"Model: {model_label}", (20, overlay.BANNER_H + 20),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 255), 1, cv2.LINE_AA)
-    
-    # Visual capture-to-display latency indicator (Priority 2 verification)
-    latency_ms = age * 1000.0
-    cv2.putText(disp, f"Latency: {latency_ms:.0f}ms", (config.DISPLAY_WIDTH - 150, 28),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.45, (220, 220, 220), 1, cv2.LINE_AA)
+        # Draw model indicator below banner
+        counter_label = model.get("counter_label", "Density Counter") if isinstance(model, dict) else "Density Counter"
+        model_label = "YOLO Person Tracking" if is_yolo_mode else f"YOLO Tracking + {counter_label}"
+        cv2.putText(disp, f"Model: {model_label}", (20, overlay.BANNER_H + 20),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 255), 1, cv2.LINE_AA)
+        
+        # Visual capture-to-display latency indicator (Priority 2 verification)
+        latency_ms = age * 1000.0
+        cv2.putText(disp, f"Latency: {latency_ms:.0f}ms", (config.DISPLAY_WIDTH - 150, 28),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.45, (220, 220, 220), 1, cv2.LINE_AA)
 
-    # Analytics Staleness Indicator (Prompt 3)
-    staleness_ms = (time.monotonic() - analytics_ts) * 1000.0 if analytics_ts > 0 else 0.0
-    cv2.putText(disp, f"Staleness: {staleness_ms:.0f}ms", (config.DISPLAY_WIDTH - 150, 48),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.45, (220, 220, 220), 1, cv2.LINE_AA)
+        # Analytics Staleness Indicator (Prompt 3)
+        staleness_ms = (time.monotonic() - analytics_ts) * 1000.0 if analytics_ts > 0 else 0.0
+        cv2.putText(disp, f"Staleness: {staleness_ms:.0f}ms", (config.DISPLAY_WIDTH - 150, 48),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.45, (220, 220, 220), 1, cv2.LINE_AA)
 
-    if show_grid:
-        overlay.draw_grid_3x3(
-            disp,
-            zone_scores     = zone_scores,
-            zone_motions    = speed_grid,
-            trend_matrix    = hs_result.get("trend_matrix"),
-            opposing_danger = opp_result.get("danger_grid"),
-            panel_visible   = show_stampede,
-        )
+    # Simulation Watermark overlay if active (always draw for simulation feeds for security compliance)
+    if is_simulation_val:
+        # Draw a semi-transparent warning watermark banner at the bottom
+        cv2.rectangle(disp, (0, config.DISPLAY_HEIGHT - 65), (config.DISPLAY_WIDTH, config.DISPLAY_HEIGHT - 35), (0, 0, 180), -1)
+        cv2.putText(disp, "SIMULATION - NOT A LIVE CAMERA", (config.DISPLAY_WIDTH // 2 - 250, config.DISPLAY_HEIGHT - 43),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.75, (255, 255, 255), 2, cv2.LINE_AA)
 
-    if show_stampede:
-        overlay.draw_stampede_panel(disp, sp_result)
+    if counting_mode_active:
+        if show_grid:
+            overlay.draw_grid_3x3(
+                disp,
+                zone_scores     = zone_scores,
+                zone_motions    = speed_grid,
+                trend_matrix    = hs_result.get("trend_matrix"),
+                opposing_danger = opp_result.get("danger_grid"),
+                panel_visible   = show_stampede,
+                density_map     = dmap,
+                show_heatmap    = show_heatmap,
+            )
 
-    alerts = [a for a in [
-        hs_result.get("alert_text", ""),
-        opp_result.get("alert_text", ""),
-        sp_result.get("alert_text", ""),
-    ] if a]
-    
-    # Track alert first shown times
-    now = time.monotonic()
-    for a in list(alert_first_shown_times.keys()):
-        if a not in alerts:
-            del alert_first_shown_times[a]
-    for a in alerts:
-        if a not in alert_first_shown_times:
-            alert_first_shown_times[a] = now
+        if show_stampede:
+            overlay.draw_stampede_panel(disp, sp_result)
 
-    overlay.draw_alert_ticker(disp, alerts, alert_first_shown_times, now)
+        alerts = [a for a in [
+            hs_result.get("alert_text", ""),
+            opp_result.get("alert_text", ""),
+            sp_result.get("alert_text", ""),
+        ] if a]
+        
+        # Track alert first shown times
+        now = time.monotonic()
+        for a in list(alert_first_shown_times.keys()):
+            if a not in alerts:
+                del alert_first_shown_times[a]
+        for a in alerts:
+            if a not in alert_first_shown_times:
+                alert_first_shown_times[a] = now
+
+        overlay.draw_alert_ticker(disp, alerts, alert_first_shown_times, now)
+        
     t_overlay_dur = time.perf_counter() - t_overlay_start
 
     # ── recording ─────────────────────────────────────────────────
@@ -915,25 +1060,39 @@ while not _stop.is_set():
             if drone_id_env and django_url:
                 try:
                     import requests
-                    def send_post():
+                    stats_payload = {
+                        "drone_id": drone_id_env,
+                        "density_score": float(density_score),
+                        "comp_zone": comp_zone,
+                        "status": "online",
+                        "pressure": float(pressure_smooth),
+                        "stampede_prob": float(sp_result.get("smooth_prob", 0.0)),
+                        "risk_index": float(sp_result.get("risk_index", 0.0)),
+                        "risk_level": sp_result.get("risk_level", "SAFE"),
+                        "confidence": float(sp_result.get("confidence", 1.0)),
+                        "primary_causes": sp_result.get("primary_causes", []),
+                        "motion_speed": float(motion_speed),
+                        "turbulence": float(turbulence),
+                        "hotspot_alert": hs_result.get("alert_text", ""),
+                        "opposing_alert": opp_result.get("alert_text", ""),
+                        "gps_alerts": [],
+                        "zone_scores": zone_scores.tolist() if zone_scores is not None else None,
+                        "analytics_active": bool(counting_mode_active),
+                    }
+
+                    def send_post(payload=stats_payload):
                         try:
-                            requests.post(
+                            resp = requests.post(
                                 django_url,
-                                json={
-                                    "drone_id": drone_id_env,
-                                    "density_score": float(density_score),
-                                    "comp_zone": comp_zone,
-                                    "status": "online",
-                                    "pressure": float(pressure_smooth),
-                                    "stampede_prob": float(sp_result.get("smooth_prob", 0.0)),
-                                    "motion_speed": float(motion_speed),
-                                    "turbulence": float(turbulence),
-                                    "hotspot_alert": hs_result.get("alert_text", ""),
-                                    "opposing_alert": opp_result.get("alert_text", ""),
-                                    "gps_alerts": gps_alerts
-                                },
+                                json=payload,
                                 timeout=0.5
                             )
+                            if resp.status_code == 200:
+                                rdata = resp.json()
+                                if "counting_mode" in rdata:
+                                    global _counting_mode_active
+                                    with _lock:
+                                        _counting_mode_active = rdata["counting_mode"]
                         except Exception:
                             pass
                     threading.Thread(target=send_post, daemon=True).start()
@@ -976,6 +1135,7 @@ while not _stop.is_set():
 
     if   key == ord("q"): _stop.set(); break
     elif key == ord("g"): show_grid       = not show_grid
+    elif key == ord("h"): show_heatmap    = not show_heatmap
     elif key == ord("s"): show_stampede   = not show_stampede
     elif key == ord("r"):
         recording = not recording

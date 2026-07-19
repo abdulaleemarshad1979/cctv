@@ -1,38 +1,28 @@
-# MediaMTX Low-Latency Configuration
-# Auto-loaded by mediamtx when run from this directory
-
-# RTSP server
+# MediaMTX Low-Latency Configuration (Auto-generated)
 rtsp: yes
 rtspAddress: :8554
 protocols: [udp, multicast, tcp]
 rtpAddress: :8002
 rtcpAddress: :8003
 
-# RTMP server
 rtmp: yes
 rtmpAddress: :1935
 
-# SRT server (UDP-based streaming)
 srt: yes
 srtAddress: :8890
 
-# WebRTC server (Ultra-low latency web player)
 webrtc: yes
 webrtcAddress: :8889
 
-# HLS server on port 8088
 hls: yes
 hlsAddress: :8088
 
-# Timeouts
 readTimeout: 5s
 writeTimeout: 5s
 
-# Global External Authentication URL
-externalAuthenticationURL: http://localhost:8000/auth
+externalAuthenticationURL: http://127.0.0.1:8000/auth
 
 paths:
   all:
-    # Webhooks to notify backend when stream is ready or not ready
-    runOnReady: 'curl -X POST http://localhost:8000/cameras/state -H "Content-Type: application/json" -d "{\"path\":\"$MTX_PATH\", \"status\":\"online\"}"'
-    runOnNotReady: 'curl -X POST http://localhost:8000/cameras/state -H "Content-Type: application/json" -d "{\"path\":\"$MTX_PATH\", \"status\":\"offline\"}"'
+    runOnReady: 'curl -X POST http://127.0.0.1:8000/cameras/state -H "Content-Type: application/json" -d "{\"path\":\"$MTX_PATH\", \"status\":\"online\"}"'
+    runOnNotReady: 'curl -X POST http://127.0.0.1:8000/cameras/state -H "Content-Type: application/json" -d "{\"path\":\"$MTX_PATH\", \"status\":\"offline\"}"'

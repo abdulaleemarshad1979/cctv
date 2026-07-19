@@ -194,6 +194,11 @@
       transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
     }
 
+    .tile--counting {
+      height: auto;
+      min-height: 330px;
+    }
+
     .tile:hover {
       border-color: var(--border-hover);
       transform: translateY(-2px);
@@ -272,8 +277,31 @@
       position: relative;
       overflow: hidden;
       display: flex;
-      align-items: center;
+      align-items: stretch;
       justify-content: center;
+      flex-direction: column;
+      min-height: 0;
+    }
+
+    .tile__player-container {
+      width: 100%;
+      height: 100%;
+      min-height: 0;
+      flex: 1 1 auto;
+      position: relative;
+      overflow: hidden;
+      background: #000;
+    }
+
+    .tile--counting .tile__body {
+      flex: none;
+    }
+
+    .tile--counting .tile__player-container {
+      height: auto;
+      min-height: 210px;
+      flex: none;
+      aspect-ratio: 16 / 9;
     }
 
     .tile__video, .tile__iframe {
@@ -281,6 +309,7 @@
       height: 100%;
       object-fit: cover;
       border: none;
+      display: block;
     }
 
     .tile__live-badge {
@@ -307,13 +336,10 @@
 
     /* Glassmorphic HUD overlay */
     .tile__hud {
-      position: absolute;
-      bottom: 0;
-      left: 0;
-      right: 0;
-      background: rgba(255, 255, 255, 0.9);
-      backdrop-filter: blur(8px);
-      -webkit-backdrop-filter: blur(8px);
+      position: static;
+      width: 100%;
+      flex: none;
+      background: #ffffff;
       border-top: 1px solid rgba(0, 0, 0, 0.08);
       padding: 8px 12px;
       font-size: 11px;
@@ -324,6 +350,18 @@
       gap: 6px;
       transform: translateY(0);
       transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .tile__stream-switching {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #cbd5e1;
+      background: #080d16;
+      font-size: 11px;
+      letter-spacing: 0.04em;
     }
 
     .tile__hud-row {
@@ -398,6 +436,57 @@
       font-weight: 600;
       color: var(--text-blue);
     }
+
+    /* Per-Zone Head Count Grid */
+    .tile__zone-grid {
+      border-top: 1px solid rgba(0, 0, 0, 0.08);
+      padding-top: 8px;
+      margin-top: 4px;
+    }
+
+    .zone-grid-header {
+      font-size: 9px;
+      font-weight: 700;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      text-align: center;
+      margin-bottom: 6px;
+    }
+
+    .zone-grid-cells {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 4px;
+    }
+
+    .zone-cell {
+      background: rgba(0, 0, 0, 0.05);
+      border-radius: 4px;
+      padding: 4px;
+      text-align: center;
+      transition: background-color 0.3s ease;
+    }
+
+    .zone-cell-label {
+      font-size: 8px;
+      font-weight: 700;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      margin-bottom: 2px;
+    }
+
+    .zone-cell-count {
+      font-family: monospace;
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text-main);
+    }
+
+    .zone-cell-count.safe { color: var(--live-green); }
+    .zone-cell-count.warning { color: var(--warning-amber); }
+    .zone-cell-count.high { color: var(--badge-critical); }
+    .zone-cell-count.critical { color: var(--badge-critical); }
 
     /* Warning Overlay */
     .tile__warning-overlay {
@@ -551,7 +640,6 @@
 <body>
 
   <!-- Premium Header -->
-  <!-- Premium Header -->
   <header class="header" style="display: flex; align-items: center; justify-content: space-between; border-bottom: 2px solid #cbd5e1; padding: 12px 24px; gap: 16px; background-color: #ffffff; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);">
     <div class="header__brand" style="display: flex; align-items: center; gap: 20px; flex: 1;">
       <div class="logo-group" style="display: flex; align-items: center; gap: 12px; background: transparent; border: none; padding: 0;">
@@ -586,14 +674,31 @@
   </header>
 
   <!-- Navigation & Filter Pills -->
-  <div style="background-color: #ffffff; border-bottom: 2px solid #cbd5e1; padding: 12px 24px; display: flex; justify-content: center; gap: 16px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); margin-bottom: 8px;">
-    <div class="filter-group">
+  <div style="background-color: #ffffff; border-bottom: 2px solid #cbd5e1; padding: 12px 24px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); margin-bottom: 8px;">
+    <div class="filter-group" style="display: flex; flex-wrap: wrap; gap: 16px; align-items: center;">
       <button class="pill active" data-filter="All">All Streams</button>
       <button class="pill" data-filter="Drone">Drone Feeds</button>
       <button class="pill" data-filter="CCTV">CCTV Feeds</button>
       <button class="pill" data-filter="Pushkaralu">Pushkaralu Ghats</button>
       <button class="pill" data-filter="Rjy">Rajahmundry City</button>
       <button class="pill" data-filter="Active">Active Feeds</button>
+    </div>
+    
+    <!-- Premium Mode Toggle -->
+    <div class="mode-toggle-group" style="display: flex; align-items: center; background: #f1f5f9; padding: 4px; border-radius: 9999px; border: 1px solid #cbd5e1; box-shadow: inset 0 2px 4px rgba(0,0,0,0.05); margin-right: 8px;">
+      <button id="btn-mode-viewing" class="mode-pill" onclick="changeGlobalMode('viewing')" style="background: transparent; border: none; padding: 8px 18px; border-radius: 9999px; font-size: 13px; font-weight: 700; color: #475569; cursor: pointer; transition: all 0.25s ease; display: flex; align-items: center; gap: 6px;">
+        <svg style="width: 16px; height: 16px;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+        </svg>
+        Viewing Mode
+      </button>
+      <button id="btn-mode-counting" class="mode-pill active" onclick="changeGlobalMode('counting')" style="background: #0284c7; border: none; padding: 8px 18px; border-radius: 9999px; font-size: 13px; font-weight: 700; color: #ffffff; cursor: pointer; transition: all 0.25s ease; display: flex; align-items: center; gap: 6px; box-shadow: 0 2px 4px rgba(2, 132, 199, 0.3);">
+        <svg style="width: 16px; height: 16px;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 002 2h2a2 2 0 002-2z" />
+        </svg>
+        Counting Mode
+      </button>
     </div>
   </div>
 
@@ -614,7 +719,8 @@
   <script>
     let cameras = [];
     let activeFilter = "All";
-    let webrtcPortOpen = false;
+    let globalMode = "counting"; // ponytail: dynamic global mode state
+    const hlsPlayers = {};
 
     // Fetch cameras from the backend
     async function loadCamerasFromBackend() {
@@ -624,25 +730,6 @@
         renderGrid();
       } catch (e) {
         console.error("[CDMP] Failed to load cameras from backend:", e);
-      }
-    }
-
-    // Detect if MediaMTX WebRTC server (port 8889) is active
-    async function checkWebRTC() {
-      try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 500);
-        await fetch(`http://${window.location.hostname}:8889/`, {
-          method: "HEAD",
-          mode: "no-cors",
-          signal: controller.signal
-        });
-        clearTimeout(timeoutId);
-        webrtcPortOpen = true;
-        console.log("[CDMP] MediaMTX WebRTC detected. Using WebRTC on port 8889.");
-      } catch (e) {
-        webrtcPortOpen = false;
-        console.log("[CDMP] MediaMTX WebRTC not running. Defaulting to local video loops.");
       }
     }
 
@@ -668,7 +755,7 @@
         const isConnecting = cam.status === "connecting";
 
         const card = document.createElement("div");
-        card.className = "tile";
+        card.className = `tile ${isOnline && globalMode === 'counting' ? 'tile--counting' : ''}`;
         card.setAttribute("data-id", cam.id);
         card.setAttribute("data-location", cam.location);
         card.setAttribute("data-category", cam.category || "");
@@ -678,8 +765,8 @@
           <header class="tile__header">
             <span class="tile__name">${cam.name}</span>
             <div class="tile__meta">
-              <span class="tile__count ${isOnline ? '' : 'hidden'}" id="count-${cam.id}">${cam.people_count || 0} pax</span>
-              <span class="tile__zone-badge ${(cam.comp_zone || 'SAFE').toLowerCase()} ${isOnline ? '' : 'hidden'}" id="zone-${cam.id}">${cam.comp_zone || 'SAFE'}</span>
+              <span class="tile__count ${isOnline && globalMode === 'counting' ? '' : 'hidden'}" id="count-${cam.id}">${cam.people_count || 0} pax</span>
+              <span class="tile__zone-badge ${(cam.comp_zone || 'SAFE').toLowerCase()} ${isOnline && globalMode === 'counting' ? '' : 'hidden'}" id="zone-${cam.id}">${cam.comp_zone || 'SAFE'}</span>
               <span class="tile__location">${cam.location}</span>
               <span class="tile__status-dot"></span>
             </div>
@@ -694,7 +781,7 @@
             </div>
 
             <!-- Sleek Glassmorphic HUD -->
-            <div class="tile__hud ${isOnline ? '' : 'hidden'}" id="hud-${cam.id}">
+            <div class="tile__hud ${isOnline && globalMode === 'counting' ? '' : 'hidden'}" id="hud-${cam.id}">
               <div class="tile__hud-row">
                 <div class="tile__hud-metric">
                   <div class="tile__hud-value-container">
@@ -707,8 +794,8 @@
                 </div>
                 <div class="tile__hud-metric">
                   <div class="tile__hud-value-container">
-                    <span class="tile__hud-label">Stampede Risk</span>
-                    <span class="tile__hud-value" id="hud-stampede-${cam.id}">0%</span>
+                    <span class="tile__hud-label">Crowd Risk Index</span>
+                    <span class="tile__hud-value" id="hud-stampede-${cam.id}">0/100</span>
                   </div>
                   <div class="tile__hud-bar-bg">
                     <div class="tile__hud-bar-fill" id="hud-stampede-bar-${cam.id}"></div>
@@ -724,6 +811,11 @@
                   <span class="tile__hud-stat-name">Turbulence</span>
                   <span class="tile__hud-stat-val" id="hud-turb-${cam.id}">0.0</span>
                 </div>
+              </div>
+              <!-- Per-Zone Head Count Grid -->
+              <div class="tile__zone-grid" id="zone-grid-${cam.id}">
+                <div class="zone-grid-header">ZONE COUNTS</div>
+                <div class="zone-grid-cells" id="zone-cells-${cam.id}"></div>
               </div>
             </div>
 
@@ -799,73 +891,66 @@
       }
     }
 
-    // Setup Video playback source (WebRTC live or fallback direct MP4)
+    // Setup Video playback source (HLS live stream with overlays, or fallback direct MP4)
+    function teardownVideoFeed(id, showSwitchingState = false) {
+      if (hlsPlayers[id]) {
+        hlsPlayers[id].destroy();
+        delete hlsPlayers[id];
+      }
+
+      const container = document.getElementById(`player-container-${id}`);
+      if (container) {
+        container.innerHTML = showSwitchingState
+          ? '<div class="tile__stream-switching">Switching video mode...</div>'
+          : '';
+      }
+    }
+
     function setupVideoFeed(cam) {
       const container = document.getElementById(`player-container-${cam.id}`);
       if (!container) return;
+      teardownVideoFeed(cam.id);
       container.classList.remove("hidden");
-      container.innerHTML = "";
 
-      const isLocal = ["localhost", "127.0.0.1", "::1", ""].includes(window.location.hostname) || window.location.hostname.startsWith("192.168.");
+      const video = document.createElement("video");
+      video.className = "tile__video";
+      video.autoplay = true;
+      video.muted = true;
+      video.playsInline = true;
+      video.controls = true;
+      container.appendChild(video);
 
-      if (!isLocal) {
-        // Cloud environment: Use HLS.js to stream HLS video feed proxied over FastAPI
-        const video = document.createElement("video");
-        video.className = "tile__video";
-        video.autoplay = true;
-        video.muted = true;
-        video.playsInline = true;
-        video.controls = true;
-        container.appendChild(video);
+      const streamUrl = `http://${window.location.hostname}:8088/${cam.stream_path}/index.m3u8?mode=${globalMode}&t=${Date.now()}`;
 
-        const streamUrl = `/stream/${cam.stream_path}/index.m3u8`;
-
-        if (typeof Hls !== "undefined" && Hls.isSupported()) {
-          const hls = new Hls({
-            maxMaxBufferLength: 10,
-            liveSyncDuration: 3,
-            enableWorker: true
-          });
-          hls.loadSource(streamUrl);
-          hls.attachMedia(video);
-          hls.on(Hls.Events.ERROR, function(event, data) {
-            if (data.fatal) {
-              switch (data.type) {
-                case Hls.ErrorTypes.NETWORK_ERROR:
-                  hls.startLoad();
-                  break;
-                case Hls.ErrorTypes.MEDIA_ERROR:
-                  hls.recoverMediaError();
-                  break;
-                default:
-                  break;
-              }
+      if (typeof Hls !== "undefined" && Hls.isSupported()) {
+        const hls = new Hls({
+          maxBufferLength: 3,
+          maxMaxBufferLength: 4,
+          backBufferLength: 0,
+          liveSyncDurationCount: 1,
+          liveMaxLatencyDurationCount: 3,
+          startPosition: -1,
+          enableWorker: true
+        });
+        hlsPlayers[cam.id] = hls;
+        hls.loadSource(streamUrl);
+        hls.attachMedia(video);
+        hls.on(Hls.Events.ERROR, function(event, data) {
+          if (data.fatal) {
+            switch (data.type) {
+              case Hls.ErrorTypes.NETWORK_ERROR:
+                hls.startLoad();
+                break;
+              case Hls.ErrorTypes.MEDIA_ERROR:
+                hls.recoverMediaError();
+                break;
+              default:
+                break;
             }
-          });
-        } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-          video.src = streamUrl;
-        }
-      } else if (webrtcPortOpen) {
-        const iframe = document.createElement("iframe");
-        iframe.className = "tile__iframe";
-        iframe.allow = "autoplay; encrypted-media; picture-in-picture";
-        iframe.allowFullscreen = true;
-        iframe.src = `http://${window.location.hostname}:8889/${cam.stream_path}/`;
-        container.appendChild(iframe);
-      } else {
-        const video = document.createElement("video");
-        video.className = "tile__video";
-        video.autoplay = true;
-        video.loop = true;
-        video.muted = true;
-        video.playsInline = true;
-        video.controls = true;
-        
-        const source = document.createElement("source");
-        source.src = cam.fallback_video || "Videos/Crowd.mp4";
-        source.type = "video/mp4";
-        video.appendChild(source);
-        container.appendChild(video);
+          }
+        });
+      } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+        video.src = streamUrl;
       }
     }
 
@@ -882,7 +967,6 @@
           if (!oldCam || oldCam.status !== newCam.status) {
             statusChanged = true;
           } else if (newCam.status === "online") {
-            // Update stats dynamically in the DOM
             updateLiveStats(newCam);
           }
         });
@@ -902,7 +986,11 @@
       const countEl = document.getElementById(`count-${cam.id}`);
       if (countEl) {
         countEl.textContent = `${cam.people_count || 0} pax`;
-        countEl.classList.remove("hidden");
+        if (globalMode === "counting") {
+          countEl.classList.remove("hidden");
+        } else {
+          countEl.classList.add("hidden");
+        }
       }
 
       // 2. Header zone badge
@@ -910,7 +998,11 @@
       if (zoneEl) {
         zoneEl.textContent = cam.comp_zone || 'SAFE';
         zoneEl.className = `tile__zone-badge ${(cam.comp_zone || 'SAFE').toLowerCase()}`;
-        zoneEl.classList.remove("hidden");
+        if (globalMode === "counting") {
+          zoneEl.classList.remove("hidden");
+        } else {
+          zoneEl.classList.add("hidden");
+        }
       }
 
       // 3. HUD pressure text & bar
@@ -921,7 +1013,6 @@
       const pressureBar = document.getElementById(`hud-pressure-bar-${cam.id}`);
       if (pressureBar) {
         pressureBar.style.width = `${pressureVal}%`;
-        // Dynamic bar color based on pressure
         let color = "var(--live-green)";
         if (pressureVal >= 75) color = "var(--badge-critical)";
         else if (pressureVal >= 50) color = "var(--warning-amber)";
@@ -929,18 +1020,18 @@
         pressureBar.style.backgroundColor = color;
       }
 
-      // 4. HUD stampede text & bar
-      const stampedeVal = Math.round((cam.stampede_prob || 0) * 100);
+      // 4. HUD stampede text & bar (Crowd Risk Index)
+      const riskIndex = Math.round(cam.risk_index || 0);
       const stampedeEl = document.getElementById(`hud-stampede-${cam.id}`);
-      if (stampedeEl) stampedeEl.textContent = `${stampedeVal}%`;
+      if (stampedeEl) stampedeEl.textContent = `${riskIndex}/100`;
       
       const stampedeBar = document.getElementById(`hud-stampede-bar-${cam.id}`);
       if (stampedeBar) {
-        stampedeBar.style.width = `${stampedeVal}%`;
+        stampedeBar.style.width = `${riskIndex}%`;
         let color = "var(--live-green)";
-        if (stampedeVal >= 75) color = "var(--badge-critical)";
-        else if (stampedeVal >= 50) color = "var(--warning-amber)";
-        else if (stampedeVal >= 25) color = "var(--text-blue)";
+        if (riskIndex >= 75) color = "var(--badge-critical)";
+        else if (riskIndex >= 45) color = "var(--warning-amber)";
+        else if (riskIndex >= 25) color = "var(--text-blue)";
         stampedeBar.style.backgroundColor = color;
       }
 
@@ -951,7 +1042,50 @@
       const turbEl = document.getElementById(`hud-turb-${cam.id}`);
       if (turbEl) turbEl.textContent = (cam.turbulence || 0.0).toFixed(2);
 
-      // 6. Warnings and Alerts
+      // 6. Per-Zone Head Count Grid
+      if (cam.zone_scores && cam.zone_scores.length === 3) {
+        const hudEl = document.getElementById(`hud-${cam.id}`);
+        if (hudEl) {
+          if (globalMode === "counting") {
+            hudEl.classList.remove("hidden");
+          } else {
+            hudEl.classList.add("hidden");
+          }
+        }
+        if (hudEl && !document.getElementById(`zone-grid-${cam.id}`)) {
+          const zoneGridHtml = `
+            <div class="tile__zone-grid" id="zone-grid-${cam.id}">
+              <div class="zone-grid-header">PER-ZONE HEAD COUNT</div>
+              <div class="zone-grid-cells">
+                ${cam.zone_scores.map((row, r) => row.map((val, c) => {
+                  const label = `ABC`[r] + (c + 1);
+                  const count = Math.round(val);
+                  const cls = count >= 300 ? 'critical' : (count >= 200 ? 'high' : (count >= 100 ? 'warning' : 'safe'));
+                  return `<div class="zone-cell"><div class="zone-cell-label">${label}</div><div class="zone-cell-count ${cls}">${count}</div></div>`;
+                }).join('')).join('')}
+              </div>
+            </div>
+          `;
+          hudEl.insertAdjacentHTML('beforeend', zoneGridHtml);
+        } else if (document.getElementById(`zone-grid-${cam.id}`)) {
+          const zoneGridEl = document.getElementById(`zone-grid-${cam.id}`);
+          if (zoneGridEl) {
+            zoneGridEl.innerHTML = `
+              <div class="zone-grid-header">PER-ZONE HEAD COUNT</div>
+              <div class="zone-grid-cells">
+                ${cam.zone_scores.map((row, r) => row.map((val, c) => {
+                  const label = `ABC`[r] + (c + 1);
+                  const count = Math.round(val);
+                  const cls = count >= 300 ? 'critical' : (count >= 200 ? 'high' : (count >= 100 ? 'warning' : 'safe'));
+                  return `<div class="zone-cell"><div class="zone-cell-label">${label}</div><div class="zone-cell-count ${cls}">${count}</div></div>`;
+                }).join('')).join('')}
+              </div>
+            `;
+          }
+        }
+      }
+
+      // 7. Warnings and Alerts
       const warningOverlay = document.getElementById(`warning-overlay-${cam.id}`);
       const warningText = document.getElementById(`warning-text-${cam.id}`);
       
@@ -963,12 +1097,123 @@
       } else if (cam.hotspot_alert) {
         alertMsg = cam.hotspot_alert;
       }
+      
+      if (!alertMsg && cam.primary_causes && cam.primary_causes.length > 0 && (cam.comp_zone === "HIGH" || cam.comp_zone === "CRITICAL")) {
+        alertMsg = `CROWD RISK ${cam.comp_zone}: due to ${cam.primary_causes.join(", ")}`;
+      } else if (alertMsg && cam.primary_causes && cam.primary_causes.length > 0) {
+        alertMsg += ` (Causes: ${cam.primary_causes.join(", ")})`;
+      }
 
-      if (alertMsg && (cam.comp_zone === "HIGH" || cam.comp_zone === "CRITICAL")) {
+      if (alertMsg && (cam.comp_zone === "HIGH" || cam.comp_zone === "CRITICAL") && globalMode === "counting") {
         if (warningText) warningText.textContent = alertMsg;
         if (warningOverlay) warningOverlay.classList.remove("hidden");
       } else {
         if (warningOverlay) warningOverlay.classList.add("hidden");
+      }
+    }
+
+    // Toggle global mode (Counting vs Viewing)
+    async function changeGlobalMode(mode) {
+      globalMode = mode;
+      
+      const btnViewing = document.getElementById("btn-mode-viewing");
+      const btnCounting = document.getElementById("btn-mode-counting");
+      
+      if (mode === "viewing") {
+        btnViewing.style.background = "#0284c7";
+        btnViewing.style.color = "#ffffff";
+        btnViewing.style.boxShadow = "0 2px 4px rgba(2, 132, 199, 0.3)";
+        btnCounting.style.background = "transparent";
+        btnCounting.style.color = "#475569";
+        btnCounting.style.boxShadow = "none";
+      } else {
+        btnCounting.style.background = "#0284c7";
+        btnCounting.style.color = "#ffffff";
+        btnCounting.style.boxShadow = "0 2px 4px rgba(2, 132, 199, 0.3)";
+        btnViewing.style.background = "transparent";
+        btnViewing.style.color = "#475569";
+        btnViewing.style.boxShadow = "none";
+      }
+      
+      try {
+        const response = await fetch("/set_mode", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mode: mode })
+        });
+        if (!response.ok) throw new Error(`Mode change failed: ${response.status}`);
+      } catch (e) {
+        console.error("[CDMP] Failed to sync mode with backend:", e);
+      }
+
+      // Remove buffered frames from the previous mode. This prevents grids
+      // and dots from lingering in Viewing Mode after the worker switches.
+      cameras.filter(cam => cam.status === "online").forEach(cam => {
+        teardownVideoFeed(cam.id, true);
+      });
+      
+      cameras.forEach(cam => {
+        const isOnline = cam.status === "online";
+        const countEl = document.getElementById(`count-${cam.id}`);
+        const zoneEl = document.getElementById(`zone-${cam.id}`);
+        const hudEl = document.getElementById(`hud-${cam.id}`);
+        const warningOverlay = document.getElementById(`warning-overlay-${cam.id}`);
+        
+        if (mode === "viewing") {
+          const tileEl = document.querySelector(`.tile[data-id="${cam.id}"]`);
+          if (tileEl) tileEl.classList.remove("tile--counting");
+          if (countEl) countEl.classList.add("hidden");
+          if (zoneEl) zoneEl.classList.add("hidden");
+          if (hudEl) hudEl.classList.add("hidden");
+          if (warningOverlay) warningOverlay.classList.add("hidden");
+        } else {
+          if (isOnline) {
+            const tileEl = document.querySelector(`.tile[data-id="${cam.id}"]`);
+            if (tileEl) tileEl.classList.add("tile--counting");
+            if (countEl) countEl.classList.remove("hidden");
+            if (zoneEl) zoneEl.classList.remove("hidden");
+            if (hudEl) hudEl.classList.remove("hidden");
+            updateLiveStats(cam);
+          }
+        }
+      });
+
+      // Give the inference stream time to publish a frame for the new mode,
+      // then reconnect at the live edge with an empty HLS buffer.
+      window.setTimeout(() => {
+        cameras.filter(cam => cam.status === "online").forEach(setupVideoFeed);
+      }, 1800);
+    }
+
+    // Sync mode status from server
+    async function syncModeFromServer() {
+      try {
+        const res = await fetch("/get_mode");
+        const data = await res.json();
+        const mode = data.counting_mode ? "counting" : "viewing";
+        globalMode = mode;
+        
+        const btnViewing = document.getElementById("btn-mode-viewing");
+        const btnCounting = document.getElementById("btn-mode-counting");
+        if (btnViewing && btnCounting) {
+          if (mode === "viewing") {
+            btnViewing.style.background = "#0284c7";
+            btnViewing.style.color = "#ffffff";
+            btnViewing.style.boxShadow = "0 2px 4px rgba(2, 132, 199, 0.3)";
+            btnCounting.style.background = "transparent";
+            btnCounting.style.color = "#475569";
+            btnCounting.style.boxShadow = "none";
+          } else {
+            btnCounting.style.background = "#0284c7";
+            btnCounting.style.color = "#ffffff";
+            btnCounting.style.boxShadow = "0 2px 4px rgba(2, 132, 199, 0.3)";
+            btnViewing.style.background = "transparent";
+            btnViewing.style.color = "#475569";
+            btnViewing.style.boxShadow = "none";
+          }
+        }
+      } catch (e) {
+        console.error("[CDMP] Failed to sync mode from server:", e);
       }
     }
 
@@ -985,7 +1230,7 @@
 
     // Initialize Page
     async function init() {
-      await checkWebRTC();
+      await syncModeFromServer();
       await loadCamerasFromBackend();
       setInterval(pollCameras, 2000);
     }

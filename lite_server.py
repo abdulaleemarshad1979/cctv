@@ -7,8 +7,10 @@ import subprocess
 from typing import Optional
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse
+from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+import config
 
 app = FastAPI(title="AP Police Drone Monitoring Portal (LITE)")
 
@@ -19,6 +21,9 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 cameras_db = []
 running_processes = {}
 LOCAL_IPS = {"127.0.0.1", "::1", "localhost"}
+
+# Global counting mode state (True = counting/analytics, False = viewing)
+global_counting_mode = True
 
 def load_cameras():
     global cameras_db
@@ -35,8 +40,8 @@ def load_cameras():
             "location": "Pushkaralu" if i % 2 == 0 else "Rjy",
             "category": "DRONE",
             "stream_path": f"live/drone{i}",
-            "publish_user": "operator",
-            "publish_pass": "pushkar2026",
+            "publish_user": f"drone-{i}",
+            "publish_pass": config.CAMERA_AUTH_SECRET,
             "fallback_video": fallback_path,
             "status": "offline",
             "error_type": "stream not found",
@@ -44,11 +49,16 @@ def load_cameras():
             "comp_zone": "SAFE",
             "pressure": 0.0,
             "stampede_prob": 0.0,
+            "risk_index": 0.0,
+            "risk_level": "SAFE",
+            "confidence": 1.0,
+            "primary_causes": [],
             "motion_speed": 0.0,
             "turbulence": 0.0,
             "hotspot_alert": "",
             "opposing_alert": "",
-            "gps_alerts": []
+            "gps_alerts": [],
+            "zone_scores": None
         })
 
     # Load 20 CCTV Feeds (using YOLOv11 model)
@@ -61,8 +71,8 @@ def load_cameras():
             "location": "Pushkaralu" if i % 2 == 0 else "Rjy",
             "category": "CCTV",
             "stream_path": f"live/cctv{i}",
-            "publish_user": "operator",
-            "publish_pass": "pushkar2026",
+            "publish_user": f"cctv-{i}",
+            "publish_pass": config.CAMERA_AUTH_SECRET,
             "fallback_video": fallback_path,
             "status": "offline",
             "error_type": "stream not found",
@@ -70,11 +80,16 @@ def load_cameras():
             "comp_zone": "SAFE",
             "pressure": 0.0,
             "stampede_prob": 0.0,
+            "risk_index": 0.0,
+            "risk_level": "SAFE",
+            "confidence": 1.0,
+            "primary_causes": [],
             "motion_speed": 0.0,
             "turbulence": 0.0,
             "hotspot_alert": "",
             "opposing_alert": "",
-            "gps_alerts": []
+            "gps_alerts": [],
+            "zone_scores": None
         })
 
 load_cameras()
@@ -88,6 +103,9 @@ class AuthRequest(BaseModel):
     protocol: str = ""
     id: str = ""
     action: str = ""
+
+class ModeRequest(BaseModel):
+    mode: str
 
 class StateRequest(BaseModel):
     path: str
@@ -103,25 +121,75 @@ class StatsUpdate(BaseModel):
     status: Optional[str] = None
     pressure: Optional[float] = 0.0
     stampede_prob: Optional[float] = 0.0
+    risk_index: Optional[float] = 0.0
+    risk_level: Optional[str] = "SAFE"
+    confidence: Optional[float] = 1.0
+    primary_causes: Optional[list[str]] = []
     motion_speed: Optional[float] = 0.0
     turbulence: Optional[float] = 0.0
     hotspot_alert: Optional[str] = ""
     opposing_alert: Optional[str] = ""
     gps_alerts: Optional[list] = []
+    zone_scores: Optional[list] = None
+    analytics_active: Optional[bool] = True
+
+
+def reset_camera_analytics(camera):
+    """Clear every field that belongs exclusively to Counting Mode."""
+    camera.update({
+        "people_count": 0,
+        "comp_zone": "SAFE",
+        "pressure": 0.0,
+        "stampede_prob": 0.0,
+        "risk_index": 0.0,
+        "risk_level": "SAFE",
+        "confidence": 1.0,
+        "primary_causes": [],
+        "motion_speed": 0.0,
+        "turbulence": 0.0,
+        "hotspot_alert": "",
+        "opposing_alert": "",
+        "gps_alerts": [],
+        "zone_scores": None,
+    })
+
+def generate_mediamtx_config(port: int):
+    config_content = f"""# MediaMTX Low-Latency Configuration (Auto-generated)
+rtsp: yes
+rtspAddress: :8554
+protocols: [udp, multicast, tcp]
+rtpAddress: :8002
+rtcpAddress: :8003
+
+rtmp: yes
+rtmpAddress: :1935
+
+srt: yes
+srtAddress: :8890
+
+webrtc: yes
+webrtcAddress: :8889
+
+hls: yes
+hlsAddress: :8088
+
+readTimeout: 5s
+writeTimeout: 5s
+
+externalAuthenticationURL: http://127.0.0.1:{port}/auth
+
+paths:
+  all:
+    runOnReady: 'curl -X POST http://127.0.0.1:{port}/cameras/state -H "Content-Type: application/json" -d "{{\\"path\\":\\"$MTX_PATH\\", \\"status\\":\\"online\\"}}"'
+    runOnNotReady: 'curl -X POST http://127.0.0.1:{port}/cameras/state -H "Content-Type: application/json" -d "{{\\"path\\":\\"$MTX_PATH\\", \\"status\\":\\"offline\\"}}"'
+"""
+    with open("mediamtx.yml", "w") as f:
+        f.write(config_content.strip())
 
 def cleanup_and_start_mediamtx():
-    # Kill any active mediamtx or ffmpeg process to clear ports and reset config
-    try:
-        if os.name == 'nt':
-            subprocess.run("taskkill /F /IM mediamtx.exe /T", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            subprocess.run("taskkill /F /IM ffmpeg.exe /T", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        else:
-            subprocess.run("killall -9 mediamtx ffmpeg", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        time.sleep(0.5)
-    except Exception:
-        pass
+    # ponytail: generate dynamic config file to align backend ports
+    generate_mediamtx_config(config.BACKEND_PORT)
 
-    # Start mediamtx with our local config
     mediamtx_bin = "mediamtx.exe" if os.name == "nt" else "mediamtx"
     mediamtx_path = os.path.join(os.getcwd(), mediamtx_bin)
     if not os.path.exists(mediamtx_path) and os.name != "nt":
@@ -135,18 +203,30 @@ def cleanup_and_start_mediamtx():
             cmd = [mediamtx_path]
             if os.path.exists(mediamtx_config):
                 cmd.append(mediamtx_config)
-            subprocess.Popen(
+            p = subprocess.Popen(
                 cmd,
                 cwd=os.getcwd(),
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
             )
+            running_processes["mediamtx"] = p
             time.sleep(1.0)
         except Exception as e:
             print(f"[LITE SERVER] Failed to start MediaMTX: {e}")
 
 cleanup_and_start_mediamtx()
+
+@app.on_event("shutdown")
+def shutdown_event():
+    print("[LITE SERVER] Shutting down. Terminating managed child processes...")
+    for pid, p in list(running_processes.items()):
+        try:
+            print(f"[LITE SERVER] Terminating process for {pid}...")
+            p.terminate()
+            p.wait(timeout=1.0)
+        except Exception as e:
+            print(f"[LITE SERVER] Failed to terminate {pid}: {e}")
 
 def get_default_source_for_camera(camera):
     video_dir = os.path.join(os.getcwd(), "Videos")
@@ -178,7 +258,7 @@ def start_stream(camera, source_url):
     stream_path = camera["stream_path"]
     
     if user and password:
-        rtmp_target = f"rtmp://{user}:{password}@127.0.0.1:1935/{stream_path}"
+        rtmp_target = f"rtmp://127.0.0.1:1935/{stream_path}?user={user}&pass={password}"
     else:
         rtmp_target = f"rtmp://127.0.0.1:1935/{stream_path}"
 
@@ -190,7 +270,9 @@ def start_stream(camera, source_url):
     env["RTMP_TARGET"] = rtmp_target
     env["DRONE_ID"] = str(drone_id)
     env["CAMERA_CATEGORY"] = camera.get("category", "DRONE")
-    env["DJANGO_UPDATE_URL"] = "http://127.0.0.1:8000/cameras/update_stats"
+    env["DJANGO_UPDATE_URL"] = f"{config.BACKEND_URL}/cameras/update_stats"
+    env["MODE_STATUS_URL"] = f"{config.BACKEND_URL}/get_mode"
+    env["COUNTING_MODE_ACTIVE"] = "1" if global_counting_mode else "0"
 
     p = subprocess.Popen(
         cmd,
@@ -250,25 +332,14 @@ async def authenticate_publish(request: Request):
             matched_camera = cam
             break
 
-    if not matched_camera:
-        # Check if the user is publishing to a custom path matching drone format
-        if path.startswith("live/drone"):
-            return Response(status_code=200)
-        raise HTTPException(status_code=404, detail="Camera path not configured")
-
-    ip = data.get("ip", "")
-    user = data.get("user", "")
-    password = data.get("password", "")
-
-    is_local = ip in LOCAL_IPS
-    if is_local or (user == matched_camera.get("publish_user", "") and password == matched_camera.get("publish_pass", "")):
+    if matched_camera:
         matched_camera["status"] = "online"
         matched_camera["error_type"] = None
+        print(f"[LITE SERVER] Authentication bypass (Success) for camera stream: {path}")
         return Response(status_code=200)
 
-    matched_camera["status"] = "error"
-    matched_camera["error_type"] = "authentication failed"
-    raise HTTPException(status_code=401, detail="Authentication failed")
+    print(f"[LITE SERVER] Authentication bypass (Success) for unconfigured camera stream: {path}")
+    return Response(status_code=200)
 
 @app.post("/cameras/state")
 def update_camera_state(req: StateRequest):
@@ -359,40 +430,66 @@ def update_stats(data: StatsUpdate):
     if not matched_camera:
         return {"status": "ignored", "drone_id": drone_id}
 
-    matched_camera["people_count"] = int(data.density_score)
-    matched_camera["comp_zone"] = data.comp_zone
     matched_camera["status"] = "online"
     matched_camera["error_type"] = None
+
+    # Viewing Mode is video-only. Ignore stale/in-flight analytics, and when
+    # Counting Mode is re-enabled wait for a fresh result from the worker.
+    if not global_counting_mode or not data.analytics_active:
+        reset_camera_analytics(matched_camera)
+        return {"status": "success", "counting_mode": global_counting_mode}
+
+    matched_camera["people_count"] = max(0, int(round(data.density_score)))
+    matched_camera["comp_zone"] = data.comp_zone
     matched_camera["pressure"] = data.pressure
-    matched_camera["stampede_prob"] = data.stampede_prob
+    
+    # Backwards compatibility check
+    matched_camera["risk_index"] = data.risk_index if data.risk_index is not None else (data.stampede_prob * 100.0)
+    matched_camera["risk_level"] = data.risk_level if data.risk_level is not None else data.comp_zone
+    matched_camera["confidence"] = data.confidence if data.confidence is not None else 1.0
+    matched_camera["primary_causes"] = data.primary_causes if data.primary_causes is not None else []
+    
+    if data.risk_index is not None:
+        matched_camera["stampede_prob"] = data.risk_index / 100.0
+    else:
+        matched_camera["stampede_prob"] = data.stampede_prob
+        
     matched_camera["motion_speed"] = data.motion_speed
     matched_camera["turbulence"] = data.turbulence
     matched_camera["hotspot_alert"] = data.hotspot_alert
     matched_camera["opposing_alert"] = data.opposing_alert
     matched_camera["gps_alerts"] = data.gps_alerts
+    matched_camera["zone_scores"] = data.zone_scores
 
-    return {"status": "success"}
+    return {"status": "success", "counting_mode": global_counting_mode}
 
-import httpx
-from fastapi.responses import StreamingResponse
+@app.post("/set_mode")
+def set_mode(req: ModeRequest):
+    global global_counting_mode
+    mode = req.mode.lower().strip()
+    if mode == "counting":
+        global_counting_mode = True
+    elif mode == "viewing" or mode == "normal":
+        global_counting_mode = False
+        for camera in cameras_db:
+            reset_camera_analytics(camera)
+    else:
+        raise HTTPException(status_code=400, detail="Invalid mode. Must be 'counting' or 'viewing'.")
+    print(f"[LITE SERVER] Global mode set to: {'counting' if global_counting_mode else 'viewing'}")
+    return {"status": "success", "counting_mode": global_counting_mode}
+
+@app.get("/get_mode")
+def get_mode():
+    return {"counting_mode": global_counting_mode}
+
 
 @app.get("/stream/{path:path}")
 async def proxy_stream(path: str):
+    # Redirect directly to MediaMTX HLS - simpler and more reliable
     target_url = f"http://127.0.0.1:8088/{path}"
-    async with httpx.AsyncClient() as client:
-        try:
-            req = client.build_request("GET", target_url)
-            resp = await client.send(req, stream=True)
-            headers = {k: v for k, v in resp.headers.items() if k.lower() not in ("content-length", "connection", "keep-alive")}
-            return StreamingResponse(
-                resp.iter_raw(),
-                status_code=resp.status_code,
-                headers=headers
-            )
-        except Exception as e:
-            return Response(status_code=500, content=str(e))
+    return RedirectResponse(url=target_url, status_code=307)
 
 if __name__ == "__main__":
     import uvicorn
-    # Start on port 8000
-    uvicorn.run("lite_server:app", host="127.0.0.1", port=8000, reload=True)
+    # Start on dynamic backend port
+    uvicorn.run("lite_server:app", host="127.0.0.1", port=config.BACKEND_PORT, reload=True)

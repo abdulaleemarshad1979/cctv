@@ -94,25 +94,38 @@ class HistoryBuffer:
     # ------------------------------------------------------------------
     # Growth rate helpers
     # ------------------------------------------------------------------
-    def growth_rate(self, series: np.ndarray) -> float:
+    def growth_rate(self, entries: list[dict], key) -> float:
         """
-        Linear regression slope of a metric series, normalised by its mean.
+        Linear regression slope of a metric series, normalised by its mean,
+        using real timestamps of entries.
         Returns fraction-per-second growth (positive = increasing, negative = decreasing).
         """
-        if len(series) < 3:
+        if len(entries) < 3:
             return 0.0
-        mean_val = float(np.mean(series))
-        if mean_val < 1e-6:
+
+        times = np.array([entry["t"] for entry in entries], dtype=np.float64)
+        if isinstance(key, tuple):
+            values = np.array([entry[key[0]][key[1], key[2]] for entry in entries], dtype=np.float64)
+        else:
+            values = np.array([entry[key] for entry in entries], dtype=np.float64)
+
+        times -= times[0]
+
+        if times[-1] <= 0:
             return 0.0
-        xs = np.arange(len(series), dtype=float)
-        slope = float(np.polyfit(xs, series, 1)[0])
-        return slope / mean_val          # normalised growth per sample
+
+        slope = float(np.polyfit(times, values, 1)[0])
+        mean_value = max(float(np.mean(values)), 1e-6)
+
+        return float(slope / mean_value)
 
     def zone_growth_matrix(self, seconds: float = 10.0) -> np.ndarray:
         """3×3 matrix of normalised growth rates for each cell."""
         result = np.zeros((3, 3))
+        entries = self.window(seconds)
+        if len(entries) < 3:
+            return result
         for r in range(3):
             for c in range(3):
-                series = self.zone_density_series(r, c, seconds)
-                result[r, c] = self.growth_rate(series)
+                result[r, c] = self.growth_rate(entries, ("zone_scores", r, c))
         return result

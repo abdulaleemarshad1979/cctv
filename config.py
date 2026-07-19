@@ -29,6 +29,15 @@ import os
 BASE_DIR    = os.path.dirname(os.path.abspath(__file__))
 DMCOUNT_DIR = os.path.join(BASE_DIR, "dm_count")
 
+# ─── App Operating Modes & Credentials ──────────────────────────────
+APP_MODE = os.getenv("APP_MODE", "production")
+ALLOW_DEMO_FALLBACK = (APP_MODE == "development")
+
+BACKEND_PORT = int(os.getenv("BACKEND_PORT", "8000"))
+BACKEND_URL = os.getenv("BACKEND_URL", f"http://127.0.0.1:{BACKEND_PORT}")
+
+CAMERA_AUTH_SECRET = os.getenv("CAMERA_AUTH_SECRET", "pushkar2026")
+
 # ─── Video source ─────────────────────────────────────────────────────
 # Priority: DRONE env var → CCTV_SOURCE env var → this file path
 VIDEO_SOURCE = os.environ.get(
@@ -45,27 +54,29 @@ WEIGHTS_PATH = os.path.join(
     BASE_DIR, "dm_count", "pretrained_models", "model_nwpu.pth"
 )
 
-# ─── CSRNet + Fusion layer ──────────────────────────────────────────────
-# ponytail: Fusion is now the only model and runs automatically
-USE_FUSION = True
+# ─── Model Selection ──────────────────────────────────────────────────
+# DM-Count (NWPU) is the primary branch. Fusion is enabled only when a trained
+# CSRNet crowd checkpoint is present; a random CSRNet branch is never allowed.
+# A trained fusion head is used when available, otherwise the two trained
+# backbones use the conservative static weights below.
+# Supported options: dm_count, fusion, csrnet
+DRONE_MODEL = os.getenv("DRONE_MODEL", "fusion")
 
 CSRNET_WEIGHTS_PATH = os.environ.get(
     "CSRNET_WEIGHTS_PATH",
     os.path.join(BASE_DIR, "csrnet", "pretrained_models", "csrnet_shtechA.pth"),
 )
 
-# Trained fusion-head checkpoint (see fusion/train_fusion.py). If this file
-# doesn't exist, the fusion head runs untrained, which is equivalent to a
-# safe fixed 50/50 average of DM-Count and CSRNet.
+# Optional trained fusion-head checkpoint (see fusion/train_fusion.py). If it
+# is absent, inference uses the conservative trained-backbone weights below.
 FUSION_HEAD_WEIGHTS_PATH = os.environ.get(
     "FUSION_HEAD_WEIGHTS_PATH",
     os.path.join(BASE_DIR, "fusion", "pretrained_models", "fusion_head.pth"),
 )
 
-# Fallback fixed weights, only used if you explicitly call the model in
-# mode="static" instead of the learned gate.
-FUSION_DM_WEIGHT  = float(os.environ.get("FUSION_DM_WEIGHT", "0.5"))
-FUSION_CSR_WEIGHT = float(os.environ.get("FUSION_CSR_WEIGHT", "0.5"))
+# Fixed trained-backbone weights used until a learned fusion head is installed.
+FUSION_DM_WEIGHT  = float(os.environ.get("FUSION_DM_WEIGHT", "0.8"))
+FUSION_CSR_WEIGHT = float(os.environ.get("FUSION_CSR_WEIGHT", "0.2"))
 
 # ─── Outputs ──────────────────────────────────────────────────────────
 SAVE_ANNOTATED_VIDEO = False
@@ -101,8 +112,11 @@ def get_dynamic_infer_resolution(src_w, src_h):
     is_cuda = is_cuda_available()
     max_w, max_h = (1024, 576) if is_cuda else (768, 432)
     scale = min(1.0, max_w / src_w, max_h / src_h)
-    target_w = max(32, (int(src_w * scale) // 32) * 32)
-    target_h = max(32, (int(src_h * scale) // 32) * 32)
+    # DM-Count's effective stride is 8. Rounding to that stride preserves the
+    # source aspect ratio much better than independently flooring to 32 (which
+    # turned 1920x1080 into a vertically squeezed 768x416 image).
+    target_w = max(32, int(round(src_w * scale / 8.0)) * 8)
+    target_h = max(32, int(round(src_h * scale / 8.0)) * 8)
     return target_w, target_h
 
 def __getattr__(name):
@@ -129,9 +143,24 @@ OPTICAL_FLOW_GPU = os.environ.get("OPTICAL_FLOW_GPU", "1").lower() in ("1", "tru
 # density-map speckles. This reduces false counts from stream overlays, desks,
 # windows, and other static background texture.
 CLEAN_INPUT_OVERLAYS = os.environ.get("CLEAN_INPUT_OVERLAYS", "1").lower() in ("1", "true", "yes", "on")
-DENSITY_SPECKLE_RATIO = float(os.environ.get("DENSITY_SPECKLE_RATIO", "0.015"))
+DENSITY_SPECKLE_RATIO = float(os.environ.get("DENSITY_SPECKLE_RATIO", "0.0"))
 INFERENCE_BACKEND = os.environ.get("INFERENCE_BACKEND", "torch").lower()
 SWARM_BATCH_INFERENCE = os.environ.get("SWARM_BATCH_INFERENCE", "1" if is_cuda_available() else "0").lower() in ("1", "true", "yes", "on")
+
+# High-accuracy counting. These defaults favor correctness over throughput.
+COUNT_FLIP_TTA = os.environ.get("COUNT_FLIP_TTA", "1").lower() in ("1", "true", "yes", "on")
+COUNT_TEMPORAL_WINDOW = int(os.environ.get("COUNT_TEMPORAL_WINDOW", "3"))
+COUNT_EMA_ALPHA = float(os.environ.get("COUNT_EMA_ALPHA", "0.65"))
+COUNT_CALIBRATION_SCALE = float(os.environ.get("COUNT_CALIBRATION_SCALE", "1.0"))
+COUNT_CALIBRATION_BIAS = float(os.environ.get("COUNT_CALIBRATION_BIAS", "0.0"))
+
+YOLO_HIGH_ACCURACY = os.environ.get("YOLO_HIGH_ACCURACY", "1").lower() in ("1", "true", "yes", "on")
+YOLO_IMG_SIZE = int(os.environ.get("YOLO_IMG_SIZE", "1280" if is_cuda_available() else "960"))
+YOLO_CONFIDENCE = float(os.environ.get("YOLO_CONFIDENCE", "0.10"))
+YOLO_DOT_CONFIDENCE = float(os.environ.get("YOLO_DOT_CONFIDENCE", "0.10"))
+YOLO_COUNT_CONFIDENCE = float(os.environ.get("YOLO_COUNT_CONFIDENCE", "0.30"))
+YOLO_IOU = float(os.environ.get("YOLO_IOU", "0.55"))
+YOLO_MAX_DETECTIONS = int(os.environ.get("YOLO_MAX_DETECTIONS", "3000"))
 
 # ─── Risk thresholds ──────────────────────────────────────────────────
 SAFE_THRESHOLD  = 0.25

@@ -451,6 +451,7 @@ class DroneStreamHandler:
         fps = self.cap.get(cv2.CAP_PROP_FPS)
         return fps if (fps and fps == fps and fps > 0) else 25.0
 
+    def get_resolution(self):
         return (int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)),
                 int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)))
 

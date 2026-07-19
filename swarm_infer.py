@@ -26,8 +26,7 @@ from src import overlay, geo_alert
 from src.swarm_manager import SwarmManager, SWARM_DRONE_COUNT, DRONE_SOURCES, DRONE_NAMES
 
 # ── Load model once, share across all drones ─────────────────────────
-# ponytail: import build_fusion_model to support combined model inference in swarm mode
-from fusion.models import build_fusion_model
+from models.model_registry import load_counting_model
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 if device.type == "cpu":
@@ -58,10 +57,10 @@ class ONNXModelWrapper:
 
 
 def _load_model():
-    # ponytail: Fusion model is now the only model option and runs automatically
-    print("[SWARM-INFER] Loading DM-Count + CSRNet fusion model...")
-    m = build_fusion_model(config, device)
-    print("[SWARM-INFER] Fusion model ready.")
+    model_name = getattr(config, "DRONE_MODEL", "dm_count")
+    print(f"[SWARM-INFER] Loading model: {model_name}...")
+    m = load_counting_model(model_name, device)
+    print(f"[SWARM-INFER] Model {model_name} ready.")
     return m
 
 model = None

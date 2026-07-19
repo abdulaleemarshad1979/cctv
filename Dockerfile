@@ -29,8 +29,8 @@ COPY . .
 RUN mkdir -p /app/Videos /app/outputs /app/scratch /app/.agents \
     && chmod -R 777 /app
 
-# Expose port 7860 (Hugging Face default)
-EXPOSE 7860
+# Expose port 8000
+EXPOSE 8000
 
-# Run lite_server.py on port 7860
-CMD ["uvicorn", "lite_server:app", "--host", "0.0.0.0", "--port", "7860"]
+# Run lite_server.py on port 8000
+CMD ["uvicorn", "lite_server:app", "--host", "0.0.0.0", "--port", "8000"]

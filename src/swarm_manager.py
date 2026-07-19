@@ -34,7 +34,7 @@ from . import geo_alert
 from .drone_stream     import DroneStreamHandler, resolve_source
 from .history_buffer   import HistoryBuffer
 from .hotspot_tracker  import HotspotTracker
-from .stampede_predictor import StampedePredictor
+from .crowd_risk_estimator import CrowdRiskEstimator
 from .opposing_flow_detector import OpposingFlowDetector
 
 # ── Swarm config (add these keys to config.py) ───────────────────────
@@ -195,20 +195,22 @@ class DroneState:
         self.last_frame_age_s = 0.0
         self.infer_time      = 0.0
         self.live_fps        = 0.0
+        self.is_simulation   = False
 
         # Analysis objects
         self.history     = HistoryBuffer(max_seconds=30.0, fps_estimate=5.0)
         self.hs_tracker  = HotspotTracker(self.history)
         self.opp_det     = OpposingFlowDetector()
-        self.stamp_pred  = StampedePredictor(self.history)
+        self.stamp_pred  = CrowdRiskEstimator(self.history)
         self.motion_anal = optical_flow.CrowdMotionAnalyzer()
         self.risk_track  = risk_engine.RiskEngineTracker()
         self.zone_mon    = zone_monitor.ZoneMonitor()
 
         # Hotspot / stampede results
         self.hs_result   = {"trend_matrix": None, "alert_text": "", "expanding": False}
-        self.sp_result   = {"smooth_prob": 0.0, "label": "SAFE",
-                            "label_color": (0, 255, 0), "alert_text": "", "terms": {}}
+        self.sp_result   = {"risk_index": 0.0, "risk_level": "SAFE", "confidence": 1.0,
+                            "primary_causes": [], "label": "SAFE", "label_color": (0, 255, 0),
+                            "alert_text": "", "smooth_prob": 0.0, "terms": {}}
         self.opp_result  = {"danger_grid": None, "max_score": 0.0,
                             "any_dangerous": False, "alert_text": ""}
 
@@ -230,6 +232,10 @@ class DroneState:
                 "zone":          self.comp_zone,
                 "pressure":      round(self.pressure_smooth, 1),
                 "stampede_prob": round(self.sp_result.get("smooth_prob", 0.0) * 100, 1),
+                "risk_index":    round(self.sp_result.get("risk_index", 0.0), 1),
+                "risk_level":    self.sp_result.get("risk_level", "SAFE"),
+                "confidence":    round(self.sp_result.get("confidence", 1.0), 2),
+                "primary_causes": self.sp_result.get("primary_causes", []),
                 "stamp_label":   self.sp_result.get("label", "SAFE"),
                 "uptime_s":      round(self.uptime_s, 0),
                 "drop_rate":     round(self.drop_rate_pct, 1),
@@ -353,7 +359,7 @@ class SwarmManager:
             if not handler.is_opened():
                 ds.online = False
                 # If the source is a network stream and we haven't fallen back yet, try a local video file
-                if not fallback_active and isinstance(resolved_src, str) and resolved_src.startswith(("rtsp://", "rtsps://", "rtmp://", "rtmps://", "http://", "https://")):
+                if config.ALLOW_DEMO_FALLBACK and not fallback_active and isinstance(resolved_src, str) and resolved_src.startswith(("rtsp://", "rtsps://", "rtmp://", "rtmps://", "http://", "https://")):
                     print(f"[SWARM] Drone {idx+1} ({ds.name}) RTSP {resolved_src} offline. Falling back to local video for simulation.")
                     video_files = ["Kumbh.mp4", "mecca.mp4", "stadium.mp4", "concert.mp4", "Crowd.mp4"]
                     local_sources = []
@@ -364,6 +370,8 @@ class SwarmManager:
                     if local_sources:
                         resolved_src = local_sources[idx % len(local_sources)]
                         fallback_active = True
+                        with ds.lock:
+                            ds.is_simulation = True
                         print(f"[SWARM] Drone {idx+1} source set to fallback local video: {resolved_src}")
                         continue
                 print(f"[SWARM] Drone {idx+1} ({ds.name}): Offline. Retrying connection to {resolved_src} in 3.0s...")
@@ -636,8 +644,9 @@ class SwarmManager:
 
             # ── History & trackers ────────────────────────────
             hs_res = {"trend_matrix": None, "alert_text": "", "expanding": False}
-            sp_res = {"smooth_prob": 0.0, "label": "SAFE",
-                      "label_color": (0,255,0), "alert_text": "", "terms": {}}
+            sp_res = {"risk_index": 0.0, "risk_level": "SAFE", "confidence": 1.0,
+                      "primary_causes": [], "label": "SAFE", "label_color": (0, 255, 0),
+                      "alert_text": "", "smooth_prob": 0.0, "terms": {}}
 
             if scores is not None and crowd_present:
                 ds.history.push(
@@ -648,7 +657,7 @@ class SwarmManager:
                     zone_scores=scores, zone_motions=speed_grid,
                 )
                 hs_res = ds.hs_tracker.update(scores)
-                sp_res = ds.stamp_pred.predict(
+                sp_res = ds.stamp_pred.estimate(
                     density_score=ds_val,
                     motion_speed=motion_speed,
                     turbulence=turbulence,
@@ -714,6 +723,10 @@ class SwarmManager:
                     "status": "online" if ds.online else "offline",
                     "pressure": float(pressure_s),
                     "stampede_prob": float(sp_res.get("smooth_prob", 0.0)),
+                    "risk_index": float(sp_res.get("risk_index", 0.0)),
+                    "risk_level": sp_res.get("risk_level", "SAFE"),
+                    "confidence": float(sp_res.get("confidence", 1.0)),
+                    "primary_causes": sp_res.get("primary_causes", []),
                     "motion_speed": float(motion_speed),
                     "turbulence": float(turbulence),
                     "hotspot_alert": hs_res.get("alert_text", ""),
@@ -813,6 +826,7 @@ class SwarmManager:
             opp_result    = ds.opp_result
             online     = ds.online
             uptime_s   = ds.uptime_s
+            is_simulation = getattr(ds, "is_simulation", False)
 
         disp = cv2.resize(frame, (config.DISPLAY_WIDTH // 2, config.DISPLAY_HEIGHT // 2),
                           interpolation=cv2.INTER_AREA)
@@ -840,6 +854,12 @@ class SwarmManager:
             txt_right = f"{int(ds.density_score)} pax | {uptime_s:.0f}s"
             (trw, _), _ = cv2.getTextSize(txt_right, cv2.FONT_HERSHEY_SIMPLEX, 0.4, 1)
             cv2.putText(disp, txt_right, (w2 - trw - 10, text_y), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (180, 180, 185), 1, cv2.LINE_AA)
+
+        if is_simulation:
+            # Draw simulation overlay
+            cv2.rectangle(disp, (0, h2 - 25), (w2, h2), (0, 0, 180), -1)
+            cv2.putText(disp, "SIMULATION", (w2 // 2 - 40, h2 - 8),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1, cv2.LINE_AA)
 
         return disp
 

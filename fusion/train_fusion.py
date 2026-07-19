@@ -46,7 +46,7 @@ from PIL import Image
 from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
 
-from fusion.models import FusionCountingModel
+from fusion.models import FusionCountingModel, mass_preserving_resize
 
 _TFM = transforms.Compose([
     transforms.ToTensor(),
@@ -122,13 +122,16 @@ def main():
         for x, y, gt_count in loader:
             x, y, gt_count = x.to(device), y.to(device), gt_count.to(device)
 
-            fused, _ = model(x, mode="learned")
-            fused = torch.nn.functional.interpolate(fused, size=y.shape[-2:], mode="bilinear", align_corners=False)
-            # interpolate changes the sum, so rescale back to match `fused`'s own predicted count
-            pred_count = fused.view(fused.size(0), -1).sum(1)
+            fused_native, _ = model(x, mode="learned")
+            pred_count = fused_native.view(fused_native.size(0), -1).sum(1)
+            fused = mass_preserving_resize(fused_native, y.shape[-2:])
 
             pixel_loss = mse(fused, y)
-            count_loss = torch.mean(torch.abs(pred_count - gt_count)) / max(1.0, y.numel() / y.size(0))
+            # Relative count error keeps count supervision meaningful across
+            # sparse and dense images without dividing it away by pixel count.
+            count_loss = torch.mean(
+                torch.abs(pred_count - gt_count) / torch.clamp(gt_count, min=1.0)
+            )
             loss = pixel_loss + args.count_loss_weight * count_loss
 
             optimizer.zero_grad()
