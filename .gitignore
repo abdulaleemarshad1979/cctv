@@ -33,6 +33,5 @@ scratch/
 mediamtx.exe
 mediamtx.zip
 
-# Backup files
+# Local backup files are not source artifacts.
 *.backup
-

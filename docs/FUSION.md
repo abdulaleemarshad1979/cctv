@@ -21,18 +21,22 @@ fusion/train_fusion.py    Trains only the fusion head (backbones frozen)
    `fused = g * dm_map + (1 - g) * csr_map`.
 4. Total count = `fused.sum()`.
 
-Untrained, the gate is zero-initialized so `sigmoid(0) = 0.5` — the model
-starts as a safe fixed 50/50 average and only needs the small fusion head
-trained (not the backbones) to specialize per-scene.
+Production inference never uses a random CSRNet branch. With the installed
+trained CSRNet checkpoint and no site-trained fusion head, the app uses a
+conservative normalized static blend: **80% DM-Count + 20% CSRNet**. When a
+compatible `fusion_head.pth` is installed, the adapter automatically switches
+to the learned spatial gate.
 
 ## Turning it on
-```bash
-USE_FUSION=1 CSRNET_WEIGHTS_PATH=/path/to/csrnet.pth python infer.py
+```powershell
+$env:DRONE_MODEL = "fusion"
+$env:CSRNET_WEIGHTS_PATH = "csrnet/pretrained_models/csrnet_shtechA.pth"
+python infer.py
 ```
-`config.py` already wires `USE_FUSION`, `CSRNET_WEIGHTS_PATH`,
-`FUSION_HEAD_WEIGHTS_PATH`, `FUSION_DM_WEIGHT`, `FUSION_CSR_WEIGHT`.
-If `USE_FUSION=0` (default), `infer.py` behaves exactly as before —
-DM-Count only, nothing else changes.
+`config.py` defaults to `DRONE_MODEL=fusion`. If the trained CSRNet checkpoint
+is missing or incompatible, `infer.py` explicitly falls back to trained
+DM-Count rather than silently using random weights. `FUSION_DM_WEIGHT` and
+`FUSION_CSR_WEIGHT` control the static blend; both are normalized before use.
 
 ## Training just the fusion head
 ```bash

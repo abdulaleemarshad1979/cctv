@@ -395,7 +395,8 @@ def _producer():
         if not sh.is_opened():
             print(f"[ERROR] Cannot open source {source}. Offline.")
             # If the source is a network stream and we haven't fallen back yet, try a local video file
-            if config.ALLOW_DEMO_FALLBACK and not fallback_active and isinstance(source, str) and source.startswith(("rtsp://", "rtsps://", "rtmp://", "rtmps://", "http://", "https://")):
+            drone_id_env = os.environ.get("DRONE_ID", "drone1")
+            if drone_id_env not in ("drone-1", "drone1") and config.ALLOW_DEMO_FALLBACK and not fallback_active and isinstance(source, str) and source.startswith(("rtsp://", "rtsps://", "rtmp://", "rtmps://", "http://", "https://")):
                 print("[INFO] Attempting fallback to local video file...")
                 video_dir = os.path.join(config.BASE_DIR, "Videos")
                 video_files = []
