@@ -42,7 +42,8 @@ def load_cameras():
             "stream_path": f"live/drone{i}",
             "publish_user": f"drone-{i}",
             "publish_pass": config.CAMERA_AUTH_SECRET,
-            "fallback_video": fallback_path,
+            # Drone 1 is reserved for the real drone stream; no demo video.
+            "fallback_video": None if i == 1 else fallback_path,
             "status": "offline",
             "error_type": "stream not found",
             "people_count": 0,
@@ -229,6 +230,9 @@ def shutdown_event():
             print(f"[LITE SERVER] Failed to terminate {pid}: {e}")
 
 def get_default_source_for_camera(camera):
+    if camera.get("id") == "drone-1":
+        return f"rtsp://127.0.0.1:8554/{camera['stream_path']}"
+
     video_dir = os.path.join(os.getcwd(), "Videos")
     video_files = []
     if os.path.exists(video_dir):

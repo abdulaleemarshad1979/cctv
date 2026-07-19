@@ -42,3 +42,10 @@ def test_counting_mode_requires_a_fresh_active_result():
 
     lite_server.update_stats(_stats(count=37.6, analytics_active=True))
     assert _camera()["people_count"] == 38
+
+
+def test_drone1_uses_only_the_real_stream_without_demo_footage():
+    camera = _camera()
+    assert camera["fallback_video"] is None
+    source = lite_server.get_default_source_for_camera(camera)
+    assert source == "rtsp://127.0.0.1:8554/live/drone1"
