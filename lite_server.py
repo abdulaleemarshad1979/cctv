@@ -39,13 +39,20 @@ def load_cameras():
             "name": f"DRONE {i}",
             "location": "Pushkaralu" if i % 2 == 0 else "Rjy",
             "category": "DRONE",
-            "stream_path": f"live/drone{i}",
+            # Larix keeps publishing Drone 1 to its existing URL.  The
+            # inference worker republishes annotated video to a different
+            # path so it never reads from and writes to the same stream.
+            "source_stream_path": "live/drone1" if i == 1 else None,
+            "stream_path": "analyzed/drone1" if i == 1 else f"live/drone{i}",
             "publish_user": f"drone-{i}",
             "publish_pass": config.CAMERA_AUTH_SECRET,
             # Drone 1 is reserved for the real drone stream; no demo video.
             "fallback_video": None if i == 1 else fallback_path,
             "status": "offline",
             "error_type": "stream not found",
+            "source_online": False,
+            "output_online": False,
+            "analytics_status": "idle",
             "people_count": 0,
             "comp_zone": "SAFE",
             "pressure": 0.0,
@@ -77,6 +84,9 @@ def load_cameras():
             "fallback_video": fallback_path,
             "status": "offline",
             "error_type": "stream not found",
+            "source_online": False,
+            "output_online": False,
+            "analytics_status": "idle",
             "people_count": 0,
             "comp_zone": "SAFE",
             "pressure": 0.0,
@@ -153,6 +163,44 @@ def reset_camera_analytics(camera):
         "gps_alerts": [],
         "zone_scores": None,
     })
+
+
+def find_camera_by_stream_path(path):
+    """Return (camera, path role) for a MediaMTX publish path."""
+    normalized = (path or "").strip("/")
+    for camera in cameras_db:
+        source_path = (camera.get("source_stream_path") or "").strip("/")
+        output_path = (camera.get("stream_path") or "").strip("/")
+        if source_path and source_path == normalized:
+            return camera, "source"
+        if output_path == normalized:
+            return camera, "output"
+    return None, None
+
+
+def is_stream_running(camera_id):
+    process = running_processes.get(camera_id)
+    if not process:
+        return False
+    try:
+        return process.poll() is None
+    except (AttributeError, OSError):
+        return True
+
+
+def start_live_analysis(camera):
+    """Start one analyzer for a raw live source, without duplicating workers."""
+    source_path = camera.get("source_stream_path")
+    if not source_path or is_stream_running(camera["id"]):
+        return None
+
+    camera["analytics_status"] = "starting" if global_counting_mode else "disabled"
+    camera["status"] = "connecting"
+    camera["error_type"] = None
+    reset_camera_analytics(camera)
+    source_url = f"rtsp://127.0.0.1:8554/{source_path.strip('/')}"
+    print(f"[LITE SERVER] Starting analysis for {camera['id']} from {source_path}")
+    return start_stream(camera, source_url)
 
 def generate_mediamtx_config(port: int):
     config_content = f"""# MediaMTX Low-Latency Configuration (Auto-generated)
@@ -231,7 +279,7 @@ def shutdown_event():
 
 def get_default_source_for_camera(camera):
     if camera.get("id") == "drone-1":
-        return f"rtsp://127.0.0.1:8554/{camera['stream_path']}"
+        return f"rtsp://127.0.0.1:8554/{camera['source_stream_path']}"
 
     video_dir = os.path.join(os.getcwd(), "Videos")
     video_files = []
@@ -330,16 +378,14 @@ async def authenticate_publish(request: Request):
         return Response(status_code=200)
 
     path = (data.get("path") or "").strip("/")
-    matched_camera = None
-    for cam in cameras_db:
-        if cam["stream_path"].strip("/") == path:
-            matched_camera = cam
-            break
+    matched_camera, path_role = find_camera_by_stream_path(path)
 
     if matched_camera:
-        matched_camera["status"] = "online"
-        matched_camera["error_type"] = None
-        print(f"[LITE SERVER] Authentication bypass (Success) for camera stream: {path}")
+        # Authentication happens before MediaMTX declares the path ready.  A
+        # raw Larix source is connecting until the analyzed output is ready.
+        if path_role == "source":
+            matched_camera["status"] = "connecting"
+        print(f"[LITE SERVER] Authentication success for camera stream: {path}")
         return Response(status_code=200)
 
     print(f"[LITE SERVER] Authentication bypass (Success) for unconfigured camera stream: {path}")
@@ -348,21 +394,51 @@ async def authenticate_publish(request: Request):
 @app.post("/cameras/state")
 def update_camera_state(req: StateRequest):
     path = req.path.strip("/")
-    matched_camera = None
-    for cam in cameras_db:
-        if cam["stream_path"].strip("/") == path:
-            matched_camera = cam
-            break
+    matched_camera, path_role = find_camera_by_stream_path(path)
 
     if not matched_camera:
         return {"status": "ignored", "path": path}
 
-    if req.status == "online":
+    if path_role == "source" and req.status == "online":
+        matched_camera["source_online"] = True
+        matched_camera["status"] = "connecting"
+        matched_camera["error_type"] = None
+        try:
+            start_live_analysis(matched_camera)
+        except Exception as exc:
+            matched_camera["analytics_status"] = "error"
+            matched_camera["error_type"] = "analysis failed to start"
+            print(f"[LITE SERVER] Failed to auto-start analysis for {matched_camera['id']}: {exc}")
+    elif path_role == "source":
+        matched_camera["source_online"] = False
+        matched_camera["output_online"] = False
+        matched_camera["status"] = "offline"
+        matched_camera["error_type"] = "stream not found"
+        matched_camera["analytics_status"] = "idle"
+        stop_stream(matched_camera["id"])
+        reset_camera_analytics(matched_camera)
+    elif req.status == "online":
+        matched_camera["output_online"] = True
         matched_camera["status"] = "online"
         matched_camera["error_type"] = None
     else:
-        matched_camera["status"] = "offline"
-        matched_camera["error_type"] = "stream not found"
+        matched_camera["output_online"] = False
+        if matched_camera.get("source_online"):
+            matched_camera["status"] = "connecting"
+            matched_camera["analytics_status"] = (
+                "starting" if global_counting_mode else "disabled"
+            )
+            if not is_stream_running(matched_camera["id"]):
+                try:
+                    start_live_analysis(matched_camera)
+                except Exception as exc:
+                    matched_camera["analytics_status"] = "error"
+                    matched_camera["error_type"] = "analysis failed to restart"
+                    print(f"[LITE SERVER] Failed to restart analysis for {matched_camera['id']}: {exc}")
+        else:
+            matched_camera["status"] = "offline"
+            matched_camera["error_type"] = "stream not found"
+            matched_camera["analytics_status"] = "idle"
 
     return {"status": "updated", "camera_id": matched_camera["id"], "state": {
         "status": matched_camera["status"], "error_type": matched_camera["error_type"]
@@ -391,6 +467,9 @@ def start_camera(drone_id: str, req: StartRequest):
 
     matched_camera["status"] = "connecting"
     matched_camera["error_type"] = "stream not found"
+    matched_camera["analytics_status"] = (
+        "starting" if global_counting_mode else "disabled"
+    )
     return {
         "status": "connecting",
         "drone_id": drone_id,
@@ -413,6 +492,9 @@ def stop_camera(drone_id: str):
     stop_stream(drone_id)
     matched_camera["status"] = "offline"
     matched_camera["error_type"] = "stream not found"
+    matched_camera["output_online"] = False
+    matched_camera["analytics_status"] = "idle"
+    reset_camera_analytics(matched_camera)
     return {"status": "stopped", "drone_id": drone_id}
 
 @app.post("/cameras/update_stats")
@@ -440,9 +522,13 @@ def update_stats(data: StatsUpdate):
     # Viewing Mode is video-only. Ignore stale/in-flight analytics, and when
     # Counting Mode is re-enabled wait for a fresh result from the worker.
     if not global_counting_mode or not data.analytics_active:
+        matched_camera["analytics_status"] = (
+            "disabled" if not global_counting_mode else "starting"
+        )
         reset_camera_analytics(matched_camera)
         return {"status": "success", "counting_mode": global_counting_mode}
 
+    matched_camera["analytics_status"] = "active"
     matched_camera["people_count"] = max(0, int(round(data.density_score)))
     matched_camera["comp_zone"] = data.comp_zone
     matched_camera["pressure"] = data.pressure
@@ -473,9 +559,15 @@ def set_mode(req: ModeRequest):
     mode = req.mode.lower().strip()
     if mode == "counting":
         global_counting_mode = True
+        for camera in cameras_db:
+            if camera.get("status") in ("online", "connecting"):
+                camera["analytics_status"] = "starting"
+                reset_camera_analytics(camera)
     elif mode == "viewing" or mode == "normal":
         global_counting_mode = False
         for camera in cameras_db:
+            if camera.get("status") in ("online", "connecting"):
+                camera["analytics_status"] = "disabled"
             reset_camera_analytics(camera)
     else:
         raise HTTPException(status_code=400, detail="Invalid mode. Must be 'counting' or 'viewing'.")

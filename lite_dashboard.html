@@ -753,6 +753,8 @@
 
         const isOnline = cam.status === "online";
         const isConnecting = cam.status === "connecting";
+        const analyticsReady = isOnline && globalMode === 'counting' && cam.analytics_status === 'active';
+        const analyticsStarting = isOnline && globalMode === 'counting' && !analyticsReady;
 
         const card = document.createElement("div");
         card.className = `tile ${isOnline && globalMode === 'counting' ? 'tile--counting' : ''}`;
@@ -765,8 +767,8 @@
           <header class="tile__header">
             <span class="tile__name">${cam.name}</span>
             <div class="tile__meta">
-              <span class="tile__count ${isOnline && globalMode === 'counting' ? '' : 'hidden'}" id="count-${cam.id}">${cam.people_count || 0} pax</span>
-              <span class="tile__zone-badge ${(cam.comp_zone || 'SAFE').toLowerCase()} ${isOnline && globalMode === 'counting' ? '' : 'hidden'}" id="zone-${cam.id}">${cam.comp_zone || 'SAFE'}</span>
+              <span class="tile__count ${isOnline && globalMode === 'counting' ? '' : 'hidden'}" id="count-${cam.id}">${analyticsStarting ? 'Analysis starting…' : `${cam.people_count || 0} pax`}</span>
+              <span class="tile__zone-badge ${(cam.comp_zone || 'SAFE').toLowerCase()} ${analyticsReady ? '' : 'hidden'}" id="zone-${cam.id}">${cam.comp_zone || 'SAFE'}</span>
               <span class="tile__location">${cam.location}</span>
               <span class="tile__status-dot"></span>
             </div>
@@ -781,7 +783,7 @@
             </div>
 
             <!-- Sleek Glassmorphic HUD -->
-            <div class="tile__hud ${isOnline && globalMode === 'counting' ? '' : 'hidden'}" id="hud-${cam.id}">
+            <div class="tile__hud ${analyticsReady ? '' : 'hidden'}" id="hud-${cam.id}">
               <div class="tile__hud-row">
                 <div class="tile__hud-metric">
                   <div class="tile__hud-value-container">
@@ -982,10 +984,14 @@
 
     // Dynamic Live Stats HUD updating without re-rendering card player
     function updateLiveStats(cam) {
+      const analyticsReady = globalMode === "counting" && cam.analytics_status === "active";
+
       // 1. Header people count
       const countEl = document.getElementById(`count-${cam.id}`);
       if (countEl) {
-        countEl.textContent = `${cam.people_count || 0} pax`;
+        countEl.textContent = analyticsReady
+          ? `${cam.people_count || 0} pax`
+          : "Analysis starting…";
         if (globalMode === "counting") {
           countEl.classList.remove("hidden");
         } else {
@@ -1042,11 +1048,15 @@
       const turbEl = document.getElementById(`hud-turb-${cam.id}`);
       if (turbEl) turbEl.textContent = (cam.turbulence || 0.0).toFixed(2);
 
+      const hudEl = document.getElementById(`hud-${cam.id}`);
+      if (hudEl) {
+        hudEl.classList.toggle("hidden", !analyticsReady);
+      }
+
       // 6. Per-Zone Head Count Grid
       if (cam.zone_scores && cam.zone_scores.length === 3) {
-        const hudEl = document.getElementById(`hud-${cam.id}`);
         if (hudEl) {
-          if (globalMode === "counting") {
+          if (analyticsReady) {
             hudEl.classList.remove("hidden");
           } else {
             hudEl.classList.add("hidden");
