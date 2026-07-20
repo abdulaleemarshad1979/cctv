@@ -4,8 +4,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Centralised Drone Monitoring Portal - AP Police (Static Mockup)</title>
-  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+  <title>Centralised Drone Monitoring Portal - AP Police</title>
+  <link rel="icon" href="data:,">
   <style>
     :root {
       --bg-main: #f8fafc;
@@ -253,6 +253,26 @@
       padding: 2px 6px;
       border-radius: 4px;
       font-family: monospace;
+    }
+
+    .tile__source-badge {
+      font-size: 8px;
+      font-weight: 800;
+      padding: 2px 5px;
+      border-radius: 4px;
+      letter-spacing: 0.04em;
+    }
+
+    .tile__source-badge.live {
+      color: #047857;
+      background: rgba(16, 185, 129, 0.14);
+      border: 1px solid rgba(16, 185, 129, 0.28);
+    }
+
+    .tile__source-badge.sample {
+      color: #b45309;
+      background: rgba(245, 158, 11, 0.16);
+      border: 1px solid rgba(245, 158, 11, 0.32);
     }
 
     .tile__zone-badge {
@@ -578,7 +598,21 @@
       color: var(--text-muted);
       max-width: 260px;
       line-height: 1.5;
-      margin-bottom: 16px;
+      margin: 0 0 10px;
+      white-space: pre-line;
+    }
+
+    .tile__publish-url {
+      max-width: 90%;
+      margin-bottom: 12px;
+      padding: 7px 9px;
+      color: #075985;
+      background: #e0f2fe;
+      border: 1px solid #bae6fd;
+      border-radius: 6px;
+      font: 600 10px/1.35 monospace;
+      overflow-wrap: anywhere;
+      user-select: all;
     }
 
     /* Actions Footer */
@@ -588,6 +622,7 @@
       border-top: 1px solid var(--border-color);
       display: flex;
       justify-content: flex-end;
+      gap: 8px;
     }
 
     .btn {
@@ -618,6 +653,16 @@
     .btn--start:hover {
       background-color: var(--accent-blue-hover);
       box-shadow: 0 4px 12px rgba(37, 99, 235, 0.2);
+    }
+
+    .btn--sample {
+      color: #475569;
+      background: #e2e8f0;
+      white-space: nowrap;
+    }
+
+    .btn--sample:hover {
+      background: #cbd5e1;
     }
 
     .btn--stop {
@@ -815,6 +860,51 @@
     let activeFilter = "All";
     let globalMode = "counting"; // ponytail: dynamic global mode state
     const hlsPlayers = {};
+    const CAMERA_POLL_INTERVAL_MS = 1000;
+    let cameraPollInFlight = false;
+    let useWebRtc = true;
+
+    function isCameraPlayable(cam) {
+      // Older backends kept a raw publisher in "connecting" until analyzed
+      // output appeared. Viewing Mode can play that raw stream immediately.
+      if (cam.enabled === false) return false;
+      return cam.status === "online" ||
+        (globalMode === "viewing" && cam.source_online === true);
+    }
+
+    function cameraPlaybackPath(cam) {
+      if (cam.playback_stream_path) return cam.playback_stream_path;
+      if (cam.source_online && cam.source_stream_path &&
+          (globalMode === "viewing" || !cam.output_online)) {
+        return cam.source_stream_path;
+      }
+      return cam.stream_path;
+    }
+
+    function getConnectionMessage(cam) {
+      const backendMessage = cam.connection_message || cam.status_message || cam.message;
+      if (backendMessage) return backendMessage;
+      if (cam.status === "connecting" && !cam.source_online && cam.source_kind === "live_publish") {
+        return "Waiting for the camera to start sending video.";
+      }
+      if (cam.error_type && cam.error_type !== "stream not found") return cam.error_type;
+      return cam.status === "connecting" ? "Connecting to video..." : "Video feed disconnected";
+    }
+
+    function shouldShowPublishUrl(cam) {
+      return cam.status === "connecting" && !cam.source_online &&
+        cam.source_kind === "live_publish" && Boolean(cam.publish_url);
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? "").replace(/[&<>'"]/g, character => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;"
+      })[character]);
+    }
+
+    function playerUsesPath(player, path) {
+      return Boolean(player) && (player.cdmpPath === path || player._cdmpPath === path);
+    }
 
     // Fetch cameras from the backend
     async function loadCamerasFromBackend() {
@@ -830,6 +920,7 @@
     // Build the grid cards dynamically
     function renderGrid() {
       const grid = document.getElementById("drone-grid");
+      Object.keys(hlsPlayers).forEach(id => teardownVideoFeed(id));
       grid.innerHTML = "";
 
       let visibleCount = 0;
@@ -838,30 +929,34 @@
           activeFilter === "All" ||
           (activeFilter === "Rjy" && cam.location === "Rjy") ||
           (activeFilter === "Pushkaralu" && cam.location === "Pushkaralu") ||
-          (activeFilter === "Active" && cam.status === "online") ||
+          (activeFilter === "Active" && isCameraPlayable(cam)) ||
           (activeFilter === "Drone" && cam.category === "DRONE") ||
           (activeFilter === "CCTV" && cam.category === "CCTV");
 
         if (!matchesFilter) return;
         visibleCount++;
 
-        const isOnline = cam.status === "online";
-        const isConnecting = cam.status === "connecting";
+        const isOnline = isCameraPlayable(cam);
+        const isConnecting = !isOnline && cam.status === "connecting";
         const analyticsReady = isOnline && globalMode === 'counting' && cam.analytics_status === 'active';
         const analyticsStarting = isOnline && globalMode === 'counting' && !analyticsReady;
+        const analyticsMessage = cam.analytics_status === 'stale'
+          ? 'Waiting for new count…'
+          : (cam.analytics_status === 'error' ? 'Counting unavailable' : 'Analysis starting…');
 
         const card = document.createElement("div");
         card.className = `tile ${isOnline && globalMode === 'counting' ? 'tile--counting' : ''}`;
         card.setAttribute("data-id", cam.id);
         card.setAttribute("data-location", cam.location);
         card.setAttribute("data-category", cam.category || "");
-        card.setAttribute("data-status", cam.status);
+        card.setAttribute("data-status", isOnline ? "online" : cam.status);
 
         card.innerHTML = `
           <header class="tile__header">
             <span class="tile__name">${cam.name}</span>
             <div class="tile__meta">
-              <span class="tile__count ${isOnline && globalMode === 'counting' ? '' : 'hidden'}" id="count-${cam.id}">${analyticsStarting ? 'Analysis starting…' : `${cam.people_count || 0} pax`}</span>
+              <span class="tile__count ${isOnline && globalMode === 'counting' ? '' : 'hidden'}" id="count-${cam.id}" title="${escapeHtml(cam.connection_message || '')}">${analyticsStarting ? analyticsMessage : `${cam.people_count || 0} pax`}</span>
+              <span class="tile__source-badge ${cam.source_kind === 'sample' ? 'sample' : 'live'} ${isOnline ? '' : 'hidden'}">${cam.source_kind === 'sample' ? 'SAMPLE' : 'REAL'}</span>
               <span class="tile__zone-badge ${(cam.comp_zone || 'SAFE').toLowerCase()} ${analyticsReady ? '' : 'hidden'}" id="zone-${cam.id}">${cam.comp_zone || 'SAFE'}</span>
               <span class="tile__location">${cam.location}</span>
               <span class="tile__status-dot"></span>
@@ -922,8 +1017,9 @@
             
             <div class="tile__placeholder ${isOnline ? 'hidden' : ''}" id="placeholder-${cam.id}">
               <p class="tile__error-text" id="placeholder-text-${cam.id}">
-                ${isConnecting ? 'Connecting to drone...' : 'Drone feed disconnected'}
+                ${escapeHtml(getConnectionMessage(cam))}
               </p>
+              <code class="tile__publish-url ${shouldShowPublishUrl(cam) ? '' : 'hidden'}" id="publish-url-${cam.id}">${escapeHtml(cam.publish_url || '')}</code>
               <div class="bouncing-loader ${isConnecting ? '' : 'hidden'}" id="loader-${cam.id}">
                 <div></div>
                 <div></div>
@@ -932,7 +1028,8 @@
             </div>
           </div>
           <footer class="tile__footer">
-            <button class="btn btn--start ${isOnline || isConnecting ? 'hidden' : ''}" id="btn-start-${cam.id}" onclick="connectFeed('${cam.id}')">Connect Feed</button>
+            <button class="btn btn--start ${isOnline || isConnecting ? 'hidden' : ''}" id="btn-start-${cam.id}" onclick="connectFeed('${cam.id}')">Connect Live Feed</button>
+            <button class="btn btn--sample ${isOnline || isConnecting ? 'hidden' : ''}" id="btn-sample-${cam.id}" onclick="startSampleFeed('${cam.id}')">Test Sample</button>
             <button class="btn btn--stop ${isOnline || isConnecting ? '' : 'hidden'}" id="btn-stop-${cam.id}" onclick="disconnectFeed('${cam.id}')">Disconnect</button>
           </footer>
         `;
@@ -952,22 +1049,126 @@
       }
     }
 
+    function updateCameraConnectionState(cam) {
+      const card = document.querySelector(`.tile[data-id="${cam.id}"]`);
+      if (!card) return false;
+
+      const isOnline = isCameraPlayable(cam);
+      const isConnecting = !isOnline && cam.status === "connecting";
+      card.setAttribute("data-status", isOnline ? "online" : cam.status);
+      card.classList.toggle("tile--counting", isOnline && globalMode === "counting");
+
+      const container = document.getElementById(`player-container-${cam.id}`);
+      const placeholder = document.getElementById(`placeholder-${cam.id}`);
+      const placeholderText = document.getElementById(`placeholder-text-${cam.id}`);
+      const publishUrl = document.getElementById(`publish-url-${cam.id}`);
+      const loader = document.getElementById(`loader-${cam.id}`);
+      const liveBadge = document.getElementById(`live-${cam.id}`);
+      const startButton = document.getElementById(`btn-start-${cam.id}`);
+      const sampleButton = document.getElementById(`btn-sample-${cam.id}`);
+      const stopButton = document.getElementById(`btn-stop-${cam.id}`);
+
+      container?.classList.toggle("hidden", !isOnline);
+      placeholder?.classList.toggle("hidden", isOnline);
+      liveBadge?.classList.toggle("hidden", !isOnline);
+      loader?.classList.toggle("hidden", !isConnecting);
+      startButton?.classList.toggle("hidden", isOnline || isConnecting);
+      sampleButton?.classList.toggle("hidden", isOnline || isConnecting);
+      stopButton?.classList.toggle("hidden", !(isOnline || isConnecting));
+
+      if (placeholderText) {
+        placeholderText.textContent = getConnectionMessage(cam);
+      }
+      if (publishUrl) {
+        publishUrl.textContent = cam.publish_url || "";
+        publishUrl.classList.toggle("hidden", !shouldShowPublishUrl(cam));
+      }
+
+      const sourceBadge = card.querySelector(".tile__source-badge");
+      if (sourceBadge) {
+        sourceBadge.textContent = cam.source_kind === "sample" ? "SAMPLE" : "REAL";
+        sourceBadge.classList.toggle("sample", cam.source_kind === "sample");
+        sourceBadge.classList.toggle("live", cam.source_kind !== "sample");
+        sourceBadge.classList.toggle("hidden", !isOnline);
+      }
+
+      if (isOnline) {
+        const playbackPath = cameraPlaybackPath(cam);
+        if (!playerUsesPath(hlsPlayers[cam.id], playbackPath)) setupVideoFeed(cam);
+        updateLiveStats(cam);
+      } else if (hlsPlayers[cam.id]) {
+        teardownVideoFeed(cam.id);
+      }
+      return true;
+    }
+
     // Connect Feed Trigger
     async function connectFeed(id) {
       const cam = cameras.find(c => c.id === id);
-      if (cam) cam.status = "connecting";
-      renderGrid();
+      if (!cam) return;
+
+      const publishUrl = cam.publish_url ||
+        `rtmp://${window.location.hostname}:1935/${cam.source_stream_path}`;
+      const enteredUrl = window.prompt(
+        `Connect ${cam.name} to real video.\n\n` +
+        `Paste its RTSP/RTMP URL, or leave this blank when the camera app ` +
+        `is publishing to:\n${publishUrl}`,
+        ""
+      );
+      if (enteredUrl === null) return;
+
+      cam.status = "connecting";
+      cam.enabled = true;
+      cam.source_kind = enteredUrl.trim() ? "live_url" : "live_publish";
+      if (enteredUrl.trim()) cam.source_online = false;
+      cam.connection_message = enteredUrl.trim()
+        ? "Opening the camera URL..."
+        : "Waiting for the camera to start sending video.";
+      updateCameraConnectionState(cam);
 
       try {
-        await fetch(`/cameras/${id}/start`, {
+        const response = await fetch(`/cameras/${id}/start`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({})
+          body: JSON.stringify({ source_url: enteredUrl.trim() || null })
         });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(result.detail || `Connection failed (${response.status})`);
+        Object.assign(cam, result.camera || result);
+        updateCameraConnectionState(cam);
       } catch (e) {
         console.error("[CDMP] Error connecting feed:", e);
-        if (cam) cam.status = "offline";
-        renderGrid();
+        cam.status = "offline";
+        cam.connection_message = e.message || "Could not connect the video feed.";
+        updateCameraConnectionState(cam);
+      }
+    }
+
+    async function startSampleFeed(id) {
+      const cam = cameras.find(c => c.id === id);
+      if (cam) {
+        cam.status = "connecting";
+        cam.enabled = true;
+        cam.source_kind = "sample";
+        cam.connection_message = "Starting bundled sample video...";
+      }
+      if (cam) updateCameraConnectionState(cam);
+
+      try {
+        const response = await fetch(`/cameras/${id}/start`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ use_sample: true })
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(result.detail || `Sample failed (${response.status})`);
+        Object.assign(cam, result.camera || result);
+        updateCameraConnectionState(cam);
+      } catch (e) {
+        console.error("[CDMP] Error starting sample feed:", e);
+        cam.status = "offline";
+        cam.connection_message = e.message || "Could not start the sample feed.";
+        updateCameraConnectionState(cam);
       }
     }
 
@@ -978,10 +1179,14 @@
         const cam = cameras.find(c => c.id === id);
         if (cam) {
           cam.status = "offline";
+          cam.enabled = false;
+          cam.source_online = false;
+          cam.output_online = false;
+          cam.connection_message = null;
           cam.people_count = 0;
           cam.comp_zone = "SAFE";
+          updateCameraConnectionState(cam);
         }
-        renderGrid();
       } catch (e) {
         console.error("[CDMP] Error disconnecting feed:", e);
       }
@@ -1007,6 +1212,28 @@
       if (!container) return;
       teardownVideoFeed(cam.id);
       container.classList.remove("hidden");
+      const playbackPath = cameraPlaybackPath(cam);
+      if (!playbackPath) return;
+
+      if (useWebRtc) {
+        const iframe = document.createElement("iframe");
+        iframe.className = "tile__iframe";
+        iframe.title = `${cam.name} live video`;
+        iframe.allow = "autoplay; fullscreen; picture-in-picture";
+        iframe.setAttribute("allowfullscreen", "");
+        iframe.src =
+          `http://${window.location.hostname}:8889/${playbackPath}` +
+          `?controls=true&muted=true&autoplay=true`;
+        container.appendChild(iframe);
+        hlsPlayers[cam.id] = {
+          cdmpPath: playbackPath,
+          destroy() {
+            iframe.src = "about:blank";
+            iframe.remove();
+          }
+        };
+        return;
+      }
 
       const video = document.createElement("video");
       video.className = "tile__video";
@@ -1016,21 +1243,27 @@
       video.controls = true;
       container.appendChild(video);
 
-      const streamUrl = `http://${window.location.hostname}:8088/${cam.stream_path}/index.m3u8?mode=${globalMode}&t=${Date.now()}`;
+      const streamUrl = `http://${window.location.hostname}:8088/${playbackPath}/index.m3u8`;
 
       if (typeof Hls !== "undefined" && Hls.isSupported()) {
         const hls = new Hls({
-          maxBufferLength: 3,
-          maxMaxBufferLength: 4,
+          lowLatencyMode: true,
+          maxBufferLength: 1,
+          maxMaxBufferLength: 2,
           backBufferLength: 0,
           liveSyncDurationCount: 1,
-          liveMaxLatencyDurationCount: 3,
+          liveMaxLatencyDurationCount: 2,
+          maxLiveSyncPlaybackRate: 1.5,
           startPosition: -1,
           enableWorker: true
         });
+        hls._cdmpPath = playbackPath;
         hlsPlayers[cam.id] = hls;
         hls.loadSource(streamUrl);
         hls.attachMedia(video);
+        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+          video.play().catch(() => {});
+        });
         hls.on(Hls.Events.ERROR, function (event, data) {
           if (data.fatal) {
             switch (data.type) {
@@ -1047,32 +1280,61 @@
         });
       } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
         video.src = streamUrl;
+        hlsPlayers[cam.id] = {
+          cdmpPath: playbackPath,
+          destroy() {
+            video.pause();
+            video.removeAttribute("src");
+            video.load();
+            video.remove();
+          }
+        };
       }
     }
 
     // Dynamic Polling for real-time camera updates
     async function pollCameras() {
+      if (cameraPollInFlight) return;
+      cameraPollInFlight = true;
       try {
-        const res = await fetch("/cameras");
+        const res = await fetch("/cameras", { cache: "no-store" });
         const newCameras = await res.json();
 
-        let statusChanged = false;
+        let needsRerender = false;
+        const oldById = new Map(cameras.map(camera => [camera.id, camera]));
         newCameras.forEach(newCam => {
-          const oldCam = cameras.find(c => c.id === newCam.id);
+          const oldCam = oldById.get(newCam.id);
 
-          if (!oldCam || oldCam.status !== newCam.status) {
-            statusChanged = true;
-          } else if (newCam.status === "online") {
+          if (!oldCam) {
+            needsRerender = true;
+          } else if (
+            oldCam.status !== newCam.status ||
+            oldCam.source_online !== newCam.source_online ||
+            oldCam.output_online !== newCam.output_online ||
+            oldCam.connection_message !== newCam.connection_message ||
+            cameraPlaybackPath(oldCam) !== cameraPlaybackPath(newCam)
+          ) {
+            // Active-filter membership can change; other filters can update
+            // one card without interrupting every existing video player.
+            if (activeFilter === "Active") {
+              needsRerender = true;
+            } else {
+              updateCameraConnectionState(newCam);
+            }
+          } else if (isCameraPlayable(newCam)) {
+            // Analytics changes update the HUD in place so video never restarts.
             updateLiveStats(newCam);
           }
         });
 
         cameras = newCameras;
-        if (statusChanged) {
+        if (needsRerender) {
           renderGrid();
         }
       } catch (e) {
         console.error("[CDMP] Polling error:", e);
+      } finally {
+        cameraPollInFlight = false;
       }
     }
 
@@ -1085,7 +1347,10 @@
       if (countEl) {
         countEl.textContent = analyticsReady
           ? `${cam.people_count || 0} pax`
-          : "Analysis starting…";
+          : (cam.analytics_status === "stale"
+            ? "Waiting for new count…"
+            : (cam.analytics_status === "error" ? "Counting unavailable" : "Analysis starting…"));
+        countEl.title = cam.connection_message || "";
         if (globalMode === "counting") {
           countEl.classList.remove("hidden");
         } else {
@@ -1098,7 +1363,7 @@
       if (zoneEl) {
         zoneEl.textContent = cam.comp_zone || 'SAFE';
         zoneEl.className = `tile__zone-badge ${(cam.comp_zone || 'SAFE').toLowerCase()}`;
-        if (globalMode === "counting") {
+        if (analyticsReady) {
           zoneEl.classList.remove("hidden");
         } else {
           zoneEl.classList.add("hidden");
@@ -1250,14 +1515,11 @@
         console.error("[CDMP] Failed to sync mode with backend:", e);
       }
 
-      // Remove buffered frames from the previous mode. This prevents grids
-      // and dots from lingering in Viewing Mode after the worker switches.
-      cameras.filter(cam => cam.status === "online").forEach(cam => {
-        teardownVideoFeed(cam.id, true);
-      });
-
+      // Mode changes affect the browser HUD and inference only. The WebRTC/HLS
+      // player stays connected unless the backend changes between raw and
+      // analyzed video for this camera.
       cameras.forEach(cam => {
-        const isOnline = cam.status === "online";
+        const isOnline = isCameraPlayable(cam);
         const countEl = document.getElementById(`count-${cam.id}`);
         const zoneEl = document.getElementById(`zone-${cam.id}`);
         const hudEl = document.getElementById(`hud-${cam.id}`);
@@ -1280,13 +1542,9 @@
             updateLiveStats(cam);
           }
         }
+        updateCameraConnectionState(cam);
       });
 
-      // Give the inference stream time to publish a frame for the new mode,
-      // then reconnect at the live edge with an empty HLS buffer.
-      window.setTimeout(() => {
-        cameras.filter(cam => cam.status === "online").forEach(setupVideoFeed);
-      }, 1800);
     }
 
     // Sync mode status from server
@@ -1336,7 +1594,7 @@
     async function init() {
       await syncModeFromServer();
       await loadCamerasFromBackend();
-      setInterval(pollCameras, 2000);
+      setInterval(pollCameras, CAMERA_POLL_INTERVAL_MS);
     }
 
     init();

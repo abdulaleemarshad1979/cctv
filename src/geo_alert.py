@@ -42,6 +42,7 @@ WHATSAPP_API_KEY   = os.environ.get("WHATSAPP_API_KEY", "")
 GEOJSON_LOG_PATH   = Path("outputs/alerts.geojson")
 ALERT_LOG_PATH     = Path("outputs/alert_log.jsonl")
 ALERT_COOLDOWN_S   = 60.0   # Don't re-alert same zone within 60 seconds
+MAX_GEOJSON_ALERTS = 1000   # Bound long-running process memory and file rewrites
 
 # Minimum zone to trigger external dispatch (HIGH or CRITICAL)
 DISPATCH_ZONE_THRESHOLD = {"HIGH", "CRITICAL"}
@@ -153,7 +154,9 @@ class GeoAlertDispatcher:
             }
         }
         with self._lock:
-            self._geojson_data["features"].append(feature)
+            features = self._geojson_data["features"]
+            features.append(feature)
+            del features[:-MAX_GEOJSON_ALERTS]
             with open(GEOJSON_LOG_PATH, "w", encoding="utf-8") as f:
                 json.dump(self._geojson_data, f, indent=2)
 

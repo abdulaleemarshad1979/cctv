@@ -16,11 +16,13 @@ webrtcAddress: :8889
 
 hls: yes
 hlsAddress: :8088
+hlsVariant: lowLatency
+hlsSegmentCount: 3
+hlsSegmentDuration: 1s
+hlsPartDuration: 200ms
 
 readTimeout: 5s
 writeTimeout: 5s
-
-externalAuthenticationURL: http://127.0.0.1:8000/auth
 
 paths:
   all:

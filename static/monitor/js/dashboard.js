@@ -286,14 +286,7 @@
           tile.startBtn.classList.remove("hidden");
           tile.stopBtn.classList.add("hidden");
 
-          // Render correct error labels
-          if (cam.error_type === "authentication failed") {
-            tile.errorTextEl.textContent = 'Error: authentication failed, retrying in some seconds';
-          } else if (cam.error_type === "authorization failed") {
-            tile.errorTextEl.textContent = 'Error: authorization failed, retrying in some seconds';
-          } else {
-            tile.errorTextEl.textContent = 'Drone stream not found, retrying in some seconds';
-          }
+          tile.errorTextEl.textContent = 'Drone stream not found, retrying in some seconds';
         }
       });
 

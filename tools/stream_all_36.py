@@ -27,7 +27,7 @@ def main():
             stream_path = cam["stream_path"]
             # Extract the raw name after live/
             raw_path = stream_path.replace("live/", "")
-            target = f"rtmp://127.0.0.1:1935/live/{raw_path}?user=operator&pass=pushkar2026"
+            target = f"rtmp://127.0.0.1:1935/live/{raw_path}"
             
             print(f"[STREAMER] [{idx+1}/36] Launching stream for {cam['name']} to: {target}")
             

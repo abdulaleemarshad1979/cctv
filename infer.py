@@ -14,15 +14,11 @@ import os
 import sys
 import cv2
 import time
-import subprocess
-import shutil
 STARTUP_T0 = time.monotonic()
 import queue
 import threading
 import numpy as np
 import torch
-from PIL import Image
-from torchvision import transforms
 
 import config
 
@@ -45,7 +41,13 @@ from src.history_buffer         import HistoryBuffer
 from src.hotspot_tracker        import HotspotTracker
 from src.opposing_flow_detector import OpposingFlowDetector
 from src.crowd_risk_estimator   import CrowdRiskEstimator
-from src.counting_accuracy      import TemporalCountStabilizer, allocate_zone_counts
+from src.counting_accuracy      import (
+    TemporalCountStabilizer,
+    allocate_zone_counts,
+    detection_zone_counts,
+    detections_to_density_map,
+)
+from src.stream_output          import LatestFrameEncoder, resolve_ffmpeg_path
 
 # ── model setup ───────────────────────────────────────────────────────
 from models.model_registry import load_counting_model
@@ -84,44 +86,49 @@ class ONNXModelWrapper:
 
 CATEGORY_ENV = os.environ.get("CAMERA_CATEGORY", "DRONE").upper()
 is_yolo_mode = (CATEGORY_ENV == "CCTV")
-
-def make_pseudo_density_map(boxes, shape, frame_shape):
-    infer_h, infer_w = shape
-    frame_h, frame_w = frame_shape
-    dmap = np.zeros((infer_h, infer_w), dtype=np.float32)
-    
-    scale_y = infer_h / frame_h
-    scale_x = infer_w / frame_w
-    
-    for box in boxes:
-        xyxy = np.asarray(box, dtype=np.float32)
-        x_c = (xyxy[0] + xyxy[2]) / 2.0 * scale_x
-        y_c = (xyxy[1] + xyxy[3]) / 2.0 * scale_y
-        
-        # Draw a small Gaussian blob at (x_c, y_c)
-        r = 6
-        for dy in range(-r, r+1):
-            for dx in range(-r, r+1):
-                iy = int(y_c + dy)
-                ix = int(x_c + dx)
-                if 0 <= iy < infer_h and 0 <= ix < infer_w:
-                    val = np.exp(-(dx*dx + dy*dy) / (2.0 * 2.0 * 2.0))
-                    dmap[iy, ix] += val
-                    
-    dmap_sum = dmap.sum()
-    if dmap_sum > 0:
-        dmap = dmap * (len(boxes) / dmap_sum)
-    return dmap
+cpu_hybrid_enabled = os.environ.get("CPU_USE_HYBRID", "0").lower() in (
+    "1", "true", "yes", "on"
+)
 
 
 def _load_model():
+    load_started = time.monotonic()
+    if is_yolo_mode:
+        # CCTV counting never calls the density backbone. Skipping it removes
+        # hundreds of megabytes of duplicated model state per CCTV worker and
+        # materially shortens startup.
+        print("[PERFORMANCE] CCTV mode: loading YOLO only (density model skipped).")
+        from ultralytics import YOLO
+        yolo_path = os.path.join(os.getcwd(), "yolo11n.pt")
+        yolo_model = YOLO(yolo_path)
+        print(
+            f"[INFO] YOLO-only CCTV model ready in "
+            f"{time.monotonic() - load_started:.2f}s."
+        )
+        return {
+            "fusion": None,
+            "yolo": yolo_model,
+            "counter_name": "yolo",
+            "counter_label": "YOLO Person Detection",
+        }
+
     requested_model = getattr(config, "DRONE_MODEL", "fusion").lower()
     model_name = requested_model
     csrnet_path = getattr(config, "CSRNET_WEIGHTS_PATH", "")
     fusion_head_path = getattr(config, "FUSION_HEAD_WEIGHTS_PATH", "")
     has_csrnet = bool(csrnet_path and os.path.exists(csrnet_path))
     has_fusion_head = bool(fusion_head_path and os.path.exists(fusion_head_path))
-    if requested_model == "fusion" and not has_csrnet:
+    cpu_fusion_enabled = os.environ.get("CPU_USE_FUSION", "0").lower() in (
+        "1", "true", "yes", "on"
+    )
+    if requested_model == "fusion" and device.type == "cpu" and not cpu_fusion_enabled:
+        model_name = "dm_count"
+        print(
+            "[PERFORMANCE] CPU fast-start enabled: using trained DM-Count "
+            "instead of the two-backbone fusion model. Set CPU_USE_FUSION=1 "
+            "to force fusion."
+        )
+    elif requested_model == "fusion" and not has_csrnet:
         model_name = "dm_count"
         print(
             "[ACCURACY] Trained CSRNet checkpoint is missing; "
@@ -141,13 +148,28 @@ def _load_model():
 
     print(f"[INFO] Loading production model: {model_name}...")
     fm = load_counting_model(model_name, device)
-    print(f"[INFO] Model {model_name} ready.")
+    density_ready = time.monotonic()
+    print(
+        f"[INFO] Model {model_name} ready in "
+        f"{density_ready - load_started:.2f}s."
+    )
 
-    print("[INFO] Loading YOLOv11 model for hybrid detection...")
-    from ultralytics import YOLO
-    yolo_path = os.path.join(os.getcwd(), "yolo11n.pt")
-    ym = YOLO(yolo_path)
-    print("[INFO] YOLO model ready.")
+    ym = None
+    if device.type == "cuda" or cpu_hybrid_enabled:
+        print("[INFO] Loading YOLOv11 model for hybrid detection...")
+        from ultralytics import YOLO
+        yolo_path = os.path.join(os.getcwd(), "yolo11n.pt")
+        ym = YOLO(yolo_path)
+        models_ready = time.monotonic()
+        print(
+            f"[INFO] YOLO model ready in {models_ready - density_ready:.2f}s; "
+            f"all models ready in {models_ready - load_started:.2f}s."
+        )
+    else:
+        print(
+            "[PERFORMANCE] CPU drone mode: using the density counter only. "
+            "Set CPU_USE_HYBRID=1 to add YOLO."
+        )
     counter_label = (
         "DM-Count (NWPU)"
         if model_name == "dm_count"
@@ -163,41 +185,24 @@ def _load_model():
     }
 
 
-def _track_people(frame):
-    """Track people and return ``(box, confidence)`` pairs."""
+def _detect_people(frame):
+    """Detect people and return ``(box, confidence)`` pairs."""
     yolo = model["yolo"]
     yolo_imgsz = (
         getattr(config, "YOLO_IMG_SIZE", 960)
         if getattr(config, "YOLO_HIGH_ACCURACY", True)
         else 640
     )
-    try:
-        results = yolo.track(
-            source=frame,
-            persist=True,
-            classes=[0],
-            imgsz=yolo_imgsz,
-            conf=getattr(config, "YOLO_CONFIDENCE", 0.20),
-            iou=getattr(config, "YOLO_IOU", 0.55),
-            max_det=getattr(config, "YOLO_MAX_DETECTIONS", 3000),
-            agnostic_nms=True,
-            verbose=False,
-        )
-    except Exception as exc:
-        # Keep counting available if the optional tracker dependency is missing.
-        if not getattr(_track_people, "_fallback_reported", False):
-            print(f"[YOLO] Tracker unavailable ({exc}); using person detection fallback.")
-            _track_people._fallback_reported = True
-        results = yolo(
-            frame,
-            classes=[0],
-            imgsz=yolo_imgsz,
-            conf=getattr(config, "YOLO_CONFIDENCE", 0.20),
-            iou=getattr(config, "YOLO_IOU", 0.55),
-            max_det=getattr(config, "YOLO_MAX_DETECTIONS", 3000),
-            agnostic_nms=True,
-            verbose=False,
-        )
+    results = yolo(
+        frame,
+        classes=[0],
+        imgsz=yolo_imgsz,
+        conf=getattr(config, "YOLO_CONFIDENCE", 0.20),
+        iou=getattr(config, "YOLO_IOU", 0.55),
+        max_det=getattr(config, "YOLO_MAX_DETECTIONS", 3000),
+        agnostic_nms=True,
+        verbose=False,
+    )
 
     if not results or results[0].boxes is None:
         return []
@@ -210,37 +215,40 @@ def _track_people(frame):
 
 
 model = None
+model_load_error = None
 model_loaded = threading.Event()
 
 def async_load_model():
-    global model
+    global model, model_load_error
     try:
         model = _load_model()
-        model_loaded.set()
     except Exception as e:
+        model_load_error = e
         print(f"[ERROR] Failed to load model asynchronously: {e}")
+    finally:
+        model_loaded.set()
 
 threading.Thread(target=async_load_model, daemon=True, name="ModelLoader").start()
 
-_tfm = transforms.Compose([
-    transforms.ToTensor(),
-    transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                         std =[0.229, 0.224, 0.225]),
-])
+# Allocate normalization tensors once. Creating and transferring two tensors
+# for every inference pass adds avoidable allocator and device overhead.
+_NORMALIZE_MEAN = torch.tensor(
+    [0.485, 0.456, 0.406], dtype=torch.float32, device=device
+).view(1, 3, 1, 1)
+_NORMALIZE_STD = torch.tensor(
+    [0.229, 0.224, 0.225], dtype=torch.float32, device=device
+).view(1, 3, 1, 1)
 
 def _preprocess(bgr):
-    if getattr(config, "CLEAN_INPUT_OVERLAYS", True):
-        bgr = density_filter.suppress_broadcast_overlays(bgr)
     small = cv2.resize(bgr, (config.INFER_WIDTH, config.INFER_HEIGHT),
                        interpolation=cv2.INTER_AREA)
+    if getattr(config, "CLEAN_INPUT_OVERLAYS", True):
+        small = density_filter.suppress_broadcast_overlays(small)
     rgb   = cv2.cvtColor(small, cv2.COLOR_BGR2RGB)
     
     # Direct numpy to normalized tensor conversion (no PIL round-trip)
-    mean = torch.tensor([0.485, 0.456, 0.406], dtype=torch.float32, device=device).view(1, 3, 1, 1)
-    std  = torch.tensor([0.229, 0.224, 0.225], dtype=torch.float32, device=device).view(1, 3, 1, 1)
-    
     tensor_np = torch.from_numpy(rgb).permute(2, 0, 1).float().unsqueeze(0).to(device) / 255.0
-    return (tensor_np - mean) / std
+    return (tensor_np - _NORMALIZE_MEAN) / _NORMALIZE_STD
 
 # Startup Verification of Preprocessing Pipeline
 if os.environ.get("VERIFY_PREPROCESS", "1") in ("1", "true", "yes", "on"):
@@ -258,7 +266,15 @@ if os.environ.get("VERIFY_PREPROCESS", "1") in ("1", "true", "yes", "on"):
         dummy_small = cv2.resize(dummy_bgr_suppressed, (config.INFER_WIDTH, config.INFER_HEIGHT),
                                  interpolation=cv2.INTER_AREA)
         dummy_rgb = cv2.cvtColor(dummy_small, cv2.COLOR_BGR2RGB)
-        old_val = _tfm(Image.fromarray(dummy_rgb)).unsqueeze(0).to(device)
+        old_array = (
+            torch.from_numpy(dummy_rgb)
+            .permute(2, 0, 1)
+            .float()
+            .unsqueeze(0)
+            .to(device)
+            / 255.0
+        )
+        old_val = (old_array - _NORMALIZE_MEAN) / _NORMALIZE_STD
         
         diff = torch.max(torch.abs(old_val - new_val)).item()
         if torch.allclose(old_val, new_val, atol=1e-5):
@@ -307,7 +323,12 @@ def _resize_for_display(frame):
     target = (config.DISPLAY_WIDTH, config.DISPLAY_HEIGHT)
     if (w, h) == target:
         return frame.copy()
-    return cv2.resize(frame, target, interpolation=cv2.INTER_CUBIC)
+    interpolation = (
+        cv2.INTER_AREA
+        if target[0] < w or target[1] < h
+        else cv2.INTER_LINEAR
+    )
+    return cv2.resize(frame, target, interpolation=interpolation)
 
 
 # ── shared state ──────────────────────────────────────────────────────
@@ -345,8 +366,10 @@ _pressure_smooth = 0.0
 _sp_result       = {"smooth_prob": 0.0, "label": "SAFE", "label_color": (0,255,0), "alert_text": "", "terms": {}}
 _hs_result       = {"trend_matrix": None, "alert_text": "", "expanding": False}
 _analytics_ts    = 0.0
+_analytics_seq   = 0
 
 _frame_q = queue.Queue(maxsize=1)
+_stats_q = queue.Queue(maxsize=1)
 _health_stats = {"reconnects": 0, "drop_rate_%": 0.0, "live_fps": 0.0}
 
 
@@ -358,7 +381,11 @@ def _mode_sync_worker():
     if not mode_url:
         return
 
-    import requests
+    try:
+        import requests
+    except ImportError:
+        print("[MODE SYNC] WARNING: 'requests' library not installed — mode sync disabled")
+        return
 
     while not _stop.is_set():
         try:
@@ -370,6 +397,54 @@ def _mode_sync_worker():
         except Exception:
             pass
         _stop.wait(0.5)
+
+
+def _replace_latest(target_queue, item):
+    """Put one value without blocking, discarding an older pending value."""
+    while not _stop.is_set():
+        try:
+            target_queue.put_nowait(item)
+            return
+        except queue.Full:
+            try:
+                target_queue.get_nowait()
+            except queue.Empty:
+                pass
+
+
+def _stats_poster_worker():
+    """Send only the newest analytics payload from one bounded worker."""
+    global _counting_mode_active
+
+    stats_url = os.environ.get("DJANGO_UPDATE_URL", "").strip()
+    if not stats_url:
+        return
+    try:
+        import requests
+    except ImportError:
+        print("[STATS] WARNING: 'requests' is unavailable; stats posting disabled")
+        return
+
+    session = requests.Session()
+    last_error_log = 0.0
+    while not _stop.is_set():
+        try:
+            payload = _stats_q.get(timeout=0.25)
+        except queue.Empty:
+            continue
+
+        try:
+            response = session.post(stats_url, json=payload, timeout=0.5)
+            response.raise_for_status()
+            response_data = response.json()
+            if "counting_mode" in response_data:
+                with _lock:
+                    _counting_mode_active = bool(response_data["counting_mode"])
+        except Exception as exc:
+            now = time.monotonic()
+            if now - last_error_log >= 10.0:
+                print(f"[STATS] POST failed: {exc}")
+                last_error_log = now
 
 
 def _clear_q(q):
@@ -440,6 +515,8 @@ def _producer():
             )
         idx = 0
         nft = time.monotonic()
+        last_health_check = 0.0
+        health = sh.health_report()
 
         while not _stop.is_set():
             ok, frame = sh.read_frame()
@@ -449,7 +526,10 @@ def _producer():
 
             idx += 1
             ts  = getattr(sh, "latest_frame_ts", 0.0) or time.monotonic()
-            health = sh.health_report()
+            now = time.monotonic()
+            if now - last_health_check >= 1.0:
+                health = sh.health_report()
+                last_health_check = now
             with _lock:
                 _frame_data = (frame, ts)
                 stride = _stride
@@ -461,9 +541,10 @@ def _producer():
                 }
 
             if idx % stride == 0:
-                if _frame_q.full(): _clear_q(_frame_q)
-                try: _frame_q.put_nowait((frame.copy(), ts))
-                except queue.Full: pass
+                # The capture frame is immutable after publication. Retaining
+                # its reference avoids a second multi-megabyte copy; the queue
+                # remains bounded to one latest inference candidate.
+                _replace_latest(_frame_q, (frame, ts))
 
             if not sh.is_live:
                 nft += 1.0 / src_fps
@@ -483,9 +564,14 @@ def _inference_worker():
     global _risk_score, _zone, _zone_color, _infer_t, _stride, _proc_fps, _zone_scores
     global _speed_grid, _motion_speed, _turbulence, _opp_result, _comp_risk
     global _comp_zone, _comp_color, _pressure_smooth, _sp_result, _hs_result, _analytics_ts
+    global _analytics_seq
+    global _yolo_boxes
 
     # Wait for the asynchronously loaded model to be ready
     model_loaded.wait()
+    if model is None:
+        print(f"[ERROR] Inference disabled because model loading failed: {model_load_error}")
+        return
 
     last_t   = time.perf_counter()
     zm       = zone_monitor.ZoneMonitor()
@@ -504,12 +590,7 @@ def _inference_worker():
         calibration_scale=getattr(config, "COUNT_CALIBRATION_SCALE", 1.0),
         calibration_bias=getattr(config, "COUNT_CALIBRATION_BIAS", 0.0),
     )
-
-    # Initialize close-up detectors (Haar Frontal Face & HOG Pedestrian)
-    face_cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
-    face_cascade = cv2.CascadeClassifier(face_cascade_path)
-    hog = cv2.HOGDescriptor()
-    hog.setSVMDetector(cv2.HOGDescriptor_getDefaultPeopleDetector())
+    first_result_pending = True
 
     while not _stop.is_set():
         try:
@@ -527,8 +608,8 @@ def _inference_worker():
 
         t0       = time.perf_counter()
         if is_yolo_mode:
-            # CCTV feeds use YOLO person tracking as their count source.
-            tracked_people = _track_people(frame)
+            # CCTV feeds use YOLO person detection as their count source.
+            tracked_people = _detect_people(frame)
             yolo_boxes_val = [
                 box for box, confidence in tracked_people
                 if confidence >= getattr(config, "YOLO_DOT_CONFIDENCE", 0.10)
@@ -537,7 +618,7 @@ def _inference_worker():
                 box for box, confidence in tracked_people
                 if confidence >= getattr(config, "YOLO_COUNT_CONFIDENCE", 0.30)
             ]
-            dmap_np = make_pseudo_density_map(
+            dmap_np = detections_to_density_map(
                 count_boxes_val,
                 (config.INFER_HEIGHT, config.INFER_WIDTH),
                 frame.shape[:2],
@@ -554,7 +635,9 @@ def _inference_worker():
             )
 
             # 2) YOLOv11 for human detections (used for counting + per-zone headcounts)
-            tracked_people = _track_people(frame)
+            tracked_people = (
+                _detect_people(frame) if model["yolo"] is not None else []
+            )
             yolo_boxes_val = [
                 box for box, confidence in tracked_people
                 if confidence >= getattr(config, "YOLO_DOT_CONFIDENCE", 0.10)
@@ -591,17 +674,10 @@ def _inference_worker():
         scores, _      = zm.analyze_zones(dmap_np)
 
         # ── Per-zone headcount from YOLO dots (always) ──
-        h_f, w_f = frame.shape[:2]
-        zone_headcounts = np.zeros((3, 3), dtype=np.float32)
-        for box in count_boxes_val:
-            bx1, by1, bx2, by2 = box
-            cx = (bx1 + bx2) / 2
-            cy = (by1 + by2) / 2
-            r_c = int(cy / h_f * 3)
-            c_c = int(cx / w_f * 3)
-            r_c = max(0, min(2, r_c))
-            c_c = max(0, min(2, c_c))
-            zone_headcounts[r_c, c_c] += 1.0
+        zone_headcounts = detection_zone_counts(
+            count_boxes_val,
+            frame.shape[:2],
+        )
 
         # The trained density model counts occluded people; YOLO supplies a
         # hard detected-person floor. Stabilization removes one-frame spikes.
@@ -714,12 +790,23 @@ def _inference_worker():
 
 
         elapsed = time.perf_counter() - t0
+        if first_result_pending:
+            print(
+                f"[PERFORMANCE] First real count ready in "
+                f"{time.monotonic() - STARTUP_T0:.2f}s "
+                f"(first inference {elapsed:.2f}s, "
+                f"input {config.INFER_WIDTH}x{config.INFER_HEIGHT}, "
+                f"counter {model.get('counter_name', 'unknown')})."
+            )
+            first_result_pending = False
         now     = time.perf_counter()
         fps     = 1.0 / max(now - last_t, 1e-6)
         last_t  = now
 
         with _lock:
-            _dmap            = dmap_np.copy()
+            # dmap_np is replaced, never mutated, on the next worker pass.
+            # Publishing the array directly avoids one full density-map copy.
+            _dmap            = dmap_np
             _density_score   = ds
             _peak_density    = pd
             _hotspot_ratio   = hr
@@ -746,14 +833,27 @@ def _inference_worker():
             _hs_result       = hs_result
             _yolo_boxes      = yolo_boxes_val
             _analytics_ts    = time.monotonic()
+            _analytics_seq  += 1
 
 
 threading.Thread(target=_producer,          daemon=True, name="Producer").start()
 threading.Thread(target=_inference_worker,  daemon=True, name="Inference").start()
 threading.Thread(target=_mode_sync_worker,   daemon=True, name="ModeSync").start()
+threading.Thread(target=_stats_poster_worker, daemon=True, name="StatsPoster").start()
 
 # ── display window ────────────────────────────────────────────────────
-if os.environ.get("HEADLESS", "0") != "1":
+HEADLESS = os.environ.get("HEADLESS", "0") == "1"
+RENDER_VIDEO_OVERLAYS = os.environ.get(
+    "RENDER_VIDEO_OVERLAYS", "0" if HEADLESS else "1"
+).lower() in ("1", "true", "yes", "on")
+PROFILE_PIPELINE = os.environ.get("PROFILE_PIPELINE", "0").lower() in (
+    "1", "true", "yes", "on"
+)
+PERF_METRICS_ENABLED = os.environ.get("PERF_METRICS_ENABLED", "0").lower() in (
+    "1", "true", "yes", "on"
+)
+
+if not HEADLESS:
     cv2.namedWindow(config.WINDOW_NAME, cv2.WINDOW_NORMAL)
     cv2.resizeWindow(config.WINDOW_NAME, config.DISPLAY_WIDTH, config.DISPLAY_HEIGHT)
 print("[INFO] Keys: q=quit  g=toggle-grid  h=toggle-heatmap  r=record  l=CSV  s=stampede-panel")
@@ -767,10 +867,12 @@ recording        = False
 crowd_log   = logger.CrowdLogger(config.CSV_LOG_PATH, enabled=config.WRITE_CSV_LOG)
 video_writer = None
 rtmp_target = os.environ.get("RTMP_TARGET")
-rtmp_proc = None
+stream_encoder = None
+stream_retry_after = 0.0
 alert_first_shown_times = {}
 last_cap_ts = 0.0
 last_metrics_log_time = 0.0
+last_posted_analytics_seq = -1
 
 # Startup performance timing log
 startup_latency = time.monotonic() - STARTUP_T0
@@ -787,6 +889,7 @@ t_resize_sum = 0.0
 t_motion_sum = 0.0
 t_opposing_sum = 0.0
 t_overlay_sum = 0.0
+t_stream_sum = 0.0
 t_imshow_sum = 0.0
 profile_frame_count = 0
 
@@ -824,6 +927,7 @@ while not _stop.is_set():
         sp_result       = _sp_result.copy() if isinstance(_sp_result, dict) else _sp_result
         hs_result       = _hs_result.copy() if isinstance(_hs_result, dict) else _hs_result
         analytics_ts    = _analytics_ts
+        analytics_seq   = _analytics_seq
 
     if fd is None:
         # Render a clean, animated "Connecting / Camera Offline" window instead of a frozen screen!
@@ -838,14 +942,52 @@ while not _stop.is_set():
                     cv2.FONT_HERSHEY_SIMPLEX, 0.52, (150, 150, 255), 1, cv2.LINE_AA)
         cv2.putText(placeholder, "Press 'Q' to quit.", (50, config.DISPLAY_HEIGHT // 2 + 90),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.48, (120, 120, 125), 1, cv2.LINE_AA)
-        if os.environ.get("HEADLESS", "0") != "1":
+        if not HEADLESS:
             cv2.imshow(config.WINDOW_NAME, placeholder)
-        key = cv2.waitKey(20) & 0xFF
+            key = cv2.waitKey(20) & 0xFF
+        else:
+            _stop.wait(0.02)
+            key = 255
         if key in (ord('q'), ord('Q'), 27):
             _stop.set()
         continue
 
     frame, cap_ts = fd
+
+    # Publish a newly completed inference immediately. Previously this lived
+    # inside the one-second telemetry timer, adding up to a full second of
+    # avoidable dashboard latency.
+    if (
+        counting_mode_active
+        and analytics_seq > 0
+        and analytics_seq != last_posted_analytics_seq
+    ):
+        last_posted_analytics_seq = analytics_seq
+        drone_id_env = os.environ.get("DRONE_ID")
+        if drone_id_env:
+            _replace_latest(_stats_q, {
+                "drone_id": drone_id_env,
+                "density_score": float(density_score),
+                "comp_zone": comp_zone,
+                "status": "online",
+                "pressure": float(pressure_smooth),
+                "stampede_prob": float(sp_result.get("smooth_prob", 0.0)),
+                "risk_index": float(sp_result.get("risk_index", 0.0)),
+                "risk_level": sp_result.get("risk_level", "SAFE"),
+                "confidence": float(sp_result.get("confidence", 1.0)),
+                "primary_causes": sp_result.get("primary_causes", []),
+                "motion_speed": float(motion_speed),
+                "turbulence": float(turbulence),
+                "hotspot_alert": hs_result.get("alert_text", ""),
+                "opposing_alert": opp_result.get("alert_text", ""),
+                "gps_alerts": [],
+                "zone_scores": (
+                    zone_scores.tolist() if zone_scores is not None else None
+                ),
+                "analytics_active": True,
+                "analytics_seq": int(analytics_seq),
+            })
+
     if cap_ts == last_cap_ts:
         time.sleep(0.002)
         continue
@@ -864,7 +1006,7 @@ while not _stop.is_set():
 
     # ── draw ────────────────────────────────────────────────────────
     t_overlay_start = time.perf_counter()
-    if counting_mode_active:
+    if counting_mode_active and RENDER_VIDEO_OVERLAYS:
         overlay.draw_top_banner(disp, comp_zone, comp_color, pressure_smooth)
         
         # ── draw YOLO dots (mapping humans) ──
@@ -886,7 +1028,12 @@ while not _stop.is_set():
 
         # Draw model indicator below banner
         counter_label = model.get("counter_label", "Density Counter") if isinstance(model, dict) else "Density Counter"
-        model_label = "YOLO Person Tracking" if is_yolo_mode else f"YOLO Tracking + {counter_label}"
+        if is_yolo_mode:
+            model_label = "YOLO Person Detection"
+        elif model.get("yolo") is None:
+            model_label = counter_label
+        else:
+            model_label = f"YOLO Detection + {counter_label}"
         cv2.putText(disp, f"Model: {model_label}", (20, overlay.BANNER_H + 20),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 255), 1, cv2.LINE_AA)
         
@@ -907,7 +1054,7 @@ while not _stop.is_set():
         cv2.putText(disp, "SIMULATION - NOT A LIVE CAMERA", (config.DISPLAY_WIDTH // 2 - 250, config.DISPLAY_HEIGHT - 43),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.75, (255, 255, 255), 2, cv2.LINE_AA)
 
-    if counting_mode_active:
+    if counting_mode_active and RENDER_VIDEO_OVERLAYS:
         if show_grid:
             overlay.draw_grid_3x3(
                 disp,
@@ -950,7 +1097,9 @@ while not _stop.is_set():
             h2, w2 = disp.shape[:2]
             video_writer = cv2.VideoWriter(
                 config.ANNOTATED_VIDEO_PATH,
-                cv2.VideoWriter_fourcc(*"mp4v"), 25.0, (w2, h2)
+                cv2.VideoWriter_fourcc(*"mp4v"),
+                config.OUTPUT_STREAM_FPS,
+                (w2, h2),
             )
         video_writer.write(disp)
 
@@ -959,160 +1108,83 @@ while not _stop.is_set():
                       peak_density, hotspot_ratio, infer_t, age, cur_stride)
 
     # ── RTMP Streaming ────────────────────────────────────────────
+    # FFmpeg runs on its own fixed-cadence thread. submit() only swaps
+    # the latest frame reference and therefore cannot stall this loop.
+    t_stream_start = time.perf_counter()
     if rtmp_target:
-        if rtmp_proc is None:
-            # Check if MediaMTX needs to be started
-            import socket
-            def is_port_in_use(port):
-                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                    return s.connect_ex(('127.0.0.1', port)) == 0
-                    
-            if not (is_port_in_use(1935) or is_port_in_use(8554) or is_port_in_use(8088)):
-                mediamtx_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mediamtx.exe")
-                if os.path.exists(mediamtx_path):
-                    print("[STREAM] Starting MediaMTX process...")
-                    try:
-                        subprocess.Popen(
-                            [mediamtx_path],
-                            cwd=os.path.dirname(os.path.abspath(__file__)),
-                            stdout=subprocess.DEVNULL,
-                            stderr=subprocess.DEVNULL,
-                            creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
-                        )
-                        time.sleep(1.0)
-                    except Exception as e:
-                        print(f"[STREAM] Failed to start MediaMTX: {e}")
+        now = time.monotonic()
+        if stream_encoder is not None and not stream_encoder.is_running:
+            print(f"[STREAM] Encoder stopped: {stream_encoder.last_error or 'unknown error'}")
+            stream_encoder.stop()
+            stream_encoder = None
+            stream_retry_after = now + 2.0
 
-            ffmpeg_path = None
-            if shutil.which("ffmpeg"):
-                ffmpeg_path = "ffmpeg"
+        if stream_encoder is None and now >= stream_retry_after:
+            ffmpeg_path = resolve_ffmpeg_path(config.BASE_DIR)
+            if ffmpeg_path is None:
+                print("[STREAM] ERROR: FFmpeg was not found; browser output is disabled.")
+                rtmp_target = None
             else:
-                winget_path = r"C:\Users\abdul\AppData\Local\Microsoft\WinGet\Packages\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\ffmpeg-8.1.1-full_build\bin\ffmpeg.exe"
-                if os.path.exists(winget_path):
-                    ffmpeg_path = winget_path
-                else:
-                    local_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ffmpeg.exe")
-                    if os.path.exists(local_path):
-                        ffmpeg_path = local_path
-            
-            if ffmpeg_path:
-                h2, w2 = disp.shape[:2]
-                cmd = [
-                    ffmpeg_path,
-                    "-y",
-                    "-f", "rawvideo",
-                    "-vcodec", "rawvideo",
-                    "-pix_fmt", "bgr24",
-                    "-s", f"{w2}x{h2}",
-                    "-r", "25",
-                    "-i", "-",
-                    "-c:v", "libx264",
-                    "-pix_fmt", "yuv420p",
-                    "-preset", "ultrafast",
-                    "-tune", "zerolatency",
-                    "-f", "flv",
-                    rtmp_target
-                ]
                 try:
-                    rtmp_proc = subprocess.Popen(
-                        cmd,
-                        stdin=subprocess.PIPE,
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL
+                    stream_encoder = LatestFrameEncoder(
+                        ffmpeg_path,
+                        rtmp_target,
+                        fps=config.OUTPUT_STREAM_FPS,
                     )
-                    print(f"[STREAM] Pushing stream to: {rtmp_target}")
-                except Exception as e:
-                    print(f"[STREAM] Failed to spawn FFmpeg process: {e}")
-            else:
-                print("[STREAM] ERROR: FFmpeg could not be found. Cannot stream.")
-                rtmp_target = None # Disable
-                
-        if rtmp_proc and rtmp_proc.stdin:
+                    stream_encoder.start(disp.shape)
+                    print(
+                        f"[STREAM] Pushing {config.OUTPUT_STREAM_FPS:g} FPS "
+                        f"latest-frame output to: {rtmp_target}"
+                    )
+                except Exception as exc:
+                    print(f"[STREAM] Failed to start encoder: {exc}")
+                    stream_encoder = None
+                    stream_retry_after = now + 2.0
+
+        if stream_encoder is not None and stream_encoder.is_running:
             try:
-                rtmp_proc.stdin.write(disp.tobytes())
-            except Exception as e:
-                print(f"[STREAM] Error writing to FFmpeg pipe: {e}")
-                rtmp_proc = None
+                stream_encoder.submit(disp)
+            except (RuntimeError, ValueError) as exc:
+                print(f"[STREAM] Frame submit failed: {exc}")
+    t_stream_dur = time.perf_counter() - t_stream_start
 
     t_imshow_start = time.perf_counter()
-    if os.environ.get("HEADLESS", "0") != "1":
+    if not HEADLESS:
         cv2.imshow(config.WINDOW_NAME, disp)
+        key = cv2.waitKey(1) & 0xFF
+    else:
+        key = 255
     t_imshow_dur = time.perf_counter() - t_imshow_start
     
     # Log performance metrics once per second
     now_m = time.monotonic()
-    if now_m - last_metrics_log_time >= 1.0:
+    if PERF_METRICS_ENABLED and now_m - last_metrics_log_time >= 1.0:
         last_metrics_log_time = now_m
         if fd is not None:
-            from src.perf_metrics import log_drone_metrics
-            log_drone_metrics(
-                drone_id=0,
-                drone_name="Single Drone",
-                cap_to_disp_s=now_m - cap_ts,
-                infer_time_s=infer_t,
-                reconnect_count=health_stats["reconnects"],
-                drop_rate_pct=health_stats["drop_rate_%"],
-                fps=health_stats["live_fps"]
-            )
-            
-            # Send real-time stats to Django backend if env vars are present
-            drone_id_env = os.environ.get("DRONE_ID")
-            django_url = os.environ.get("DJANGO_UPDATE_URL")
-            if drone_id_env and django_url:
-                try:
-                    import requests
-                    stats_payload = {
-                        "drone_id": drone_id_env,
-                        "density_score": float(density_score),
-                        "comp_zone": comp_zone,
-                        "status": "online",
-                        "pressure": float(pressure_smooth),
-                        "stampede_prob": float(sp_result.get("smooth_prob", 0.0)),
-                        "risk_index": float(sp_result.get("risk_index", 0.0)),
-                        "risk_level": sp_result.get("risk_level", "SAFE"),
-                        "confidence": float(sp_result.get("confidence", 1.0)),
-                        "primary_causes": sp_result.get("primary_causes", []),
-                        "motion_speed": float(motion_speed),
-                        "turbulence": float(turbulence),
-                        "hotspot_alert": hs_result.get("alert_text", ""),
-                        "opposing_alert": opp_result.get("alert_text", ""),
-                        "gps_alerts": [],
-                        "zone_scores": zone_scores.tolist() if zone_scores is not None else None,
-                        "analytics_active": bool(counting_mode_active),
-                    }
-
-                    def send_post(payload=stats_payload):
-                        try:
-                            resp = requests.post(
-                                django_url,
-                                json=payload,
-                                timeout=0.5
-                            )
-                            if resp.status_code == 200:
-                                rdata = resp.json()
-                                if "counting_mode" in rdata:
-                                    global _counting_mode_active
-                                    with _lock:
-                                        _counting_mode_active = rdata["counting_mode"]
-                        except Exception:
-                            pass
-                    threading.Thread(target=send_post, daemon=True).start()
-                except Exception:
-                    pass
-
-    t_waitkey_start = time.perf_counter()
-    key = cv2.waitKey(1) & 0xFF
-    t_imshow_dur += (time.perf_counter() - t_waitkey_start)
+            try:
+                from src.perf_metrics import log_drone_metrics
+                log_drone_metrics(
+                    drone_id=0,
+                    drone_name="Single Drone",
+                    cap_to_disp_s=now_m - cap_ts,
+                    infer_time_s=infer_t,
+                    reconnect_count=health_stats["reconnects"],
+                    drop_rate_pct=health_stats["drop_rate_%"],
+                    fps=health_stats["live_fps"]
+                )
+            except Exception as e:
+                print(f"[WARN] perf_metrics log failed: {e}")
 
     # Accumulate timing stats
-    t_acq_sum += t_acq_dur
-    t_resize_sum += t_resize_dur
-    t_motion_sum += t_motion_dur
-    t_opposing_sum += t_opposing_dur
-    t_overlay_sum += t_overlay_dur
-    t_imshow_sum += t_imshow_dur
+    t_acq_sum += t_acq_dur if PROFILE_PIPELINE else 0.0
+    t_resize_sum += t_resize_dur if PROFILE_PIPELINE else 0.0
+    t_motion_sum += t_motion_dur if PROFILE_PIPELINE else 0.0
+    t_opposing_sum += t_opposing_dur if PROFILE_PIPELINE else 0.0
+    t_overlay_sum += t_overlay_dur if PROFILE_PIPELINE else 0.0
+    t_stream_sum += t_stream_dur if PROFILE_PIPELINE else 0.0
+    t_imshow_sum += t_imshow_dur if PROFILE_PIPELINE else 0.0
     
-    profile_frame_count += 1
+    profile_frame_count += 1 if PROFILE_PIPELINE else 0
     if profile_frame_count >= 30:
         print(f"\n[PROFILER] Display Loop Breakdown (rolling avg over last 30 frames):")
         print(f"  - frame acquisition / lock read: {t_acq_sum / 30 * 1000:.2f} ms")
@@ -1120,8 +1192,12 @@ while not _stop.is_set():
         print(f"  - motion_anal.analyze_motion():   {t_motion_sum / 30 * 1000:.2f} ms")
         print(f"  - opposing flow detection:        {t_opposing_sum / 30 * 1000:.2f} ms")
         print(f"  - overlay/text drawing:           {t_overlay_sum / 30 * 1000:.2f} ms")
+        print(f"  - non-blocking stream submit:     {t_stream_sum / 30 * 1000:.2f} ms")
         print(f"  - cv2.imshow() + cv2.waitKey():   {t_imshow_sum / 30 * 1000:.2f} ms")
-        total_tracked = t_acq_sum + t_resize_sum + t_motion_sum + t_opposing_sum + t_overlay_sum + t_imshow_sum
+        total_tracked = (
+            t_acq_sum + t_resize_sum + t_motion_sum + t_opposing_sum +
+            t_overlay_sum + t_stream_sum + t_imshow_sum
+        )
         print(f"  - Total tracked display time:     {total_tracked / 30 * 1000:.2f} ms (FPS: {30 / total_tracked:.1f})")
         print("-" * 50)
         
@@ -1131,6 +1207,7 @@ while not _stop.is_set():
         t_motion_sum = 0.0
         t_opposing_sum = 0.0
         t_overlay_sum = 0.0
+        t_stream_sum = 0.0
         t_imshow_sum = 0.0
         profile_frame_count = 0
 
@@ -1147,14 +1224,8 @@ while not _stop.is_set():
         if not crowd_log.enabled: crowd_log.close()
 
 # ── cleanup ───────────────────────────────────────────────────────────
-if rtmp_proc:
-    try:
-        if rtmp_proc.stdin:
-            rtmp_proc.stdin.close()
-        rtmp_proc.terminate()
-        rtmp_proc.wait(timeout=1.0)
-    except Exception:
-        pass
+if stream_encoder is not None:
+    stream_encoder.stop()
 cv2.destroyAllWindows()
 if video_writer: video_writer.release()
 crowd_log.close()

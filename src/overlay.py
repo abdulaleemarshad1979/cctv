@@ -18,13 +18,6 @@ import numpy as np
 BANNER_H  = 110        # must match draw_top_banner rect height
 PANEL_W   = 220        # stampede panel width (px)
 HEATMAP_ALPHA = 0.45   # heatmap overlay transparency
-HEATMAP_ALPHA = 0.45   # heatmap overlay transparency
-
-C_GREEN   = (0,   255,   0)
-C_YELLOW  = (0,   255, 255)
-C_ORANGE  = (0,   165, 255)
-C_RED     = (0,     0, 255)
-C_WHITE   = (255, 255, 255)
 
 C_GREEN   = (0,   255,   0)
 C_YELLOW  = (0,   255, 255)
@@ -98,12 +91,21 @@ def _text(img, txt, x, y, color=C_WHITE, scale=0.38, thick=1):
 
 
 def _fill(img, x0, y0, x1, y1, color, alpha=1.0):
+    x0 = max(0, int(x0))
+    y0 = max(0, int(y0))
+    x1 = min(img.shape[1], int(x1))
+    y1 = min(img.shape[0], int(y1))
+    if x0 >= x1 or y0 >= y1:
+        return
     if alpha >= 1.0:
         cv2.rectangle(img, (x0, y0), (x1, y1), color, -1)
     else:
-        tmp = img.copy()
-        cv2.rectangle(tmp, (x0, y0), (x1, y1), color, -1)
-        cv2.addWeighted(tmp, alpha, img, 1.0 - alpha, 0, img)
+        # Blend only the requested region. Copying a full 720p frame for a
+        # 220-pixel side panel wasted both time and several megabytes/frame.
+        region = img[y0:y1, x0:x1]
+        tint = np.empty_like(region)
+        tint[:] = color
+        cv2.addWeighted(tint, alpha, region, 1.0 - alpha, 0, region)
 
 
 def _pressure_color(pressure: float):
@@ -281,14 +283,13 @@ def draw_density_heatmap(frame, density_map: np.ndarray, alpha: float = HEATMAP_
         return
     dm_norm = density_map / dm_max
     
-    # Resize to frame size
+    # Resize and colorize in optimized native code. The old nested Python loop
+    # executed once for every output pixel and could freeze a 720p stream.
     dm_resized = cv2.resize(dm_norm, (w, h), interpolation=cv2.INTER_LINEAR)
-    
-    # Apply JET colormap
-    heatmap = np.zeros((h, w, 3), dtype=np.uint8)
-    for y in range(h):
-        for x in range(w):
-            heatmap[y, x] = _density_colormap(dm_resized[y, x])
+    heatmap = cv2.applyColorMap(
+        np.clip(dm_resized * 255.0, 0, 255).astype(np.uint8),
+        cv2.COLORMAP_JET,
+    )
     
     # Blend with frame
     cv2.addWeighted(heatmap, alpha, frame, 1.0 - alpha, 0, frame)

@@ -24,19 +24,19 @@ HOW TO SWITCH BETWEEN VIDEO FILE AND LIVE DRONE:
       python drone_stream.py dji_mini3
 """
 
+import json
 import os
+import sys
 
 BASE_DIR    = os.path.dirname(os.path.abspath(__file__))
 DMCOUNT_DIR = os.path.join(BASE_DIR, "dm_count")
 
-# ─── App Operating Modes & Credentials ──────────────────────────────
+# ─── App runtime ────────────────────────────────────────────────────────
 APP_MODE = os.getenv("APP_MODE", "production")
 ALLOW_DEMO_FALLBACK = (APP_MODE == "development")
 
 BACKEND_PORT = int(os.getenv("BACKEND_PORT", "8000"))
 BACKEND_URL = os.getenv("BACKEND_URL", f"http://127.0.0.1:{BACKEND_PORT}")
-
-CAMERA_AUTH_SECRET = os.getenv("CAMERA_AUTH_SECRET", "pushkar2026")
 
 # ─── Video source ─────────────────────────────────────────────────────
 # Priority: DRONE env var → CCTV_SOURCE env var → this file path
@@ -93,12 +93,27 @@ DISPLAY_HEIGHT = int(os.environ.get("DISPLAY_HEIGHT", "720"))
 CAPTURE_WIDTH  = int(os.environ.get("CAPTURE_WIDTH", "1280"))
 CAPTURE_HEIGHT = int(os.environ.get("CAPTURE_HEIGHT", "720"))
 
+# Browser tiles do not benefit from encoding a large frame for every analyzer.
+# The counting models continue to use their independently configured input size.
+WEB_STREAM_WIDTH = max(320, int(os.environ.get("WEB_STREAM_WIDTH", "640")))
+WEB_STREAM_HEIGHT = max(180, int(os.environ.get("WEB_STREAM_HEIGHT", "360")))
+
+# The output encoder is clocked independently from inference. If the camera
+# itself supplies fewer frames per second, the encoder repeats
+# the latest frame to keep browser playback timestamps continuous.
+OUTPUT_STREAM_FPS = min(
+    60.0,
+    max(1.0, float(os.environ.get("OUTPUT_STREAM_FPS", "20"))),
+)
+
 def is_cuda_available():
-    try:
-        import torch
-        return torch.cuda.is_available()
-    except ImportError:
-        return False
+    """Check CUDA without importing PyTorch into the lightweight web server."""
+    torch_module = sys.modules.get("torch")
+    if torch_module is not None:
+        return bool(torch_module.cuda.is_available())
+    return os.environ.get("CUDA_AVAILABLE", "0").lower() in (
+        "1", "true", "yes", "on"
+    )
 
 def get_infer_resolution():
     if not hasattr(get_infer_resolution, "_cached"):
@@ -110,7 +125,14 @@ def get_infer_resolution():
 
 def get_dynamic_infer_resolution(src_w, src_h):
     is_cuda = is_cuda_available()
-    max_w, max_h = (1024, 576) if is_cuda else (768, 432)
+    if is_cuda:
+        max_w = int(os.environ.get("GPU_MAX_INFER_WIDTH", "1024"))
+        max_h = int(os.environ.get("GPU_MAX_INFER_HEIGHT", "576"))
+    else:
+        # The old 768x432 CPU path, combined with fusion and flip TTA, could
+        # take close to a minute before producing its first count.
+        max_w = int(os.environ.get("CPU_MAX_INFER_WIDTH", "512"))
+        max_h = int(os.environ.get("CPU_MAX_INFER_HEIGHT", "288"))
     scale = min(1.0, max_w / src_w, max_h / src_h)
     # DM-Count's effective stride is 8. Rounding to that stride preserves the
     # source aspect ratio much better than independently flooring to 32 (which
@@ -148,14 +170,44 @@ INFERENCE_BACKEND = os.environ.get("INFERENCE_BACKEND", "torch").lower()
 SWARM_BATCH_INFERENCE = os.environ.get("SWARM_BATCH_INFERENCE", "1" if is_cuda_available() else "0").lower() in ("1", "true", "yes", "on")
 
 # High-accuracy counting. These defaults favor correctness over throughput.
-COUNT_FLIP_TTA = os.environ.get("COUNT_FLIP_TTA", "1").lower() in ("1", "true", "yes", "on")
-COUNT_TEMPORAL_WINDOW = int(os.environ.get("COUNT_TEMPORAL_WINDOW", "3"))
-COUNT_EMA_ALPHA = float(os.environ.get("COUNT_EMA_ALPHA", "0.65"))
-COUNT_CALIBRATION_SCALE = float(os.environ.get("COUNT_CALIBRATION_SCALE", "1.0"))
-COUNT_CALIBRATION_BIAS = float(os.environ.get("COUNT_CALIBRATION_BIAS", "0.0"))
+# Flip TTA runs the density network twice. Keep it for GPU accuracy, but make
+# the single-pass path the CPU default so the first real result arrives fast.
+COUNT_FLIP_TTA = os.environ.get(
+    "COUNT_FLIP_TTA", "1" if is_cuda_available() else "0"
+).lower() in ("1", "true", "yes", "on")
+COUNT_TEMPORAL_WINDOW = int(os.environ.get(
+    "COUNT_TEMPORAL_WINDOW", "3" if is_cuda_available() else "1"
+))
+COUNT_EMA_ALPHA = float(os.environ.get(
+    "COUNT_EMA_ALPHA", "0.65" if is_cuda_available() else "1.0"
+))
+
+
+def _load_camera_count_calibration():
+    path = os.environ.get(
+        "COUNT_CALIBRATION_FILE",
+        os.path.join(BASE_DIR, "models", "count_calibration.json"),
+    )
+    camera_id = os.environ.get("DRONE_ID", "default").lower().strip()
+    try:
+        with open(path, "r", encoding="utf-8") as calibration_file:
+            profiles = json.load(calibration_file)
+        profile = profiles.get(camera_id) or profiles.get("default") or {}
+        return float(profile.get("scale", 1.0)), float(profile.get("bias", 0.0))
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        return 1.0, 0.0
+
+
+_CALIBRATION_SCALE, _CALIBRATION_BIAS = _load_camera_count_calibration()
+COUNT_CALIBRATION_SCALE = float(
+    os.environ.get("COUNT_CALIBRATION_SCALE", str(_CALIBRATION_SCALE))
+)
+COUNT_CALIBRATION_BIAS = float(
+    os.environ.get("COUNT_CALIBRATION_BIAS", str(_CALIBRATION_BIAS))
+)
 
 YOLO_HIGH_ACCURACY = os.environ.get("YOLO_HIGH_ACCURACY", "1").lower() in ("1", "true", "yes", "on")
-YOLO_IMG_SIZE = int(os.environ.get("YOLO_IMG_SIZE", "1280" if is_cuda_available() else "960"))
+YOLO_IMG_SIZE = int(os.environ.get("YOLO_IMG_SIZE", "1280" if is_cuda_available() else "640"))
 YOLO_CONFIDENCE = float(os.environ.get("YOLO_CONFIDENCE", "0.10"))
 YOLO_DOT_CONFIDENCE = float(os.environ.get("YOLO_DOT_CONFIDENCE", "0.10"))
 YOLO_COUNT_CONFIDENCE = float(os.environ.get("YOLO_COUNT_CONFIDENCE", "0.30"))

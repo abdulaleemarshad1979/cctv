@@ -103,6 +103,75 @@ The easiest way to launch the CCTV monitor is via the Master Launcher. It allows
 python launch.py
 ```
 
+### Web dashboard with real feeds
+
+Run `run_lite.bat`, open the portal, and use **Connect Live Feed** on the
+required tile. Paste a camera RTSP/RTMP URL, or leave the box blank and publish
+from the camera app to the RTMP address shown by the portal. Raw camera input
+uses `live/<camera>` and analyzed output uses `analyzed/<camera>`; keeping those
+paths separate prevents the analyzer from reading its own output.
+
+Drone/CCTV publishing is temporarily **credential-free**. Use the displayed
+RTMP URL exactly as shown; no username, password, token, or query string is
+required. This is appropriate only on a trusted local network. Re-enable an
+authentication boundary before exposing MediaMTX or the portal to the internet.
+
+The browser prefers MediaMTX WebRTC for sub-second playback and falls back to
+low-latency HLS. Analyzer output is clocked at 20 FPS by a bounded latest-frame
+encoder, so a slow encoder cannot build a backlog. The default browser stream
+is 640x360 to reduce per-camera CPU and memory cost while counting uses its own
+independent inference resolution. A slower source repeats the latest frame to
+keep timestamps and playback continuous.
+
+Use **Test Sample** only when you intentionally want bundled demonstration
+footage. Online tiles display **REAL** or **SAMPLE**, so sample counts cannot be
+mistaken for field data. If a new inference result does not arrive within 20
+seconds, the portal clears the old values and shows **Waiting for new count**.
+
+#### When a real camera stays on "Connecting"
+
+1. Put the camera/drone phone and this computer on the same network.
+2. Click **Connect Live Feed**, leave the URL box blank, and copy the RTMP
+   publish address shown on that tile into the camera application.
+3. Confirm the address uses the computer's active Wi-Fi/Ethernet IP, not a
+   VirtualBox, VPN, or disconnected-adapter address. The server chooses the
+   default-route adapter automatically. If the network requires a specific
+   address, set `CCTV_PUBLISH_HOST` before running `run_lite.bat`.
+4. Use H.264 video at about 30 FPS. MediaMTX accepts the raw feed on port 1935;
+   the browser player is served on port 8889.
+
+The MediaMTX root page (`http://host:8889/`) intentionally returns 404. A real
+player URL includes the camera path, for example
+`http://host:8889/live/drone2/`; the dashboard no longer probes the root page.
+Viewing Mode plays an available raw feed immediately, even while Counting Mode
+is unavailable or its analysis worker is still starting. `run_lite.bat` prefers
+the project's `.venv` and reports which Python packages are missing instead of
+leaving a tile spinning without an explanation.
+
+### Validate the 90% field-accuracy target
+
+Accuracy must be measured against manually verified counts from the intended
+conditions. Create a CSV with these columns:
+
+```csv
+camera_id,predicted_count,actual_count,angle
+drone-1,412,400,high_aerial
+drone-1,235,228,oblique
+drone-1,96,100,close
+```
+
+Use at least 30 morning/daylight frames per camera across high-aerial, oblique,
+and close viewpoints, then run:
+
+```bash
+python tools/calibrate_counting.py verified_counts.csv --target 90
+```
+
+The tool holds out validation frames, reports overall and per-angle accuracy,
+and saves the fitted camera profile to `models/count_calibration.json`. It marks
+the target as passed only when every represented validation angle reaches the
+requested accuracy. Restart the affected feed after calibration.
+
 ### Direct Launcher Arguments
 If you know your stream source, you can bypass the interactive menu and launch the pipeline directly:
 ```bash
@@ -131,6 +200,15 @@ You can customize the source and options without editing `config.py`:
 * **CCTV_SOURCE**: Specify the input stream/video (e.g. `CCTV_SOURCE=rtsp://192.168.0.1/live`).
 * **DRONE**: Specify a pre-defined shortcut from `DRONE_DB` (e.g. `DRONE=dji_mini4pro`).
 * **RTSP_TRANSPORT**: Choose transport protocol: `tcp` (default, reliable) or `udp` (low lag).
+* **CPU_USE_FUSION**: Set to `1` only when you prefer the slower two-model fusion path on a CPU. The default CPU path uses trained DM-Count for faster startup.
+* **CPU_USE_HYBRID**: Set to `1` to add YOLO to the CPU drone counter. It defaults off so each CPU worker loads and runs one counting model instead of two. CCTV feeds still use YOLO.
+* **CPU_MAX_INFER_WIDTH / CPU_MAX_INFER_HEIGHT**: CPU inference ceiling, defaulting to `512x288`.
+* **COUNT_FLIP_TTA**: Runs a second mirrored density pass. It defaults off on CPU and on when CUDA is available.
+* **COUNT_TEMPORAL_WINDOW / COUNT_EMA_ALPHA**: Count smoothing. CPU defaults to `1`/`1.0` for current-frame results; CUDA defaults to `3`/`0.65` for extra stability.
+* **WEB_STREAM_WIDTH / WEB_STREAM_HEIGHT**: Browser output size, defaulting to `640x360`.
+* **OUTPUT_STREAM_FPS**: Constant encoded output cadence, defaulting to `20` FPS.
+* **RENDER_VIDEO_OVERLAYS**: Draw OpenCV overlays into encoded video. Web workers disable this because the dashboard renders the detailed HUD more efficiently.
+* **PROFILE_PIPELINE / PERF_METRICS_ENABLED**: Opt-in diagnostic logging. Both default off so per-frame profiling and CSV I/O do not compete with production video.
 
 Example:
 ```bash
