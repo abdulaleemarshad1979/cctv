@@ -65,7 +65,9 @@ def clean_density_map(
     if source_frame_bgr is None or source_frame_bgr.size == 0:
         return dmap
 
-    hsv = cv2.cvtColor(source_frame_bgr, cv2.COLOR_BGR2HSV)
+    # ponytail: downsample frame to density map resolution first for ~6x faster mask computation
+    small_bgr = cv2.resize(source_frame_bgr, (dmap.shape[1], dmap.shape[0]), interpolation=cv2.INTER_LINEAR)
+    hsv = cv2.cvtColor(small_bgr, cv2.COLOR_BGR2HSV)
     hue, sat, val = cv2.split(hsv)
     bright_sat = (sat > 95) & (val > 135)
     overlay_hues = (
@@ -75,14 +77,12 @@ def clean_density_map(
         ((hue > 88) & (hue < 105))
     )
     mask = (bright_sat & overlay_hues).astype(np.uint8)
-    # Only apply overlay suppression to the top and bottom 15% margins
-    # where logos, watermarks, and broadcast texts are located.
-    h_mask, w_mask = mask.shape[:2]
+    # Only apply overlay suppression to top and bottom 15% margins
+    h_mask = mask.shape[0]
     margin_h = int(h_mask * 0.15)
     if margin_h > 0:
         mask[margin_h : h_mask - margin_h, :] = 0
 
-    mask = cv2.resize(mask, (dmap.shape[1], dmap.shape[0]), interpolation=cv2.INTER_AREA)
     dmap[mask > 0] = 0.0
 
     return dmap

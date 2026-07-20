@@ -7,6 +7,7 @@ import subprocess
 import importlib.util
 import ipaddress
 from functools import lru_cache
+from contextlib import asynccontextmanager
 from typing import Optional
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
@@ -15,7 +16,22 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 import config
 
-app = FastAPI(title="AP Police Drone Monitoring Portal (LITE)")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    yield
+    print("[LITE SERVER] Shutting down. Terminating managed child processes...")
+    for pid, p in list(running_processes.items()):
+        try:
+            print(f"[LITE SERVER] Terminating process for {pid}...")
+            p.terminate()
+            p.wait(timeout=1.0)
+        except Exception as e:
+            print(f"[LITE SERVER] Failed to terminate {pid}: {e}")
+        finally:
+            _close_process_log(p)
+    running_processes.clear()
+
+app = FastAPI(title="AP Police Drone Monitoring Portal (LITE)", lifespan=lifespan)
 
 # Mount static files directly from static
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -471,20 +487,6 @@ def cleanup_and_start_mediamtx():
             print(f"[LITE SERVER] Failed to start MediaMTX: {e}")
 
 cleanup_and_start_mediamtx()
-
-@app.on_event("shutdown")
-def shutdown_event():
-    print("[LITE SERVER] Shutting down. Terminating managed child processes...")
-    for pid, p in list(running_processes.items()):
-        try:
-            print(f"[LITE SERVER] Terminating process for {pid}...")
-            p.terminate()
-            p.wait(timeout=1.0)
-        except Exception as e:
-            print(f"[LITE SERVER] Failed to terminate {pid}: {e}")
-        finally:
-            _close_process_log(p)
-    running_processes.clear()
 
 def get_default_source_for_camera(camera):
     return f"rtsp://127.0.0.1:8554/{camera['source_stream_path']}"

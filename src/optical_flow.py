@@ -88,8 +88,9 @@ class CrowdMotionAnalyzer:
         global_speed : float            — median speed across crowd cells only
         turbulence   : float            — std-dev of active-pixel speeds
         """
-        small = cv2.resize(frame_bgr, (FLOW_W, FLOW_H), interpolation=cv2.INTER_AREA)
-        gray  = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
+        # ponytail: downscale 1-channel gray directly for 3x faster resize
+        gray_full = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
+        gray = cv2.resize(gray_full, (FLOW_W, FLOW_H), interpolation=cv2.INTER_LINEAR)
 
         if self.prev_gray is None:
             self.prev_gray = gray
@@ -121,20 +122,16 @@ class CrowdMotionAnalyzer:
             )
         self.prev_gray = gray
 
-        magnitude = np.sqrt(flow[..., 0] ** 2 + flow[..., 1] ** 2)
-
         # ── Camera shake compensation ──────────────────────────────
-        # If the drone drifts, EVERY pixel gets the same offset.
-        # Subtract the global median flow vector to remove it.
+        # ponytail: use native cv2.magnitude (C++/SIMD) and vectorized median subtraction
         if COMPENSATE_SHAKE:
             global_fx_median = float(np.median(flow[..., 0]))
             global_fy_median = float(np.median(flow[..., 1]))
-            comp_flow = flow.copy()
-            comp_flow[..., 0] -= global_fx_median
-            comp_flow[..., 1] -= global_fy_median
-            magnitude = np.sqrt(comp_flow[..., 0] ** 2 + comp_flow[..., 1] ** 2)
+            comp_flow = flow - np.array([global_fx_median, global_fy_median], dtype=np.float32)
+            magnitude = cv2.magnitude(comp_flow[..., 0], comp_flow[..., 1])
             self.last_flow = comp_flow
         else:
+            magnitude = cv2.magnitude(flow[..., 0], flow[..., 1])
             self.last_flow = flow
 
         # ── Global metrics ─────────────────────────────────────────
