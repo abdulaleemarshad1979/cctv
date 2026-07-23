@@ -1,25 +1,28 @@
 # ==============================================================================
-# Pushkaralu Drone/CCTV Monitor - Production Dependencies
+# Pushkaralu Drone/CCTV Monitor - Complete Dependencies
 # ==============================================================================
 
 # Core Machine Learning & Computer Vision
-torch>=1.2.0
-torchvision>=0.4.0
-numpy>=1.16.5
-opencv-python>=4.1.0
-pillow>=6.2.2
+torch>=1.12.0
+torchvision>=0.13.0
+numpy>=1.21.0
+opencv-python>=4.5.0
+pillow>=8.0.0
+ultralytics>=8.0.0
+onnxruntime>=1.12.0
 
-# Network Requests & External Integrations
-requests>=2.22.0
+# Network Requests & Async Clients
+requests>=2.25.0
+httpx>=0.23.0
 
-# Video Downloader Utility
+# Video Downloader & Streaming Utility
 yt-dlp>=2023.3.3
 
 # Web Server & Telemetry API
-fastapi
-uvicorn
-pydantic
-httpx
+fastapi>=0.95.0
+uvicorn>=0.20.0
+pydantic>=1.10.0
 
-# Fusion layer training dependency
+# PDF Reports & Dataset Tools
+reportlab>=3.6.0
 h5py>=3.1.0
