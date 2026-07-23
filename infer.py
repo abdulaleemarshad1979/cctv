@@ -48,6 +48,7 @@ from src.counting_accuracy      import (
     detections_to_density_map,
 )
 from src.stream_output          import LatestFrameEncoder, resolve_ffmpeg_path
+from src.scene_change           import SceneChangeDetector
 
 # ── model setup ───────────────────────────────────────────────────────
 from models.model_registry import load_counting_model
@@ -367,10 +368,20 @@ _sp_result       = {"smooth_prob": 0.0, "label": "SAFE", "label_color": (0,255,0
 _hs_result       = {"trend_matrix": None, "alert_text": "", "expanding": False}
 _analytics_ts    = 0.0
 _analytics_seq   = 0
+_forecast_reset_seq = 0
+_forecast_reset_reason = ""
 
 _frame_q = queue.Queue(maxsize=1)
 _stats_q = queue.Queue(maxsize=1)
 _health_stats = {"reconnects": 0, "drop_rate_%": 0.0, "live_fps": 0.0}
+
+
+def _mark_forecast_reset(reason):
+    global _forecast_reset_seq, _forecast_reset_reason
+    with _lock:
+        _forecast_reset_seq += 1
+        _forecast_reset_reason = reason
+    print(f"[FORECAST] Starting a new history: {reason}")
 
 
 def _mode_sync_worker():
@@ -517,6 +528,14 @@ def _producer():
         nft = time.monotonic()
         last_health_check = 0.0
         health = sh.health_report()
+        scene_detector = SceneChangeDetector(
+            threshold=float(os.environ.get("SCENE_CHANGE_THRESHOLD", "0.25"))
+        )
+        check_scene_changes = not os.environ.get(
+            "DRONE_ID", "drone1"
+        ).lower().startswith("drone")
+        scene_check_interval = max(1, int(round(src_fps)))
+        last_loop_count = sh.loop_count
 
         while not _stop.is_set():
             ok, frame = sh.read_frame()
@@ -527,6 +546,17 @@ def _producer():
             idx += 1
             ts  = getattr(sh, "latest_frame_ts", 0.0) or time.monotonic()
             now = time.monotonic()
+            if sh.loop_count != last_loop_count:
+                last_loop_count = sh.loop_count
+                scene_detector.reset()
+                _mark_forecast_reset("video loop restarted")
+            elif (
+                check_scene_changes
+                and
+                idx % scene_check_interval == 0
+                and scene_detector.update(frame)
+            ):
+                _mark_forecast_reset("camera scene changed")
             if now - last_health_check >= 1.0:
                 health = sh.health_report()
                 last_health_check = now
@@ -928,6 +958,8 @@ while not _stop.is_set():
         hs_result       = _hs_result.copy() if isinstance(_hs_result, dict) else _hs_result
         analytics_ts    = _analytics_ts
         analytics_seq   = _analytics_seq
+        forecast_reset_seq = _forecast_reset_seq
+        forecast_reset_reason = _forecast_reset_reason
 
     if fd is None:
         # Render a clean, animated "Connecting / Camera Offline" window instead of a frozen screen!
@@ -986,6 +1018,8 @@ while not _stop.is_set():
                 ),
                 "analytics_active": True,
                 "analytics_seq": int(analytics_seq),
+                "forecast_reset_seq": int(forecast_reset_seq),
+                "forecast_reset_reason": forecast_reset_reason,
             })
 
     if cap_ts == last_cap_ts:

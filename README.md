@@ -209,7 +209,7 @@ python launch.py dji_mini3
 python launch.py rtsp://192.168.1.100:554/live
 
 # Launch using a local video file
-python launch.py Videos/mecca.mp4
+python launch.py Videos/VID-20260722-WA0011.mp4
 ```
 
 ---
@@ -287,7 +287,7 @@ python yt.py
 ```
 
 * Edit the URL in `yt.py` to change the target video.
-* The script automatically downloads the video and saves it to `./Videos/mecca.mp4` for offline simulation.
+* The script saves the selected video in `./Videos/` for offline simulation.
 
 ---
 

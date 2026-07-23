@@ -216,6 +216,7 @@ class DroneStreamHandler:
         self._total_reads = 0
         self._connect_ts  = None
         self._latest_ts   = 0.0
+        self.loop_count   = 0
 
         self.cap = self._open()
 
@@ -368,6 +369,7 @@ class DroneStreamHandler:
                     ok, frame = self.cap.read()
                     if not ok:
                         return False, None
+                    self.loop_count += 1
             self._frame_times.append(time.monotonic())
             return True, frame
 

@@ -89,12 +89,12 @@ for src in swarm_sources:
             break
 
 if use_videos or not rtsp_reachable:
-    video_files = ["Kumbh.mp4", "mecca.mp4", "stadium.mp4", "concert.mp4", "Crowd.mp4"]
-    local_sources = []
-    for f in video_files:
-        p = os.path.join("Videos", f)
-        if os.path.exists(p):
-            local_sources.append(p)
+    video_dir = os.path.join(config.BASE_DIR, "Videos")
+    local_sources = sorted(
+        os.path.join(video_dir, f)
+        for f in os.listdir(video_dir)
+        if f.lower().endswith(".mp4")
+    ) if os.path.isdir(video_dir) else []
     if local_sources:
         swarm_sources = [local_sources[i % len(local_sources)] for i in range(SWARM_DRONE_COUNT)]
         print(f"[SWARM-INFER] RTSP offline or --videos flag set. Falling back to local videos: {swarm_sources}")

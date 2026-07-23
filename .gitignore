@@ -10,12 +10,12 @@ __pycache__/
 .vscode/
 
 # Project-specific ignores
-Videos/
+Videos/src/
+Videos/**/__pycache__/
 outputs/
 **/pretrained_models/
 *.pth
 *.pt
-*.mp4
 
 # Rust
 target/

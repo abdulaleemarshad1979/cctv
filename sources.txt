@@ -20,25 +20,19 @@ rtsp://192.168.42.1/live
 # More examples (uncomment to use):
 # rtsp://192.168.0.1:8554/live
 # dji_mini4pro
-/home/user/Videos/mecca.mp4
 
-
-
-Videos/mecca.mp4
-
-videos/mecca.py
-
-videos/mecca.mp4
-
-videos/stadium.py
-
-Videos/stadium.mp4
-
-Videos/concert.mp4
-
-Videos.py/Kumbh.mp4
-
-Videos/Kumbh.mp4
+Videos/VID-20260722-WA0011.mp4
+Videos/VID-20260722-WA0012.mp4
+Videos/VID-20260722-WA0014.mp4
+Videos/VID-20260722-WA0015.mp4
+Videos/VID-20260722-WA0016.mp4
+Videos/VID-20260722-WA0017.mp4
+Videos/VID-20260722-WA0018.mp4
+Videos/VID-20260723-WA0010.mp4
+Videos/VID-20260723-WA0011.mp4
+Videos/VID-20260723-WA0012.mp4
+Videos/VID-20260723-WA0013.mp4
+Videos/VID-20260723-WA0014.mp4
 
 https://youtube.com/live/FHVWuAwiXBc?feature=share
 
@@ -48,18 +42,10 @@ python launch.py rtsp://127.0.0.1:8554/live/drone1
 
 rtsp://127.0.0.1:8554/live/drone1
 
-Videos/Rjy.mp4
-
 rtsp://localhost:8554/drone1
 
 rtsp://localhost:8554/drone
 
 rtsp://localhost:8554/live/drone1
 
-Videos/Kumbh.m4
-
 srt://127.0.0.1:8554/live/drone1
-
-Videos/K.mp4
-
-Vidoes/K.mp4

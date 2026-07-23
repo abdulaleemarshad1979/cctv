@@ -6,7 +6,7 @@ import sys
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CAMERAS_JSON = os.path.join(BASE_DIR, "backend", "cameras.json")
-VIDEO_FILE = os.path.join(BASE_DIR, "Videos", "K.mp4")
+VIDEO_FILE = os.path.join(BASE_DIR, "Videos", "VID-20260722-WA0011.mp4")
 
 def main():
     print("[STREAMER] Starting 36-stream simulator...")

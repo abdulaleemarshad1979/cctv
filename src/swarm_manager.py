@@ -361,12 +361,12 @@ class SwarmManager:
                 # If the source is a network stream and we haven't fallen back yet, try a local video file
                 if config.ALLOW_DEMO_FALLBACK and not fallback_active and isinstance(resolved_src, str) and resolved_src.startswith(("rtsp://", "rtsps://", "rtmp://", "rtmps://", "http://", "https://")):
                     print(f"[SWARM] Drone {idx+1} ({ds.name}) RTSP {resolved_src} offline. Falling back to local video for simulation.")
-                    video_files = ["Kumbh.mp4", "mecca.mp4", "stadium.mp4", "concert.mp4", "Crowd.mp4"]
-                    local_sources = []
-                    for f in video_files:
-                        p = os.path.join("Videos", f)
-                        if os.path.exists(p):
-                            local_sources.append(p)
+                    video_dir = os.path.join(config.BASE_DIR, "Videos")
+                    local_sources = sorted(
+                        os.path.join(video_dir, f)
+                        for f in os.listdir(video_dir)
+                        if f.lower().endswith(".mp4")
+                    ) if os.path.isdir(video_dir) else []
                     if local_sources:
                         resolved_src = local_sources[idx % len(local_sources)]
                         fallback_active = True

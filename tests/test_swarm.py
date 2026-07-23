@@ -11,7 +11,7 @@ from src.swarm_manager import SwarmManager
 
 def main():
     print("Starting Offline Swarm Manager Verification...")
-    video_path = os.path.join("Videos", "Kumbh.mp4")
+    video_path = os.path.join("Videos", "VID-20260722-WA0011.mp4")
     if not os.path.exists(video_path):
         print(f"Error: {video_path} not found.")
         return

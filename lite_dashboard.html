@@ -484,6 +484,72 @@
       color: var(--text-blue);
     }
 
+    .tile__forecast {
+      border-top: 1px solid rgba(0, 0, 0, 0.08);
+      padding-top: 7px;
+    }
+
+    .tile__forecast-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 6px;
+      color: var(--text-muted);
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+
+    .tile__forecast-accuracy {
+      color: var(--text-blue);
+      letter-spacing: normal;
+      text-transform: none;
+    }
+
+    .tile__forecast-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 4px;
+    }
+
+    .tile__forecast-item {
+      border-radius: 4px;
+      background: #eff6ff;
+      padding: 5px 2px;
+      text-align: center;
+    }
+
+    .tile__forecast-time,
+    .tile__forecast-count,
+    .tile__forecast-range {
+      display: block;
+      font-family: monospace;
+    }
+
+    .tile__forecast-time {
+      color: var(--text-muted);
+      font-size: 8px;
+    }
+
+    .tile__forecast-count {
+      color: var(--text-blue);
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .tile__forecast-range {
+      color: var(--text-muted);
+      font-size: 8px;
+    }
+
+    .tile__forecast-status {
+      margin-top: 4px;
+      color: var(--text-muted);
+      font-size: 9px;
+      text-align: center;
+    }
+
     /* Per-Zone Head Count Grid */
     .tile__zone-grid {
       border-top: 1px solid rgba(0, 0, 0, 0.08);
@@ -816,9 +882,14 @@
       <button class="pill" data-filter="Active">Active Feeds</button>
     </div>
 
-    <!-- Premium Mode Toggle -->
-    <div class="mode-toggle-group"
-      style="display: flex; align-items: center; background: #f1f5f9; padding: 4px; border-radius: 9999px; border: 1px solid #cbd5e1; box-shadow: inset 0 2px 4px rgba(0,0,0,0.05); margin-right: 8px;">
+    <div style="display: flex; align-items: center; gap: 10px;">
+      <a href="/forecast/history.csv" download
+        style="color: #0369a1; background: #e0f2fe; border: 1px solid #bae6fd; border-radius: 9999px; padding: 8px 14px; font-size: 12px; font-weight: 700; text-decoration: none;">
+        Download Forecast CSV
+      </a>
+      <!-- Premium Mode Toggle -->
+      <div class="mode-toggle-group"
+        style="display: flex; align-items: center; background: #f1f5f9; padding: 4px; border-radius: 9999px; border: 1px solid #cbd5e1; box-shadow: inset 0 2px 4px rgba(0,0,0,0.05); margin-right: 8px;">
       <button id="btn-mode-viewing" class="mode-pill" onclick="changeGlobalMode('viewing')"
         style="background: transparent; border: none; padding: 8px 18px; border-radius: 9999px; font-size: 13px; font-weight: 700; color: #475569; cursor: pointer; transition: all 0.25s ease; display: flex; align-items: center; gap: 6px;">
         <svg style="width: 16px; height: 16px;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -837,6 +908,7 @@
         </svg>
         Counting Mode
       </button>
+      </div>
     </div>
   </div>
 
@@ -900,6 +972,29 @@
       return String(value ?? "").replace(/[&<>'"]/g, character => ({
         "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;"
       })[character]);
+    }
+
+    function forecastItemsMarkup(forecast) {
+      if (!forecast || forecast.status !== "ready") return "";
+      return (forecast.predictions || []).map(item => `
+        <div class="tile__forecast-item" title="${escapeHtml(item.model || forecast.model || "")}">
+          <span class="tile__forecast-time">+${item.minutes >= 60 ? `${item.minutes / 60}h` : `${item.minutes}m`}</span>
+          <span class="tile__forecast-count">${Math.round(item.people_count || 0)}</span>
+          <span class="tile__forecast-range">${Math.round(item.lower_count ?? item.people_count ?? 0)}–${Math.round(item.upper_count ?? item.people_count ?? 0)}</span>
+        </div>
+      `).join("");
+    }
+
+    function forecastAccuracyText(forecast) {
+      return forecast && forecast.accuracy_percent != null
+        ? `${Number(forecast.accuracy_percent).toFixed(1)}% measured`
+        : "validating…";
+    }
+
+    function forecastStatusText(forecast) {
+      const message = forecast?.message || "Waiting for crowd samples";
+      if (forecast?.raw_count == null || forecast?.stabilized_count == null) return message;
+      return `${message} Stabilized input: ${forecast.stabilized_count} (raw: ${forecast.raw_count}).`;
     }
 
     function playerUsesPath(player, path) {
@@ -1002,6 +1097,14 @@
                   <span class="tile__hud-stat-name">Turbulence</span>
                   <span class="tile__hud-stat-val" id="hud-turb-${cam.id}">0.0</span>
                 </div>
+              </div>
+              <div class="tile__forecast" id="forecast-${cam.id}">
+                <div class="tile__forecast-header">
+                  <span>Crowd forecast</span>
+                  <span class="tile__forecast-accuracy" id="forecast-accuracy-${cam.id}">${forecastAccuracyText(cam.forecast)}</span>
+                </div>
+                <div class="tile__forecast-grid" id="forecast-values-${cam.id}">${forecastItemsMarkup(cam.forecast)}</div>
+                <div class="tile__forecast-status" id="forecast-status-${cam.id}">${escapeHtml(forecastStatusText(cam.forecast))}</div>
               </div>
               <!-- Per-Zone Head Count Grid -->
               <div class="tile__zone-grid" id="zone-grid-${cam.id}">
@@ -1406,6 +1509,16 @@
 
       const turbEl = document.getElementById(`hud-turb-${cam.id}`);
       if (turbEl) turbEl.textContent = (cam.turbulence || 0.0).toFixed(2);
+
+      const forecast = cam.forecast || {};
+      const forecastValues = document.getElementById(`forecast-values-${cam.id}`);
+      const forecastAccuracy = document.getElementById(`forecast-accuracy-${cam.id}`);
+      const forecastStatus = document.getElementById(`forecast-status-${cam.id}`);
+      if (forecastValues) forecastValues.innerHTML = forecastItemsMarkup(forecast);
+      if (forecastAccuracy) forecastAccuracy.textContent = forecastAccuracyText(forecast);
+      if (forecastStatus) {
+        forecastStatus.textContent = forecastStatusText(forecast);
+      }
 
       const hudEl = document.getElementById(`hud-${cam.id}`);
       if (hudEl) {

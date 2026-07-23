@@ -42,7 +42,7 @@ BACKEND_URL = os.getenv("BACKEND_URL", f"http://127.0.0.1:{BACKEND_PORT}")
 # Priority: DRONE env var → CCTV_SOURCE env var → this file path
 VIDEO_SOURCE = os.environ.get(
     "CCTV_SOURCE",
-    os.path.join(BASE_DIR, "Videos", "Kumbh.mp4")
+    os.path.join(BASE_DIR, "Videos", "VID-20260722-WA0011.mp4")
 )
 
 # ─── RTSP transport ───────────────────────────────────────────────────

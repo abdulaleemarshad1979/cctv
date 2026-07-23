@@ -15,6 +15,7 @@ from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 import config
+from src.crowd_forecast import CrowdForecaster
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -47,6 +48,13 @@ global_counting_mode = True
 ANALYTICS_STALE_AFTER_SECONDS = float(
     os.getenv("ANALYTICS_STALE_AFTER_SECONDS", "20")
 )
+CROWD_HISTORY_CSV = os.getenv(
+    "CROWD_HISTORY_CSV", os.path.join("outputs", "crowd_history.csv")
+)
+crowd_forecaster = CrowdForecaster(
+    CROWD_HISTORY_CSV,
+    sample_interval_seconds=os.getenv("CROWD_SAMPLE_INTERVAL_SECONDS", "15"),
+)
 
 
 def _rebuild_camera_indexes():
@@ -62,15 +70,25 @@ def _rebuild_camera_indexes():
         if output_path:
             _cameras_by_stream_path[output_path] = (camera, "output")
 
+
+def _bundled_video_files():
+    video_dir = os.path.join(config.BASE_DIR, "Videos")
+    if not os.path.isdir(video_dir):
+        return []
+    return sorted(
+        name for name in os.listdir(video_dir) if name.lower().endswith(".mp4")
+    )
+
+
 def load_cameras():
     global cameras_db
     cameras_db = []
-    video_files = ["Kumbh.mp4", "mecca.mp4", "stadium.mp4", "concert.mp4", "Crowd.mp4"]
+    video_files = _bundled_video_files()
     
     # Load 40 Drone Feeds (using Fusion model)
     for i in range(1, 41):
-        v_file = video_files[(i - 1) % len(video_files)]
-        fallback_path = f"Videos/{v_file}" if os.path.exists(os.path.join(os.getcwd(), "Videos", v_file)) else "Videos/Crowd.mp4"
+        v_file = video_files[(i - 1) % len(video_files)] if video_files else ""
+        fallback_path = f"Videos/{v_file}" if v_file else ""
         cameras_db.append({
             "id": f"drone-{i}",
             "name": f"DRONE {i}",
@@ -108,12 +126,14 @@ def load_cameras():
             "zone_scores": None,
             "analytics_seq": -1,
             "stats_updated_at": None,
+            "forecast_reset_seq": 0,
+            "forecast": crowd_forecaster.snapshot(f"drone-{i}"),
         })
 
     # Load 20 CCTV Feeds (using YOLOv11 model)
     for i in range(1, 21):
-        v_file = video_files[(i - 1) % len(video_files)]
-        fallback_path = f"Videos/{v_file}" if os.path.exists(os.path.join(os.getcwd(), "Videos", v_file)) else "Videos/Crowd.mp4"
+        v_file = video_files[(i - 1) % len(video_files)] if video_files else ""
+        fallback_path = f"Videos/{v_file}" if v_file else ""
         cameras_db.append({
             "id": f"cctv-{i}",
             "name": f"CCTV CAMERA {i}",
@@ -147,6 +167,8 @@ def load_cameras():
             "zone_scores": None,
             "analytics_seq": -1,
             "stats_updated_at": None,
+            "forecast_reset_seq": 0,
+            "forecast": crowd_forecaster.snapshot(f"cctv-{i}"),
         })
 
     _rebuild_camera_indexes()
@@ -184,6 +206,8 @@ class StatsUpdate(BaseModel):
     zone_scores: Optional[list] = None
     analytics_active: Optional[bool] = True
     analytics_seq: Optional[int] = None
+    forecast_reset_seq: Optional[int] = 0
+    forecast_reset_reason: Optional[str] = ""
 
 
 def reset_camera_analytics(camera):
@@ -498,10 +522,7 @@ def get_sample_source_for_camera(camera):
     if configured and os.path.exists(os.path.join(os.getcwd(), configured)):
         return configured
 
-    video_dir = os.path.join(os.getcwd(), "Videos")
-    video_files = []
-    if os.path.exists(video_dir):
-        video_files = [f for f in os.listdir(video_dir) if f.endswith(".mp4")]
+    video_files = _bundled_video_files()
     
     if video_files:
         video_files.sort()
@@ -533,6 +554,10 @@ def start_stream(camera, source_url):
     stop_stream(drone_id)
     reset_camera_analytics(camera)
     reset_analytics_freshness(camera)
+    camera["forecast_reset_seq"] = 0
+    camera["forecast"] = crowd_forecaster.reset(
+        drone_id, "new feed session"
+    )
 
     normalized_source = str(source_url).lower()
     if normalized_source.startswith(("videos/", "videos\\")) or os.path.isfile(str(source_url)):
@@ -625,6 +650,15 @@ def health_check():
         "counting_available": dependency_error is None,
         "counting_message": dependency_error,
     }
+
+@app.get("/forecast/history.csv")
+def download_crowd_history():
+    """Download observed counts and forecasts in a format Excel can open."""
+    return FileResponse(
+        CROWD_HISTORY_CSV,
+        media_type="text/csv",
+        filename="crowd_history.csv",
+    )
 
 @app.get("/cameras")
 def get_cameras():
@@ -845,6 +879,16 @@ def update_stats(data: StatsUpdate):
     matched_camera["connection_message"] = "Live video and counting connected."
     matched_camera["stats_updated_at"] = time.time()
     matched_camera["people_count"] = max(0, int(round(data.density_score)))
+    incoming_reset_seq = int(data.forecast_reset_seq or 0)
+    if incoming_reset_seq > matched_camera.get("forecast_reset_seq", 0):
+        matched_camera["forecast"] = crowd_forecaster.reset(
+            drone_id,
+            data.forecast_reset_reason or "camera scene changed",
+        )
+    matched_camera["forecast_reset_seq"] = incoming_reset_seq
+    matched_camera["forecast"] = crowd_forecaster.record(
+        drone_id, matched_camera["people_count"]
+    )
     matched_camera["comp_zone"] = data.comp_zone
     matched_camera["pressure"] = data.pressure
     

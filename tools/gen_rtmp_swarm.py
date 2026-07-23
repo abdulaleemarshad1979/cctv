@@ -8,7 +8,7 @@ import time
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 VIDEO_DIR = os.path.join(BASE_DIR, "Videos")
-VIDEO_FILE = os.path.join(VIDEO_DIR, "Kumbh.mp4")
+VIDEO_FILE = os.path.join(VIDEO_DIR, "VID-20260722-WA0011.mp4")
 
 # Targets RTMP ingestion endpoints on local MediaMTX
 TARGETS = [

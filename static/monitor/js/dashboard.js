@@ -86,7 +86,7 @@
   // Modal actions
   function openConnectModal(droneId) {
     modalDroneIdInput.value = droneId;
-    modalSourceUrlInput.value = "Videos/K.mp4"; // Default value
+    modalSourceUrlInput.value = "Videos/VID-20260722-WA0011.mp4"; // Default value
     modalOverlay.classList.remove("hidden");
     modalSourceUrlInput.focus();
   }
