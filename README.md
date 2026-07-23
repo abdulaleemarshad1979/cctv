@@ -68,13 +68,40 @@ An AI-powered CCTV and drone swarm monitoring system designed to estimate crowd 
 * **Operating System**: Windows 10/11, macOS, or Linux.
 * **GPU**: CUDA-compatible Nvidia GPU (highly recommended for real-time inference, though CPU fallback is supported).
 * **Python**: Python 3.8 to 3.11.
+* **System Binaries**:
+  * **MediaMTX**: High-performance RTSP/RTMP/WebRTC streaming server (bundled as `mediamtx.exe` for Windows, or automatically downloaded via `tools/gen_rtmp.py`).
+  * **FFmpeg**: Required for RTSP/HLS stream processing and video transcoding.
 
 ### Installation
-1. Clone or copy this repository to your workspace.
-2. Install the required dependencies:
+
+#### Option 1: Native Installation (Windows / Linux)
+1. **Clone the Repository**:
+   ```bash
+   git clone https://github.com/abdulaleemarshad1979/cctv.git
+   cd CCTV_MONITOR
+   ```
+2. **Install Python Packages**:
    ```bash
    pip install -r requirements.txt
    ```
+3. **MediaMTX Setup**:
+   * **Windows**: `mediamtx.exe` is pre-bundled in the root folder. Running `lite_server.py` or `tools/gen_rtmp.py` will auto-detect and start it.
+   * **Linux / macOS**: Download and install MediaMTX:
+     ```bash
+     curl -L -o mediamtx.tar.gz https://github.com/bluenviron/mediamtx/releases/download/v1.9.3/mediamtx_v1.9.3_linux_amd64.tar.gz
+     tar -xzf mediamtx.tar.gz -C /usr/local/bin/ mediamtx
+     rm mediamtx.tar.gz
+     ```
+
+#### Option 2: Docker Container (All-in-One)
+The provided `Dockerfile` comes pre-configured with PyTorch, MediaMTX v1.9.3, FFmpeg, OpenCV Headless, and FastAPI:
+```bash
+# Build the Docker image
+docker build -t cctv-monitor .
+
+# Run the container (Exposes Web Portal & MediaMTX ports)
+docker run -d -p 8000:8000 -p 8554:8554 -p 1935:1935 --name cctv-app cctv-monitor
+```
 
 ---
 
