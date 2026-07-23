@@ -933,9 +933,10 @@ if __name__ == "__main__":
     reload_enabled = os.environ.get("BACKEND_RELOAD", "0").lower() in (
         "1", "true", "yes", "on"
     )
+    host_ip = os.environ.get("BACKEND_HOST", "0.0.0.0")  # ponytail: bind 0.0.0.0 to accept external & LAN traffic
     uvicorn.run(
         "lite_server:app" if reload_enabled else app,
-        host="127.0.0.1",
+        host=host_ip,
         port=config.BACKEND_PORT,
         reload=reload_enabled,
     )
