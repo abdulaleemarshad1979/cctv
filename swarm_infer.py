@@ -35,27 +35,6 @@ if device.type == "cpu":
     print(f"[SWARM-INFER] CPU Thread count set to {torch.get_num_threads()} to prevent core saturation.")
 print(f"[SWARM-INFER] Device: {device}  |  Drones: {SWARM_DRONE_COUNT}")
 
-class ONNXModelWrapper:
-    def __init__(self, onnx_path):
-        import onnxruntime as ort
-        providers = ['CPUExecutionProvider']
-        if torch.cuda.is_available():
-            providers = ['CUDAExecutionProvider', 'CPUExecutionProvider']
-        self.session = ort.InferenceSession(onnx_path, providers=providers)
-        print(f"[ONNX] Model loaded on providers: {self.session.get_providers()}")
-
-    def __call__(self, tensor):
-        input_data = tensor.cpu().numpy()
-        outputs = self.session.run(None, {'input': input_data})
-        return torch.from_numpy(outputs[0]), torch.from_numpy(outputs[1])
-
-    def to(self, device):
-        return self
-
-    def eval(self):
-        return self
-
-
 def _load_model():
     model_name = getattr(config, "DRONE_MODEL", "dm_count")
     print(f"[SWARM-INFER] Loading model: {model_name}...")

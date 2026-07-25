@@ -136,15 +136,23 @@ def main():
             f"{profile['validation_accuracy_by_angle']}"
         )
 
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(profiles, indent=2) + "\n", encoding="utf-8")
-    print(f"Saved calibration profiles to {args.output}")
     if not all_targets_met:
+        rejected = args.output.with_name(
+            f"{args.output.stem}.rejected{args.output.suffix}"
+        )
+        rejected.parent.mkdir(parents=True, exist_ok=True)
+        rejected.write_text(
+            json.dumps(profiles, indent=2) + "\n", encoding="utf-8"
+        )
         print(
             "WARNING: The requested accuracy was not reached for every camera/angle. "
-            "Add more representative labeled frames or retrain before making the claim."
+            "The active calibration was not changed. Add representative labels "
+            f"or retrain; diagnostic results were saved to {rejected}."
         )
         return 2
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(json.dumps(profiles, indent=2) + "\n", encoding="utf-8")
+    print(f"Approved calibration profiles saved to {args.output}")
     return 0
 
 

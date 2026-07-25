@@ -54,6 +54,11 @@ CROWD_HISTORY_CSV = os.getenv(
 crowd_forecaster = CrowdForecaster(
     CROWD_HISTORY_CSV,
     sample_interval_seconds=os.getenv("CROWD_SAMPLE_INTERVAL_SECONDS", "15"),
+    min_samples=os.getenv("CROWD_FORECAST_MIN_SAMPLES", "1"),
+    target_accuracy_percent=os.getenv("CROWD_FORECAST_TARGET_ACCURACY", "85"),
+    min_validation_samples=os.getenv(
+        "CROWD_FORECAST_MIN_VALIDATION_SAMPLES", "8"
+    ),
 )
 
 
@@ -126,7 +131,6 @@ def load_cameras():
             "zone_scores": None,
             "analytics_seq": -1,
             "stats_updated_at": None,
-            "forecast_reset_seq": 0,
             "forecast": crowd_forecaster.snapshot(f"drone-{i}"),
         })
 
@@ -167,7 +171,6 @@ def load_cameras():
             "zone_scores": None,
             "analytics_seq": -1,
             "stats_updated_at": None,
-            "forecast_reset_seq": 0,
             "forecast": crowd_forecaster.snapshot(f"cctv-{i}"),
         })
 
@@ -206,8 +209,6 @@ class StatsUpdate(BaseModel):
     zone_scores: Optional[list] = None
     analytics_active: Optional[bool] = True
     analytics_seq: Optional[int] = None
-    forecast_reset_seq: Optional[int] = 0
-    forecast_reset_reason: Optional[str] = ""
 
 
 def reset_camera_analytics(camera):
@@ -554,7 +555,6 @@ def start_stream(camera, source_url):
     stop_stream(drone_id)
     reset_camera_analytics(camera)
     reset_analytics_freshness(camera)
-    camera["forecast_reset_seq"] = 0
     camera["forecast"] = crowd_forecaster.reset(
         drone_id, "new feed session"
     )
@@ -879,13 +879,6 @@ def update_stats(data: StatsUpdate):
     matched_camera["connection_message"] = "Live video and counting connected."
     matched_camera["stats_updated_at"] = time.time()
     matched_camera["people_count"] = max(0, int(round(data.density_score)))
-    incoming_reset_seq = int(data.forecast_reset_seq or 0)
-    if incoming_reset_seq > matched_camera.get("forecast_reset_seq", 0):
-        matched_camera["forecast"] = crowd_forecaster.reset(
-            drone_id,
-            data.forecast_reset_reason or "camera scene changed",
-        )
-    matched_camera["forecast_reset_seq"] = incoming_reset_seq
     matched_camera["forecast"] = crowd_forecaster.record(
         drone_id, matched_camera["people_count"]
     )

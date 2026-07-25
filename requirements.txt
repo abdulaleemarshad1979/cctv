@@ -9,11 +9,9 @@ numpy>=1.21.0
 opencv-python>=4.5.0
 pillow>=8.0.0
 ultralytics>=8.0.0
-onnxruntime>=1.12.0
 
 # Network Requests & Async Clients
 requests>=2.25.0
-httpx>=0.23.0
 
 # Video Downloader & Streaming Utility
 yt-dlp>=2023.3.3

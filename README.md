@@ -144,11 +144,43 @@ required. This is appropriate only on a trusted local network. Re-enable an
 authentication boundary before exposing MediaMTX or the portal to the internet.
 
 The browser prefers MediaMTX WebRTC for sub-second playback and falls back to
-low-latency HLS. Analyzer output is clocked at 20 FPS by a bounded latest-frame
+low-latency HLS. Analyzer output is clocked at 30 FPS by a bounded latest-frame
 encoder, so a slow encoder cannot build a backlog. The default browser stream
 is 640x360 to reduce per-camera CPU and memory cost while counting uses its own
 independent inference resolution. A slower source repeats the latest frame to
 keep timestamps and playback continuous.
+
+Crowd forecasts are generated every 15 seconds for horizons from 15 seconds to
+3 hours. Each horizon is backtested against later observed counts and receives
+a green card only after at least eight validations reach the default 85%
+accuracy target. Longer forecasts from a 20-minute drone flight remain marked
+as validating until matching future observations exist; the system never
+presents unmeasured accuracy as verified. Set
+`CROWD_FORECAST_TARGET_ACCURACY` to change the field target.
+
+### Optional LSTM crowd forecasting
+
+Build a training history from every video in `Videos/` and train the small
+count-sequence LSTM:
+
+```bash
+python tools/extract_video_count_history.py
+python tools/train_lstm_forecast.py outputs/crowd_history.csv outputs/video_count_history.csv
+```
+
+The extractor samples the production DM-Count estimator every 15 seconds and
+keeps each video as an independent session, so cuts between unrelated clips do
+not become false crowd transitions. Re-run both commands after adding videos.
+These estimator-generated counts are pseudo-labels; use manually verified
+headcounts when measuring real-world counting accuracy.
+
+The trainer uses an 80/20 chronological split. A model joins the production
+ensemble only when every forecast horizon has at least 30 held-out samples and
+reaches 85% accuracy. Below-target checkpoints run in shadow mode: their
+predictions are scored online but cannot be selected until the same 85% target
+is measured. Override the default `models/crowd_lstm.pt` path with
+`CROWD_LSTM_MODEL_PATH`; PyTorch is not imported by the web server when no
+checkpoint exists.
 
 Use **Test Sample** only when you intentionally want bundled demonstration
 footage. Online tiles display **REAL** or **SAMPLE**, so sample counts cannot be
@@ -178,7 +210,14 @@ leaving a tile spinning without an explanation.
 ### Validate the 90% field-accuracy target
 
 Accuracy must be measured against manually verified counts from the intended
-conditions. Create a CSV with these columns:
+conditions. Prepare representative frames and a labeling CSV:
+
+```bash
+python tools/prepare_count_calibration.py
+```
+
+Open the frames in `outputs/count_calibration_frames`, then fill
+`actual_count` and `angle` in `outputs/verified_counts.csv`. The CSV contains:
 
 ```csv
 camera_id,predicted_count,actual_count,angle
@@ -191,7 +230,7 @@ Use at least 30 morning/daylight frames per camera across high-aerial, oblique,
 and close viewpoints, then run:
 
 ```bash
-python tools/calibrate_counting.py verified_counts.csv --target 90
+python tools/calibrate_counting.py outputs/verified_counts.csv --target 90
 ```
 
 The tool holds out validation frames, reports overall and per-angle accuracy,
@@ -209,7 +248,7 @@ python launch.py dji_mini3
 python launch.py rtsp://192.168.1.100:554/live
 
 # Launch using a local video file
-python launch.py Videos/VID-20260722-WA0011.mp4
+python launch.py Videos/mecca.mp4
 ```
 
 ---
@@ -233,7 +272,7 @@ You can customize the source and options without editing `config.py`:
 * **COUNT_FLIP_TTA**: Runs a second mirrored density pass. It defaults off on CPU and on when CUDA is available.
 * **COUNT_TEMPORAL_WINDOW / COUNT_EMA_ALPHA**: Count smoothing. CPU defaults to `1`/`1.0` for current-frame results; CUDA defaults to `3`/`0.65` for extra stability.
 * **WEB_STREAM_WIDTH / WEB_STREAM_HEIGHT**: Browser output size, defaulting to `640x360`.
-* **OUTPUT_STREAM_FPS**: Constant encoded output cadence, defaulting to `20` FPS.
+* **OUTPUT_STREAM_FPS**: Constant encoded output cadence, defaulting to `30` FPS.
 * **RENDER_VIDEO_OVERLAYS**: Draw OpenCV overlays into encoded video. Web workers disable this because the dashboard renders the detailed HUD more efficiently.
 * **PROFILE_PIPELINE / PERF_METRICS_ENABLED**: Opt-in diagnostic logging. Both default off so per-frame profiling and CSV I/O do not compete with production video.
 

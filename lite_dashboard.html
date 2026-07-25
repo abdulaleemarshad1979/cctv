@@ -516,9 +516,20 @@
     .tile__forecast-item {
       border-radius: 4px;
       background: #eff6ff;
+      border: 1px solid transparent;
       padding: 5px 2px;
       text-align: center;
     }
+
+    .tile__forecast-item--trusted {
+      background: #ecfdf5;
+      border-color: #86efac;
+    }
+
+    .tile__forecast-item--validating {
+      opacity: 0.72;
+    }
+
 
     .tile__forecast-time,
     .tile__forecast-count,
@@ -977,8 +988,8 @@
     function forecastItemsMarkup(forecast) {
       if (!forecast || forecast.status !== "ready") return "";
       return (forecast.predictions || []).map(item => `
-        <div class="tile__forecast-item" title="${escapeHtml(item.model || forecast.model || "")}">
-          <span class="tile__forecast-time">+${item.minutes >= 60 ? `${item.minutes / 60}h` : `${item.minutes}m`}</span>
+        <div class="tile__forecast-item ${item.trusted ? "tile__forecast-item--trusted" : "tile__forecast-item--validating"}" title="${escapeHtml(item.trusted ? `Verified ${Number(item.accuracy_percent).toFixed(1)}% on ${item.validation_samples} past forecasts` : item.accuracy_percent == null ? "Validating" : `Below ${forecast.target_accuracy_percent || 85}% target: ${Number(item.accuracy_percent).toFixed(1)}%`)}">
+          <span class="tile__forecast-time">+${item.label || (item.minutes >= 60 ? `${item.minutes / 60}h` : `${item.minutes}m`)}</span>
           <span class="tile__forecast-count">${Math.round(item.people_count || 0)}</span>
           <span class="tile__forecast-range">${Math.round(item.lower_count ?? item.people_count ?? 0)}–${Math.round(item.upper_count ?? item.people_count ?? 0)}</span>
         </div>
@@ -986,6 +997,12 @@
     }
 
     function forecastAccuracyText(forecast) {
+      if (forecast?.status === "ready") {
+        const lstm = forecast.lstm_status === "active"
+          ? " · LSTM"
+          : forecast.lstm_status === "shadow validation" ? " · LSTM shadow" : "";
+        return `${forecast.trusted_predictions || 0}/${(forecast.predictions || []).length} >=${forecast.target_accuracy_percent || 85}% verified${lstm}`;
+      }
       return forecast && forecast.accuracy_percent != null
         ? `${Number(forecast.accuracy_percent).toFixed(1)}% measured`
         : "validating…";

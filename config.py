@@ -42,7 +42,7 @@ BACKEND_URL = os.getenv("BACKEND_URL", f"http://127.0.0.1:{BACKEND_PORT}")
 # Priority: DRONE env var → CCTV_SOURCE env var → this file path
 VIDEO_SOURCE = os.environ.get(
     "CCTV_SOURCE",
-    os.path.join(BASE_DIR, "Videos", "VID-20260722-WA0011.mp4")
+    os.path.join(BASE_DIR, "Videos", "Kumbh.mp4")
 )
 
 # ─── RTSP transport ───────────────────────────────────────────────────
@@ -60,7 +60,7 @@ WEIGHTS_PATH = os.path.join(
 # A trained fusion head is used when available, otherwise the two trained
 # backbones use the conservative static weights below.
 # Supported options: dm_count, fusion, csrnet
-DRONE_MODEL = os.getenv("DRONE_MODEL", "fusion")
+DRONE_MODEL = os.getenv("DRONE_MODEL", "dm_count")
 
 CSRNET_WEIGHTS_PATH = os.environ.get(
     "CSRNET_WEIGHTS_PATH",
@@ -103,7 +103,7 @@ WEB_STREAM_HEIGHT = max(180, int(os.environ.get("WEB_STREAM_HEIGHT", "360")))
 # the latest frame to keep browser playback timestamps continuous.
 OUTPUT_STREAM_FPS = min(
     60.0,
-    max(1.0, float(os.environ.get("OUTPUT_STREAM_FPS", "20"))),
+    max(1.0, float(os.environ.get("OUTPUT_STREAM_FPS", "30"))),
 )
 
 def is_cuda_available():
@@ -166,7 +166,6 @@ OPTICAL_FLOW_GPU = os.environ.get("OPTICAL_FLOW_GPU", "1").lower() in ("1", "tru
 # windows, and other static background texture.
 CLEAN_INPUT_OVERLAYS = os.environ.get("CLEAN_INPUT_OVERLAYS", "1").lower() in ("1", "true", "yes", "on")
 DENSITY_SPECKLE_RATIO = float(os.environ.get("DENSITY_SPECKLE_RATIO", "0.0"))
-INFERENCE_BACKEND = os.environ.get("INFERENCE_BACKEND", "torch").lower()
 SWARM_BATCH_INFERENCE = os.environ.get("SWARM_BATCH_INFERENCE", "1" if is_cuda_available() else "0").lower() in ("1", "true", "yes", "on")
 
 # High-accuracy counting. These defaults favor correctness over throughput.

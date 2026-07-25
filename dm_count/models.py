@@ -21,7 +21,9 @@ class VGG(nn.Module):
 
     def forward(self, x):
         x = self.features(x)
-        x = F.upsample_bilinear(x, scale_factor=2)
+        x = F.interpolate(
+            x, scale_factor=2, mode="bilinear", align_corners=True
+        )
         x = self.reg_layer(x)
         mu = self.density_layer(x)
         B, C, H, W = mu.size()

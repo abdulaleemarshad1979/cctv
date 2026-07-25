@@ -33,7 +33,8 @@ $env:DRONE_MODEL = "fusion"
 $env:CSRNET_WEIGHTS_PATH = "csrnet/pretrained_models/csrnet_shtechA.pth"
 python infer.py
 ```
-`config.py` defaults to `DRONE_MODEL=fusion`. If the trained CSRNet checkpoint
+`config.py` defaults to the production `DRONE_MODEL=dm_count`. Set it to
+`fusion` explicitly for experiments. If the trained CSRNet checkpoint
 is missing or incompatible, `infer.py` explicitly falls back to trained
 DM-Count rather than silently using random weights. `FUSION_DM_WEIGHT` and
 `FUSION_CSR_WEIGHT` control the static blend; both are normalized before use.

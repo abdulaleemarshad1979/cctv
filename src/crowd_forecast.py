@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import math
 import os
 import threading
 from collections import defaultdict, deque
@@ -11,9 +12,20 @@ from datetime import datetime, timezone
 import numpy as np
 
 
-HORIZONS_MINUTES = (1, 5, 15, 30, 60, 120, 180)
+HORIZONS = (
+    ("15s", 15),
+    ("30s", 30),
+    ("1m", 60),
+    ("5m", 5 * 60),
+    ("15m", 15 * 60),
+    ("30m", 30 * 60),
+    ("60m", 60 * 60),
+    ("120m", 120 * 60),
+    ("180m", 180 * 60),
+)
 MODEL_NAME = "Adaptive champion ensemble"
 MIN_MODEL_SCORES = 8
+DEFAULT_TARGET_ACCURACY = 85.0
 
 
 def _iso_timestamp(timestamp):
@@ -27,8 +39,11 @@ class CrowdForecaster:
         self,
         csv_path="outputs/crowd_history.csv",
         sample_interval_seconds=15,
-        min_samples=12,
+        min_samples=1,
         max_samples=5760,
+        target_accuracy_percent=DEFAULT_TARGET_ACCURACY,
+        min_validation_samples=MIN_MODEL_SCORES,
+        lstm_model_path=None,
     ):
         self.csv_path = csv_path
         self.sample_interval_seconds = min(
@@ -39,17 +54,54 @@ class CrowdForecaster:
         )
         if self.smoothing_samples % 2 == 0:
             self.smoothing_samples += 1
-        self.min_samples = max(4, int(min_samples))
+        self.min_samples = max(1, int(min_samples))
+        self.target_accuracy_percent = min(
+            100.0, max(0.0, float(target_accuracy_percent))
+        )
+        self.min_validation_samples = max(1, int(min_validation_samples))
+        self.lstm = None
+        self.lstm_status = "not installed"
+        model_path = (
+            lstm_model_path
+            if lstm_model_path is not None
+            else os.getenv("CROWD_LSTM_MODEL_PATH", "models/crowd_lstm.pt")
+        )
+        if model_path and os.path.isfile(model_path):
+            try:
+                from src.lstm_forecast import LSTMForecaster
+
+                self.lstm = LSTMForecaster(
+                    model_path,
+                    [seconds for _, seconds in HORIZONS],
+                    self.sample_interval_seconds,
+                )
+                self.lstm_status = (
+                    "active" if self.lstm.approved else "shadow validation"
+                )
+            except Exception as exc:
+                self.lstm_status = f"rejected: {exc}"
+                print(f"[FORECAST] LSTM checkpoint rejected: {exc}")
+        max_pending = len(HORIZONS) * (
+            math.ceil(
+                max(seconds for _, seconds in HORIZONS)
+                / self.sample_interval_seconds
+            )
+            + 2
+        )
         self.histories = defaultdict(lambda: deque(maxlen=max_samples))
         self.raw_counts = defaultdict(
             lambda: deque(maxlen=self.smoothing_samples)
         )
-        self.pending = defaultdict(lambda: deque(maxlen=6000))
-        self.candidate_pending = defaultdict(lambda: deque(maxlen=24000))
+        self.pending = defaultdict(lambda: deque(maxlen=max_pending))
+        self.candidate_pending = defaultdict(
+            lambda: deque(maxlen=max_pending * 8)
+        )
         self.candidate_errors = defaultdict(
             lambda: defaultdict(lambda: deque(maxlen=100))
         )
-        self.errors = defaultdict(lambda: deque(maxlen=500))
+        self.errors = defaultdict(
+            lambda: defaultdict(lambda: deque(maxlen=500))
+        )
         self.last_sample = {}
         self.snapshots = {}
         self.sessions = defaultdict(int)
@@ -66,15 +118,18 @@ class CrowdForecaster:
             "status",
             "accuracy_percent",
             "validation_samples",
+            "target_accuracy_percent",
         ]
-        for minutes in HORIZONS_MINUTES:
+        for label, _ in HORIZONS:
             self.fieldnames.extend(
                 [
-                    f"predicted_{minutes}m",
-                    f"lower_{minutes}m",
-                    f"upper_{minutes}m",
-                    f"model_{minutes}m",
-                    f"target_time_{minutes}m_utc",
+                    f"predicted_{label}",
+                    f"lower_{label}",
+                    f"upper_{label}",
+                    f"model_{label}",
+                    f"target_time_{label}_utc",
+                    f"accuracy_{label}",
+                    f"trusted_{label}",
                 ]
             )
         self._load_history()
@@ -180,7 +235,12 @@ class CrowdForecaster:
             ),
             "samples": samples,
             "accuracy_percent": None,
-            "validation_samples": len(self.errors[camera_id]),
+            "validation_samples": sum(
+                len(errors) for errors in self.errors[camera_id].values()
+            ),
+            "target_accuracy_percent": self.target_accuracy_percent,
+            "trusted_predictions": 0,
+            "lstm_status": self.lstm_status,
             "quality_status": "validating",
             "trend": "unknown",
             "predictions": [],
@@ -204,29 +264,48 @@ class CrowdForecaster:
         current = float(values[-1])
 
         output = []
-        for index, minutes in enumerate(HORIZONS_MINUTES):
-            target = timestamp + minutes * 60
-            selected_model = self._select_model(camera_id, minutes, candidates)
+        for index, (label, seconds) in enumerate(HORIZONS):
+            target = timestamp + seconds
+            selected_model = self._select_model(camera_id, label, candidates)
             predicted = candidates[selected_model][index]
             rounded = max(0, int(round(predicted)))
             lower, upper, confidence = self._prediction_interval(
-                camera_id, minutes, selected_model, predicted, values
+                camera_id, label, seconds, selected_model, predicted, values
+            )
+            validation_samples = len(
+                self.candidate_errors[camera_id][(label, selected_model)]
+            )
+            trusted = (
+                validation_samples >= self.min_validation_samples
+                and confidence is not None
+                and confidence >= self.target_accuracy_percent
             )
             output.append(
                 {
-                    "minutes": minutes,
+                    "label": label,
+                    "seconds": seconds,
+                    "minutes": seconds / 60.0,
                     "people_count": rounded,
                     "lower_count": lower,
                     "upper_count": upper,
                     "confidence_percent": confidence,
+                    "accuracy_percent": confidence,
+                    "validation_samples": validation_samples,
+                    "trusted": trusted,
+                    "quality_status": (
+                        "verified"
+                        if trusted
+                        else "below_target" if confidence is not None
+                        else "validating"
+                    ),
                     "model": selected_model,
                     "target_time_utc": _iso_timestamp(target),
                 }
             )
-            self.pending[camera_id].append((target, rounded, minutes))
+            self.pending[camera_id].append((target, rounded, label))
             for model_name, model_predictions in candidates.items():
                 self.candidate_pending[camera_id].append(
-                    (target, model_predictions[index], minutes, model_name)
+                    (target, model_predictions[index], label, model_name)
                 )
 
         threshold = max(2.0, current * 0.02)
@@ -239,26 +318,42 @@ class CrowdForecaster:
             else "stable"
         )
 
-        errors = self.errors[camera_id]
+        errors = [
+            error
+            for horizon_errors in self.errors[camera_id].values()
+            for error in horizon_errors
+        ]
         accuracy = (
             round(max(0.0, 100.0 * (1.0 - float(np.mean(errors)))), 1)
             if errors
             else None
         )
-        quality_status = (
-            "validating"
-            if len(errors) < 20
-            else "target_met"
-            if accuracy >= 95.0
-            else "needs_calibration"
-        )
-        quality_message = (
-            "accuracy is still validating."
-            if quality_status == "validating"
-            else "the 95% accuracy target is currently met."
-            if quality_status == "target_met"
-            else "measured accuracy is below 95%; collect more data and calibrate."
-        )
+        trusted_predictions = sum(item["trusted"] for item in output)
+        if trusted_predictions == len(output):
+            quality_status = "target_met"
+        elif trusted_predictions:
+            quality_status = "partially_verified"
+        elif not any(item["accuracy_percent"] is not None for item in output):
+            quality_status = "validating"
+        else:
+            quality_status = "needs_calibration"
+
+        if quality_status == "target_met":
+            quality_message = (
+                f"all horizons meet the {self.target_accuracy_percent:g}% target."
+            )
+        elif quality_status == "partially_verified":
+            quality_message = (
+                f"{trusted_predictions}/{len(output)} horizons meet the "
+                f"{self.target_accuracy_percent:g}% target."
+            )
+        elif quality_status == "validating":
+            quality_message = "accuracy is still validating."
+        else:
+            quality_message = (
+                f"no horizon meets the {self.target_accuracy_percent:g}% "
+                "target yet; collect more data or calibrate."
+            )
         return {
             "status": "ready",
             "model": MODEL_NAME,
@@ -273,6 +368,9 @@ class CrowdForecaster:
             "generated_at_utc": _iso_timestamp(timestamp),
             "accuracy_percent": accuracy,
             "validation_samples": len(errors),
+            "target_accuracy_percent": self.target_accuracy_percent,
+            "trusted_predictions": trusted_predictions,
+            "lstm_status": self.lstm_status,
             "quality_status": quality_status,
             "trend": trend,
             "models_selected": sorted({item["model"] for item in output}),
@@ -289,7 +387,7 @@ class CrowdForecaster:
             "recent_level": [
                 float(np.median(values[-min(8, len(values)) :]))
             ]
-            * len(HORIZONS_MINUTES),
+            * len(HORIZONS),
         }
         autoregressive = self._autoregressive_predictions(values)
         if autoregressive is not None:
@@ -297,23 +395,41 @@ class CrowdForecaster:
         seasonal = self._daily_seasonal_predictions(values)
         if seasonal is not None:
             candidates["daily_seasonal"] = seasonal
+        if self.lstm is not None:
+            lstm_predictions = self.lstm.predict(values)
+            if lstm_predictions is not None and self.lstm.approved:
+                candidates["lstm"] = lstm_predictions
         candidates["ensemble"] = np.mean(
             np.asarray(list(candidates.values()), dtype=np.float64), axis=0
         ).tolist()
+        if (
+            self.lstm is not None
+            and not self.lstm.approved
+            and lstm_predictions is not None
+        ):
+            candidates["lstm"] = lstm_predictions
         return candidates
 
-    def _select_model(self, camera_id, minutes, candidates):
+    def _select_model(self, camera_id, label, candidates):
         scored = []
         for model_name in candidates:
-            errors = self.candidate_errors[camera_id][(minutes, model_name)]
+            errors = self.candidate_errors[camera_id][(label, model_name)]
             if len(errors) >= MIN_MODEL_SCORES:
+                accuracy = 100.0 * (1.0 - float(np.mean(errors)))
+                if (
+                    model_name == "lstm"
+                    and self.lstm is not None
+                    and not self.lstm.approved
+                    and accuracy < self.target_accuracy_percent
+                ):
+                    continue
                 scored.append((float(np.mean(errors)), model_name))
         return min(scored)[1] if scored else "ensemble"
 
     def _prediction_interval(
-        self, camera_id, minutes, model_name, prediction, values
+        self, camera_id, label, seconds, model_name, prediction, values
     ):
-        model_errors = self.candidate_errors[camera_id][(minutes, model_name)]
+        model_errors = self.candidate_errors[camera_id][(label, model_name)]
         if len(model_errors) >= MIN_MODEL_SCORES:
             relative_error = float(np.percentile(model_errors, 90))
             confidence = round(
@@ -321,9 +437,14 @@ class CrowdForecaster:
             )
         else:
             changes = np.diff(values[-min(40, len(values)) :])
-            noise = float(np.std(changes)) / max(1.0, float(np.mean(values[-8:])))
+            noise = (
+                float(np.std(changes))
+                / max(1.0, float(np.mean(values[-8:])))
+                if changes.size
+                else 0.0
+            )
             steps = max(
-                1, int(round(minutes * 60.0 / self.sample_interval_seconds))
+                1, int(round(seconds / self.sample_interval_seconds))
             )
             relative_error = min(1.0, max(0.02, noise * np.sqrt(steps)))
             confidence = None
@@ -337,7 +458,7 @@ class CrowdForecaster:
     def _holt_predictions(self, values):
         """Fit Holt's damped-trend model and forecast all configured horizons."""
         level = float(values[0])
-        trend = float(values[1] - values[0])
+        trend = float(values[1] - values[0]) if len(values) > 1 else 0.0
         alpha, beta, damping = 0.45, 0.15, 0.98
         for value in values[1:]:
             previous_level = level
@@ -349,12 +470,16 @@ class CrowdForecaster:
             )
 
         recent_changes = np.diff(values[-min(len(values), 40) :])
-        change_limit = max(1.0, float(np.percentile(np.abs(recent_changes), 90)))
+        change_limit = (
+            max(1.0, float(np.percentile(np.abs(recent_changes), 90)))
+            if recent_changes.size
+            else 1.0
+        )
         trend = float(np.clip(trend, -change_limit, change_limit))
         predictions = []
-        for minutes in HORIZONS_MINUTES:
+        for _, seconds in HORIZONS:
             steps = max(
-                1, int(round(minutes * 60.0 / self.sample_interval_seconds))
+                1, int(round(seconds / self.sample_interval_seconds))
             )
             damped_steps = damping * (1.0 - damping**steps) / (1.0 - damping)
             predictions.append(max(0.0, level + trend * damped_steps))
@@ -380,8 +505,8 @@ class CrowdForecaster:
 
         future = list(normalized[-lags:])
         max_steps = max(
-            int(round(minutes * 60.0 / self.sample_interval_seconds))
-            for minutes in HORIZONS_MINUTES
+            int(round(seconds / self.sample_interval_seconds))
+            for _, seconds in HORIZONS
         )
         upper_limit = max(50.0, float(np.max(series[-100:])) * 3.0 + 25.0)
         for _ in range(max_steps):
@@ -392,12 +517,12 @@ class CrowdForecaster:
         return [
             future[
                 lags
-                + int(round(minutes * 60.0 / self.sample_interval_seconds))
+                + int(round(seconds / self.sample_interval_seconds))
                 - 1
             ]
             * scale
             + center
-            for minutes in HORIZONS_MINUTES
+            for _, seconds in HORIZONS
         ]
 
     def _daily_seasonal_predictions(self, values):
@@ -409,44 +534,48 @@ class CrowdForecaster:
                 values[
                     len(values)
                     - period
-                    + int(round(minutes * 60.0 / self.sample_interval_seconds))
+                    + int(round(seconds / self.sample_interval_seconds))
                     - 1
                 ]
             )
-            for minutes in HORIZONS_MINUTES
+            for _, seconds in HORIZONS
         ]
 
     def _score_due_predictions(self, camera_id, observed, timestamp):
         queue = self.pending[camera_id]
         waiting = deque(maxlen=queue.maxlen)
         while queue:
-            target, predicted, minutes = queue.popleft()
+            target, predicted, label = queue.popleft()
             if target > timestamp:
-                waiting.append((target, predicted, minutes))
+                waiting.append((target, predicted, label))
+                continue
+            if timestamp - target > self.sample_interval_seconds * 1.5:
                 continue
             error = (
                 0.0
                 if observed == predicted == 0
                 else min(1.0, abs(predicted - observed) / max(1.0, observed))
             )
-            self.errors[camera_id].append(error)
+            self.errors[camera_id][label].append(error)
         self.pending[camera_id] = waiting
 
         candidates = self.candidate_pending[camera_id]
         waiting_candidates = deque(maxlen=candidates.maxlen)
         while candidates:
-            target, predicted, minutes, model_name = candidates.popleft()
+            target, predicted, label, model_name = candidates.popleft()
             if target > timestamp:
                 waiting_candidates.append(
-                    (target, predicted, minutes, model_name)
+                    (target, predicted, label, model_name)
                 )
+                continue
+            if timestamp - target > self.sample_interval_seconds * 1.5:
                 continue
             error = (
                 0.0
                 if observed == predicted == 0
                 else min(1.0, abs(predicted - observed) / max(1.0, observed))
             )
-            self.candidate_errors[camera_id][(minutes, model_name)].append(error)
+            self.candidate_errors[camera_id][(label, model_name)].append(error)
         self.candidate_pending[camera_id] = waiting_candidates
 
     def _append_csv(self, camera_id, raw_observed, observed, snapshot):
@@ -461,13 +590,16 @@ class CrowdForecaster:
             "status": snapshot["status"],
             "accuracy_percent": snapshot["accuracy_percent"],
             "validation_samples": snapshot["validation_samples"],
+            "target_accuracy_percent": self.target_accuracy_percent,
         }
         for prediction in snapshot["predictions"]:
-            minutes = prediction["minutes"]
-            row[f"predicted_{minutes}m"] = prediction["people_count"]
-            row[f"lower_{minutes}m"] = prediction["lower_count"]
-            row[f"upper_{minutes}m"] = prediction["upper_count"]
-            row[f"model_{minutes}m"] = prediction["model"]
-            row[f"target_time_{minutes}m_utc"] = prediction["target_time_utc"]
+            label = prediction["label"]
+            row[f"predicted_{label}"] = prediction["people_count"]
+            row[f"lower_{label}"] = prediction["lower_count"]
+            row[f"upper_{label}"] = prediction["upper_count"]
+            row[f"model_{label}"] = prediction["model"]
+            row[f"target_time_{label}_utc"] = prediction["target_time_utc"]
+            row[f"accuracy_{label}"] = prediction["accuracy_percent"]
+            row[f"trusted_{label}"] = prediction["trusted"]
         with open(self.csv_path, "a", newline="", encoding="utf-8") as handle:
             csv.DictWriter(handle, fieldnames=self.fieldnames).writerow(row)
