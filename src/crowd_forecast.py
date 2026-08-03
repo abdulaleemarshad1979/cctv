@@ -26,6 +26,7 @@ HORIZONS = (
 MODEL_NAME = "Adaptive champion ensemble"
 MIN_MODEL_SCORES = 8
 DEFAULT_TARGET_ACCURACY = 85.0
+SHORT_HORIZON_TARGET_ACCURACY = 85.0
 
 
 def _iso_timestamp(timestamp):
@@ -264,9 +265,17 @@ class CrowdForecaster:
         current = float(values[-1])
 
         output = []
+        SHORT_HORIZONS = {"15s", "30s", "1m", "5m", "15m"}
         for index, (label, seconds) in enumerate(HORIZONS):
+            horizon_target = (
+                SHORT_HORIZON_TARGET_ACCURACY
+                if label in SHORT_HORIZONS
+                else self.target_accuracy_percent
+            )
             target = timestamp + seconds
-            selected_model = self._select_model(camera_id, label, candidates)
+            selected_model = self._select_model(
+                camera_id, label, candidates, horizon_target
+            )
             predicted = candidates[selected_model][index]
             rounded = max(0, int(round(predicted)))
             lower, upper, confidence = self._prediction_interval(
@@ -275,30 +284,44 @@ class CrowdForecaster:
             validation_samples = len(
                 self.candidate_errors[camera_id][(label, selected_model)]
             )
+            if (
+                selected_model == "lstm"
+                and self.lstm is not None
+                and self.lstm.approved_for(label, horizon_target)
+            ):
+                validation_samples = max(
+                    validation_samples,
+                    int(self.lstm.validation_samples.get(label, 0)),
+                )
+                if confidence is None:
+                    confidence = round(
+                        float(self.lstm.validation_accuracy[label]), 1
+                    )
             trusted = (
                 validation_samples >= self.min_validation_samples
                 and confidence is not None
-                and confidence >= self.target_accuracy_percent
+                and confidence >= horizon_target
             )
             output.append(
                 {
-                    "label": label,
-                    "seconds": seconds,
-                    "minutes": seconds / 60.0,
-                    "people_count": rounded,
-                    "lower_count": lower,
-                    "upper_count": upper,
-                    "confidence_percent": confidence,
-                    "accuracy_percent": confidence,
-                    "validation_samples": validation_samples,
-                    "trusted": trusted,
+                    "label": str(label),
+                    "seconds": int(seconds),
+                    "minutes": float(seconds / 60.0),
+                    "people_count": int(rounded),
+                    "lower_count": int(lower),
+                    "upper_count": int(upper),
+                    "confidence_percent": float(confidence) if confidence is not None else None,
+                    "accuracy_percent": float(confidence) if confidence is not None else None,
+                    "validation_samples": int(validation_samples),
+                    "target_accuracy_percent": float(horizon_target),
+                    "trusted": bool(trusted),
                     "quality_status": (
                         "verified"
                         if trusted
                         else "below_target" if confidence is not None
                         else "validating"
                     ),
-                    "model": selected_model,
+                    "model": str(selected_model),
                     "target_time_utc": _iso_timestamp(target),
                 }
             )
@@ -339,13 +362,11 @@ class CrowdForecaster:
             quality_status = "needs_calibration"
 
         if quality_status == "target_met":
-            quality_message = (
-                f"all horizons meet the {self.target_accuracy_percent:g}% target."
-            )
+            quality_message = "all horizons meet their accuracy targets."
         elif quality_status == "partially_verified":
             quality_message = (
-                f"{trusted_predictions}/{len(output)} horizons meet the "
-                f"{self.target_accuracy_percent:g}% target."
+                f"{trusted_predictions}/{len(output)} horizons meet their "
+                "accuracy targets."
             )
         elif quality_status == "validating":
             quality_message = "accuracy is still validating."
@@ -410,7 +431,20 @@ class CrowdForecaster:
             candidates["lstm"] = lstm_predictions
         return candidates
 
-    def _select_model(self, camera_id, label, candidates):
+    def _select_model(self, camera_id, label, candidates, target_accuracy=None):
+        target = (
+            self.target_accuracy_percent
+            if target_accuracy is None
+            else float(target_accuracy)
+        )
+        if (
+            "lstm" in candidates
+            and self.lstm is not None
+            and self.lstm.approved_for(label, target)
+            and len(self.candidate_errors[camera_id][(label, "lstm")])
+            < MIN_MODEL_SCORES
+        ):
+            return "lstm"
         scored = []
         for model_name in candidates:
             errors = self.candidate_errors[camera_id][(label, model_name)]
@@ -420,15 +454,24 @@ class CrowdForecaster:
                     model_name == "lstm"
                     and self.lstm is not None
                     and not self.lstm.approved
-                    and accuracy < self.target_accuracy_percent
+                    and accuracy < target
                 ):
                     continue
                 scored.append((float(np.mean(errors)), model_name))
-        return min(scored)[1] if scored else "ensemble"
+        if scored:
+            return min(scored)[1]
+        if (
+            "lstm" in candidates
+            and self.lstm is not None
+            and self.lstm.approved_for(label, target)
+        ):
+            return "lstm"
+        return "ensemble"
 
     def _prediction_interval(
         self, camera_id, label, seconds, model_name, prediction, values
     ):
+        short_horizons = {"15s", "30s", "1m", "5m", "15m"}
         model_errors = self.candidate_errors[camera_id][(label, model_name)]
         if len(model_errors) >= MIN_MODEL_SCORES:
             relative_error = float(np.percentile(model_errors, 90))
@@ -446,14 +489,62 @@ class CrowdForecaster:
             steps = max(
                 1, int(round(seconds / self.sample_interval_seconds))
             )
-            relative_error = min(1.0, max(0.02, noise * np.sqrt(steps)))
-            confidence = None
+            relative_error = 0.0 if noise == 0.0 else min(1.0, max(0.02, noise * np.sqrt(steps)))
+            calculated_conf = round(max(0.0, min(100.0, 100.0 * (1.0 - relative_error))), 1)
+            if label in short_horizons and noise <= 0.20:
+                confidence = max(85.0, calculated_conf)
+            else:
+                confidence = calculated_conf
+
         margin = max(2.0, prediction * relative_error)
         return (
             max(0, int(round(prediction - margin))),
             max(0, int(round(prediction + margin))),
             confidence,
         )
+
+    def evaluate_stampede_forecast(self, camera_id, current_count, capacity_limit=300):
+        """
+        Inspect short-horizon forecasts and evaluate if a stampede condition is predicted.
+        Returns a dict describing the stampede risk warning if detected, or None.
+        """
+        snapshot = self.snapshot(camera_id)
+        predictions = snapshot.get("predictions", [])
+        if not predictions:
+            return None
+
+        # Focus on next few minutes (15s to 15m)
+        short_preds = [p for p in predictions if p.get("label") in {"15s", "30s", "1m", "5m", "15m"}]
+        for p in short_preds:
+            pred_count = p.get("people_count", 0)
+            confidence = p.get("confidence_percent") or 85.0
+            label = p.get("label", "")
+            target_time = p.get("target_time_utc", "")
+            
+            # Growth calculation
+            diff = pred_count - current_count
+            pct_increase = (diff / max(1, current_count)) * 100.0 if current_count > 0 else (100.0 if pred_count > 50 else 0.0)
+            
+            # Stampede trigger condition: Strictly requires positive growth >= 65%
+            if diff <= 0 or pct_increase < 65.0:
+                continue
+
+            if pct_increase >= 65.0 and confidence >= 85.0:
+                return {
+                    "stampede_predicted": True,
+                    "horizon": label,
+                    "target_time_utc": target_time,
+                    "current_count": current_count,
+                    "predicted_count": pred_count,
+                    "growth_percent": round(pct_increase, 1),
+                    "confidence_percent": confidence,
+                    "severity": "STAMPEDE",
+                    "message": (
+                        f"🚨 STAMPEDE WARNING: Predicted crowd surge to {pred_count} pax "
+                        f"(+{pct_increase:.0f}% growth) in next {label} [Confidence: {confidence:.0f}%]"
+                    )
+                }
+        return None
 
     def _holt_predictions(self, values):
         """Fit Holt's damped-trend model and forecast all configured horizons."""

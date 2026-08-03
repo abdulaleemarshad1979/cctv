@@ -1,6 +1,6 @@
 @echo off
 setlocal
-title Drone Monitoring Portal (Unified Launcher)
+title Sentinel GCS - Government Tactical Defense Portal
 cd /d "%~dp0"
 
 set "CCTV_PYTHON_CMD="
@@ -10,11 +10,11 @@ if not defined CCTV_PYTHON_CMD if exist "venv\Scripts\python.exe" set "CCTV_PYTH
 if not defined CCTV_PYTHON_CMD set "CCTV_PYTHON_CMD=python"
 
 echo ====================================================================
-echo   CENTRALIZED DRONE MONITORING PORTAL (UNIFIED LAUNCHER)
+echo   SENTINEL GCS — GOVERNMENT AND DEFENCE TACTICAL PORTAL
 echo ====================================================================
 echo.
 
-echo [1/2] Opening Drone Monitoring Portal in default browser...
+echo [1/2] Opening Government Tactical GCS Portal in default browser...
 start "" http://127.0.0.1:8000/
 echo.
 

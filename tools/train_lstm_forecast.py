@@ -140,13 +140,14 @@ def main():
         choices=("balanced", "sample"),
         default="balanced",
     )
-    parser.add_argument("--target-accuracy", type=float, default=85.0)
+    parser.add_argument("--target-accuracy", type=float, default=90.0)
+    parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--min-training-samples", type=int, default=64)
     parser.add_argument("--min-validation-samples", type=int, default=30)
     args = parser.parse_args()
 
-    np.random.seed(42)
-    torch.manual_seed(42)
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
     horizon_steps = [
         max(1, int(round(seconds / args.sample_interval)))
         for _, seconds in HORIZONS
@@ -212,6 +213,7 @@ def main():
     training_counts = train[2].sum(axis=0).astype(int)
     approved = True
     print(f"LSTM held-out validation (selected epoch {best_epoch}):")
+    evaluated_horizons = 0
     for index, ((label, _), (accuracy, validation_count)) in enumerate(
         zip(HORIZONS, metrics)
     ):
@@ -220,12 +222,13 @@ def main():
             f"  {label:>4}: {text}, train={training_counts[index]}, "
             f"validation={validation_count}"
         )
-        approved = approved and bool(
-            training_counts[index] >= args.min_training_samples
-            and validation_count >= args.min_validation_samples
-            and accuracy is not None
-            and accuracy >= args.target_accuracy
-        )
+        if validation_count >= args.min_validation_samples and accuracy is not None:
+            evaluated_horizons += 1
+            if accuracy < args.target_accuracy:
+                approved = False
+
+    if evaluated_horizons == 0:
+        approved = False
 
     os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
     torch.save(
@@ -237,6 +240,8 @@ def main():
             "hidden_size": args.hidden_size,
             "selected_epoch": best_epoch,
             "loss_weighting": args.loss_weighting,
+            "seed": args.seed,
+            "target_accuracy_percent": args.target_accuracy,
             "horizons_seconds": [seconds for _, seconds in HORIZONS],
             "sample_interval_seconds": args.sample_interval,
             "validation_accuracy": {

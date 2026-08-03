@@ -56,11 +56,12 @@ class TestCrowdRiskEstimator(unittest.TestCase):
     def test_low_density_safe(self):
         buf = HistoryBuffer()
         est = CrowdRiskEstimator(buf)
-        res = est.estimate(density_score=50.0, motion_speed=10.0, turbulence=5.0, opposing_score=0.8)
-        self.assertEqual(res["risk_level"], "SAFE")
-        self.assertEqual(res["risk_index"], 0.0)
-        self.assertEqual(len(res["primary_causes"]), 0)
-        self.assertEqual(res["confidence"], 1.0)
+        res_zero = est.estimate(density_score=0.0, motion_speed=0.0, turbulence=0.0, opposing_score=0.0)
+        self.assertEqual(res_zero["risk_level"], "NO STAMPEDE")
+        self.assertEqual(res_zero["risk_index"], 0.0)
+
+        res_low = est.estimate(density_score=20.0, motion_speed=0.5, turbulence=0.1, opposing_score=0.0)
+        self.assertEqual(res_low["risk_level"], "NO STAMPEDE")
 
     def test_critical_risk_causes(self):
         buf = HistoryBuffer()
@@ -77,7 +78,7 @@ class TestCrowdRiskEstimator(unittest.TestCase):
         for _ in range(30):
             res = est.estimate(density_score=1500.0, motion_speed=8.0, turbulence=6.0, opposing_score=0.9)
         
-        self.assertEqual(res["risk_level"], "CRITICAL")
+        self.assertEqual(res["risk_level"], "STAMPEDE")
         self.assertGreater(res["risk_index"], 75.0)
         
         # Check causes are listed

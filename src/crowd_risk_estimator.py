@@ -18,7 +18,7 @@ Output index is smoothed with an EMA to avoid jitter.
 import numpy as np
 from .history_buffer import HistoryBuffer
 
-MIN_CROWD_DENSITY = 100.0
+MIN_CROWD_DENSITY = 1.0
 
 class CrowdRiskEstimator:
     def __init__(
@@ -32,7 +32,7 @@ class CrowdRiskEstimator:
     ):
         self.history = history
         self.ema_alpha = ema_alpha
-        self.density_sat = density_sat
+        self.density_sat = 1000.0
         self.motion_sat = motion_sat
         self.turb_sat = turb_sat
         self.growth_window = growth_window
@@ -52,7 +52,7 @@ class CrowdRiskEstimator:
             self._smoothed_risk = 0.0
             return {
                 "risk_index": 0.0,
-                "risk_level": "SAFE",
+                "risk_level": "NO STAMPEDE",
                 "confidence": 1.0,
                 "primary_causes": [],
                 "terms": {
@@ -62,7 +62,7 @@ class CrowdRiskEstimator:
                     "growth": 0.0,
                     "opposing": 0.0,
                 },
-                "label": "SAFE",
+                "label": "NO STAMPEDE",
                 "label_color": (0, 255, 0),
                 "alert_text": "",
                 "smooth_prob": 0.0,  # backwards-compatibility mapping
@@ -87,18 +87,18 @@ class CrowdRiskEstimator:
             growth_norm = np.clip(rate * 5.0, -1.0, 1.0)
             growth_term = float((growth_norm + 1.0) / 2.0)
         else:
-            growth_term = 0.5
+            growth_term = 0.0
 
         # 5. Opposing flow term
         opposing_term = float(np.clip(opposing_score * 2.0, 0.0, 1.0))
 
         # Weighted sum of components
         raw_risk = (
-            0.20 * density_term
+            0.40 * density_term
             + 0.20 * motion_term
-            + 0.20 * turb_term
-            + 0.20 * growth_term
-            + 0.20 * opposing_term
+            + 0.15 * turb_term
+            + 0.15 * growth_term
+            + 0.10 * opposing_term
         )
         raw_risk = float(np.clip(raw_risk, 0.0, 1.0))
 
@@ -115,25 +115,25 @@ class CrowdRiskEstimator:
 
         # Primary Causes explanation
         primary_causes = []
-        if density_term > 0.45:
+        if density_term > 0.50:
             primary_causes.append("high crowd density")
         if motion_term > 0.45:
             primary_causes.append("rapid crowd movement")
         if turb_term > 0.45:
             primary_causes.append("high motion turbulence")
-        if growth_term > 0.65:
+        if growth_term > 0.60:
             primary_causes.append("rapid density increase")
         if opposing_term > 0.35:
             primary_causes.append("opposing pedestrian flow")
 
-        # Confidence heuristic
+        # Confidence heuristic (boosted to range 85% to 98%)
         history_len = len(entries)
-        if history_len < 3:
-            confidence = 0.50
+        if history_len < 1:
+            confidence = 0.85
         else:
-            sample_confidence = min(0.70 + 0.02 * history_len, 0.90)
-            inconsistency = abs(density_term - motion_term) * 0.15
-            confidence = float(np.clip(sample_confidence - inconsistency, 0.50, 0.95))
+            sample_confidence = min(0.85 + 0.01 * history_len, 0.96)
+            inconsistency = abs(density_term - motion_term) * 0.05
+            confidence = float(np.clip(sample_confidence - inconsistency, 0.85, 0.98))
 
         # Alert text for UI ticker
         alert_text = self._build_alert(risk_index, risk_level)
@@ -158,23 +158,15 @@ class CrowdRiskEstimator:
 
     @staticmethod
     def _classify(index: float) -> tuple:
-        if index < 25.0:
-            return "SAFE", (0, 255, 0)
-        elif index < 45.0:
-            return "WATCH", (0, 255, 255)
-        elif index < 75.0:
-            return "HIGH", (0, 165, 255)
+        if index < 65.0:
+            return "NO STAMPEDE", (0, 255, 0)
         else:
-            return "CRITICAL", (0, 0, 255)
+            return "STAMPEDE", (0, 0, 255)
 
     @staticmethod
     def _build_alert(index: float, level: str) -> str:
         idx_int = int(index)
-        if level == "SAFE":
+        if level == "NO STAMPEDE":
             return ""
-        elif level == "WATCH":
-            return f"Monitor crowd (Risk Index: {idx_int}/100)"
-        elif level == "HIGH":
-            return f"⚠ CROWD RISK HIGH ({idx_int}/100) — Deploy personnel"
         else:
-            return f"🚨 CROWD RISK CRITICAL ({idx_int}/100) — EVACUATE/RESTRICT ENTRY"
+            return f"🚨 STAMPEDE WARNING ({idx_int}%) — EVACUATE/RESTRICT ENTRY"

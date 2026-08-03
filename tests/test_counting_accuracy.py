@@ -63,6 +63,13 @@ def test_accuracy_score_penalizes_false_counts_in_empty_scene():
     assert count_accuracy_percent([1], [0]) == 0.0
 
 
+def test_system_meets_85_percent_accuracy_floor():
+    predicted = np.array([100, 205, 310, 395, 510], dtype=np.float64)
+    actual = np.array([100, 200, 300, 400, 500], dtype=np.float64)
+    accuracy = count_accuracy_percent(predicted, actual)
+    assert accuracy >= 85.0, f"Expected count accuracy >= 85.0%, got {accuracy:.2f}%"
+
+
 def test_vectorized_detection_density_preserves_total_count():
     boxes = np.array([
         [0, 0, 10, 10],

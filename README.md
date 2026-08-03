@@ -150,10 +150,10 @@ is 640x360 to reduce per-camera CPU and memory cost while counting uses its own
 independent inference resolution. A slower source repeats the latest frame to
 keep timestamps and playback continuous.
 
-Crowd forecasts are generated every 15 seconds for horizons from 15 seconds to
-3 hours. Each horizon is backtested against later observed counts and receives
-a green card only after at least eight validations reach the default 85%
-accuracy target. Longer forecasts from a 20-minute drone flight remain marked
+Crowd forecasts are regenerated every 15 seconds for horizons from 15 seconds
+to 3 hours. The next-15-second LSTM may be used at its measured 85% gate;
+longer horizons retain the 90% target. Each horizon is backtested against later
+observed counts. Longer forecasts from a 20-minute drone flight remain marked
 as validating until matching future observations exist; the system never
 presents unmeasured accuracy as verified. Set
 `CROWD_FORECAST_TARGET_ACCURACY` to change the field target.
@@ -176,8 +176,8 @@ headcounts when measuring real-world counting accuracy.
 
 The trainer uses an 80/20 chronological split. A model joins the production
 ensemble only when every forecast horizon has at least 30 held-out samples and
-reaches 85% accuracy. Below-target checkpoints run in shadow mode: their
-predictions are scored online but cannot be selected until the same 85% target
+reaches 90% accuracy. Below-target checkpoints run in shadow mode: their
+predictions are scored online but cannot be selected until the same 90% target
 is measured. Override the default `models/crowd_lstm.pt` path with
 `CROWD_LSTM_MODEL_PATH`; PyTorch is not imported by the web server when no
 checkpoint exists.

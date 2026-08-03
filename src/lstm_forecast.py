@@ -62,10 +62,22 @@ class LSTMForecaster:
 
         self.window_size = int(checkpoint["window_size"])
         self.approved = bool(checkpoint.get("approved", False))
+        self.validation_accuracy = checkpoint.get("validation_accuracy", {})
+        self.training_samples = checkpoint.get("training_samples", {})
+        self.validation_samples = checkpoint.get("validation_samples", {})
         hidden_size = int(checkpoint["hidden_size"])
         self.model = CountLSTM(len(horizons), hidden_size)
         self.model.load_state_dict(checkpoint["state_dict"], strict=True)
         self.model.eval()
+
+    def approved_for(self, label, target_accuracy):
+        accuracy = self.validation_accuracy.get(label)
+        return bool(
+            accuracy is not None
+            and float(accuracy) >= float(target_accuracy)
+            and int(self.training_samples.get(label, 0)) >= 64
+            and int(self.validation_samples.get(label, 0)) >= 30
+        )
 
     def predict(self, values):
         encoded = encode_window(values, self.window_size)

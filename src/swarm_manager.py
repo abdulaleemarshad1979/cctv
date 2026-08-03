@@ -208,8 +208,8 @@ class DroneState:
 
         # Hotspot / stampede results
         self.hs_result   = {"trend_matrix": None, "alert_text": "", "expanding": False}
-        self.sp_result   = {"risk_index": 0.0, "risk_level": "SAFE", "confidence": 1.0,
-                            "primary_causes": [], "label": "SAFE", "label_color": (0, 255, 0),
+        self.sp_result   = {"risk_index": 0.0, "risk_level": "NO STAMPEDE", "confidence": 1.0,
+                            "primary_causes": [], "label": "NO STAMPEDE", "label_color": (0, 255, 0),
                             "alert_text": "", "smooth_prob": 0.0, "terms": {}}
         self.opp_result  = {"danger_grid": None, "max_score": 0.0,
                             "any_dangerous": False, "alert_text": ""}
@@ -479,11 +479,23 @@ class SwarmManager:
                                  std =[0.229, 0.224, 0.225]),
         ])
 
-        # Initialize close-up detectors (Haar Frontal Face & HOG Pedestrian)
-        face_cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
-        face_cascade = cv2.CascadeClassifier(face_cascade_path)
-        hog = cv2.HOGDescriptor()
-        hog.setSVMDetector(cv2.HOGDescriptor_getDefaultPeopleDetector())
+        # Initialize close-up detectors if available (Haar Frontal Face & HOG Pedestrian)
+        face_cascade = None
+        if hasattr(cv2, 'data') and hasattr(cv2, 'CascadeClassifier'):
+            try:
+                face_cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
+                face_cascade = cv2.CascadeClassifier(face_cascade_path)
+            except Exception:
+                face_cascade = None
+
+        hog = None
+        if hasattr(cv2, 'HOGDescriptor'):
+            try:
+                hog = cv2.HOGDescriptor()
+                if hasattr(cv2, 'HOGDescriptor_getDefaultPeopleDetector'):
+                    hog.setSVMDetector(cv2.HOGDescriptor_getDefaultPeopleDetector())
+            except Exception:
+                hog = None
 
         while not self._stop.is_set():
             try:

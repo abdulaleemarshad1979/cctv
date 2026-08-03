@@ -1,6 +1,6 @@
 import numpy as np
 
-MIN_CROWD_DENSITY = 100.0
+MIN_CROWD_DENSITY = 1.0
 
 class RiskEngineTracker:
     def __init__(self):
@@ -78,31 +78,19 @@ def compute_pressure_metrics(dmap_np):
 
     return density_score, peak_density, hotspot_ratio, risk_score
 
-def get_risk_zone(risk_score, safe_threshold=0.25, watch_threshold=0.50, high_threshold=0.75):
+def get_risk_zone(risk_score, safe_threshold=0.65, watch_threshold=0.65, high_threshold=0.65):
     if risk_score < safe_threshold:
-        return "SAFE", (0, 255, 0)
-    if risk_score < watch_threshold:
-        return "WATCH", (0, 255, 255)
-    if risk_score < high_threshold:
-        return "HIGH", (0, 165, 255)
-    return "CRITICAL", (0, 0, 255)
+        return "NO STAMPEDE", (0, 255, 0)
+    return "STAMPEDE", (0, 0, 255)
 
 def get_crowd_state(display_pressure):
-    if display_pressure < 30:
+    if display_pressure < 65:
         return "STABLE"
-    elif display_pressure < 60:
-        return "DENSE"
-    elif display_pressure < 80:
-        return "HIGH PRESSURE"
     else:
-        return "CRITICAL"
+        return "STAMPEDE RISK"
 
 def get_alert_level(zone):
-    if zone == "SAFE":
+    if zone in ("NO STAMPEDE", "SAFE"):
         return "NORMAL"
-    elif zone == "WATCH":
-        return "LOW"
-    elif zone == "HIGH":
-        return "MEDIUM"
     else:
-        return "EMERGENCY"
+        return "STAMPEDE WARNING"

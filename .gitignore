@@ -28,6 +28,9 @@ Cargo.lock
 db.sqlite3
 scratch/
 .agents/
+tmp/
+output/
+
 
 # MediaMTX binaries
 mediamtx.exe

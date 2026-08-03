@@ -7,21 +7,6 @@ them to field teams via:
   - GeoJSON log file (for GIS overlay in command dashboard)
   - Telegram bot (optional, free)
   - WhatsApp via CallMeBot API (optional, free)
-
-Setup
------
-  1. GeoJSON log: No setup needed. File: outputs/alerts.geojson
-  2. Telegram bot:
-       a. Message @BotFather on Telegram -> /newbot
-       b. Copy the token into TELEGRAM_BOT_TOKEN below
-       c. Start a chat with your bot, get your chat ID via:
-            https://api.telegram.org/bot<TOKEN>/getUpdates
-       d. Set TELEGRAM_CHAT_ID below
-  3. CallMeBot WhatsApp:
-       a. Add +34 644 60 49 48 to WhatsApp contacts as "CallMeBot"
-       b. Send: "I allow callmebot to send me messages"
-       c. You receive your API key
-       d. Set WHATSAPP_PHONE and WHATSAPP_API_KEY below
 """
 
 import os
@@ -54,7 +39,7 @@ DISPATCH_ZONE_THRESHOLD = {"HIGH", "CRITICAL"}
 
 class GeoAlertDispatcher:
     """
-    Receives GPS alert dicts from SwarmManager and dispatches them
+    Receives GPS alert dicts from SwarmManager / LiteServer and dispatches them
     to field teams via multiple channels.
 
     Thread-safe: call dispatch_alerts() from any thread.
@@ -73,13 +58,14 @@ class GeoAlertDispatcher:
     def dispatch_alerts(self, gps_alerts: list[dict]) -> None:
         """
         Main entry point. Call once per inference cycle.
-        gps_alerts: list of dicts from build_gps_alert() in swarm_manager.py
+        gps_alerts: list of dicts from build_gps_alert() or lite_server.py
         """
         for alert in gps_alerts:
-            if alert.get("zone") not in DISPATCH_ZONE_THRESHOLD:
+            zone = alert.get("zone") or alert.get("risk_level")
+            if zone not in DISPATCH_ZONE_THRESHOLD:
                 continue
 
-            key = (alert.get("drone_id"), alert.get("cell"))
+            key = (alert.get("drone_id"), alert.get("cell", "cell"))
             now = time.monotonic()
 
             with self._lock:
@@ -114,21 +100,40 @@ class GeoAlertDispatcher:
             self._send_whatsapp(msg)
 
     def _format_message(self, alert: dict) -> str:
-        zone = alert.get("zone", "?")
+        zone = alert.get("zone") or alert.get("risk_level", "?")
         emoji = {"HIGH": "⚠️", "CRITICAL": "🚨"}.get(zone, "ℹ️")
-        ghat  = alert.get("ghat", "?")
-        cell  = alert.get("cell", "?")
-        occ   = alert.get("occupancy_pct", 0.0)
-        dens  = alert.get("density", 0)
+        drone_name = alert.get("camera_name") or alert.get("drone_id", "?")
+        ghat  = alert.get("ghat", alert.get("location", "Pushkaralu"))
+        cell  = alert.get("cell", "Sector 1")
+        occ   = alert.get("occupancy_pct", alert.get("risk_index", 0.0))
+        dens  = alert.get("density", alert.get("people_count", 0))
         lat   = alert.get("gps_lat", 0.0)
         lon   = alert.get("gps_lon", 0.0)
         ts    = datetime.now().strftime("%H:%M:%S")
 
         lines = [
-            f"{emoji} PUSHKARALU 2027 ALERT [{ts}]",
-            f"Zone: {zone} | Ghat: {ghat} | Cell: {cell}",
-            f"Crowd: ~{dens} people | Capacity: {occ:.0f}%",
+            f"{emoji} STAMPEDE WARNING ALERT [{ts}]",
+            f"Device: {drone_name} | Location: {ghat} ({cell})",
+            f"Risk Level: {zone} (Index: {occ:.1f}/100)",
+            f"Current Crowd: ~{dens} people",
         ]
+
+        if "predicted_count" in alert:
+            horizon = alert.get("horizon", "5m")
+            pred_cnt = alert.get("predicted_count", dens)
+            growth = alert.get("growth_percent", 0.0)
+            conf = alert.get("confidence_percent", 85.0)
+            lines.append(f"Forecast ({horizon}): {dens} ➔ {pred_cnt} pax (+{growth:.0f}% growth)")
+            lines.append(f"Prediction Confidence: {conf}%")
+
+        causes = alert.get("primary_causes")
+        if causes:
+            lines.append(f"Primary Drivers: {', '.join(causes)}")
+
+        msg_body = alert.get("message") or alert.get("alert_text")
+        if msg_body:
+            lines.append(f"Action: {msg_body}")
+
         if lat != 0.0:
             lines.append(f"GPS: {lat}N, {lon}E")
             lines.append(f"Maps: https://maps.google.com/?q={lat},{lon}")
@@ -142,14 +147,14 @@ class GeoAlertDispatcher:
             "type": "Feature",
             "geometry": {
                 "type": "Point",
-                "coordinates": [alert["gps_lon"], alert["gps_lat"]]
+                "coordinates": [alert.get("gps_lon", 0.0), alert.get("gps_lat", 0.0)]
             },
             "properties": {
-                "zone":     alert.get("zone"),
-                "ghat":     alert.get("ghat"),
-                "cell":     alert.get("cell"),
-                "density":  alert.get("density"),
-                "occ_pct":  alert.get("occupancy_pct"),
+                "zone":     alert.get("zone") or alert.get("risk_level"),
+                "ghat":     alert.get("ghat") or alert.get("location"),
+                "cell":     alert.get("cell", "Sector 1"),
+                "density":  alert.get("density") or alert.get("people_count"),
+                "occ_pct":  alert.get("occupancy_pct") or alert.get("risk_index"),
                 "time":     datetime.now().isoformat(),
             }
         }

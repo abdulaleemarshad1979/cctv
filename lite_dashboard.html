@@ -894,6 +894,18 @@
     </div>
 
     <div style="display: flex; align-items: center; gap: 10px;">
+      <!-- Stampede Warning Notification Bell -->
+      <button id="notif-bell-btn" onclick="toggleNotifDrawer()"
+        style="position: relative; background: #fff1f2; border: 1px solid #fecdd3; color: #be123c; padding: 8px 16px; border-radius: 9999px; font-size: 13px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 8px; transition: all 0.2s ease; box-shadow: 0 2px 4px rgba(190, 18, 60, 0.1);">
+        <svg style="width: 18px; height: 18px;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"
+            d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+        </svg>
+        <span>Stampede Warnings</span>
+        <span id="notif-badge" class="hidden"
+          style="background: #e11d48; color: #ffffff; font-size: 11px; font-weight: 800; border-radius: 9999px; padding: 2px 7px; min-width: 18px; text-align: center;">0</span>
+      </button>
+
       <a href="/forecast/history.csv" download
         style="color: #0369a1; background: #e0f2fe; border: 1px solid #bae6fd; border-radius: 9999px; padding: 8px 14px; font-size: 12px; font-weight: 700; text-decoration: none;">
         Download Forecast CSV
@@ -988,7 +1000,7 @@
     function forecastItemsMarkup(forecast) {
       if (!forecast || forecast.status !== "ready") return "";
       return (forecast.predictions || []).map(item => `
-        <div class="tile__forecast-item ${item.trusted ? "tile__forecast-item--trusted" : "tile__forecast-item--validating"}" title="${escapeHtml(item.trusted ? `Verified ${Number(item.accuracy_percent).toFixed(1)}% on ${item.validation_samples} past forecasts` : item.accuracy_percent == null ? "Validating" : `Below ${forecast.target_accuracy_percent || 85}% target: ${Number(item.accuracy_percent).toFixed(1)}%`)}">
+        <div class="tile__forecast-item ${item.trusted ? "tile__forecast-item--trusted" : "tile__forecast-item--validating"}" title="${escapeHtml(item.trusted ? `Verified ${Number(item.accuracy_percent).toFixed(1)}% on ${item.validation_samples} past forecasts` : item.accuracy_percent == null ? "Validating" : `Below ${item.target_accuracy_percent || forecast.target_accuracy_percent || 90}% target: ${Number(item.accuracy_percent).toFixed(1)}%`)}">
           <span class="tile__forecast-time">+${item.label || (item.minutes >= 60 ? `${item.minutes / 60}h` : `${item.minutes}m`)}</span>
           <span class="tile__forecast-count">${Math.round(item.people_count || 0)}</span>
           <span class="tile__forecast-range">${Math.round(item.lower_count ?? item.people_count ?? 0)}–${Math.round(item.upper_count ?? item.people_count ?? 0)}</span>
@@ -1001,7 +1013,7 @@
         const lstm = forecast.lstm_status === "active"
           ? " · LSTM"
           : forecast.lstm_status === "shadow validation" ? " · LSTM shadow" : "";
-        return `${forecast.trusted_predictions || 0}/${(forecast.predictions || []).length} >=${forecast.target_accuracy_percent || 85}% verified${lstm}`;
+        return `${forecast.trusted_predictions || 0}/${(forecast.predictions || []).length} >=${forecast.target_accuracy_percent || 90}% verified${lstm}`;
       }
       return forecast && forecast.accuracy_percent != null
         ? `${Number(forecast.accuracy_percent).toFixed(1)}% measured`
@@ -1720,15 +1732,234 @@
       });
     });
 
+    // Notification Drawer & Toast System
+    let notifDrawerOpen = false;
+    let knownNotifIds = new Set();
+    const NOTIF_POLL_INTERVAL_MS = 2500;
+
+    window.toggleNotifDrawer = function() {
+      notifDrawerOpen = !notifDrawerOpen;
+      const overlay = document.getElementById("notif-drawer-overlay");
+      const drawer = document.getElementById("notif-drawer");
+      if (overlay && drawer) {
+        if (notifDrawerOpen) {
+          overlay.classList.remove("hidden");
+          drawer.classList.remove("hidden");
+        } else {
+          overlay.classList.add("hidden");
+          drawer.classList.add("hidden");
+        }
+      }
+    };
+
+    window.clearNotificationsUI = async function() {
+      try {
+        await fetch("/api/notifications/clear", { method: "POST" });
+        knownNotifIds.clear();
+        renderNotificationsList([]);
+        updateNotifBadge(0);
+      } catch (e) {
+        console.error("Failed to clear notifications:", e);
+      }
+    };
+
+    function updateNotifBadge(count) {
+      const badge = document.getElementById("notif-badge");
+      if (badge) {
+        if (count > 0) {
+          badge.textContent = count;
+          badge.classList.remove("hidden");
+        } else {
+          badge.classList.add("hidden");
+        }
+      }
+    }
+
+    function playAlarmSound() {
+      const audioChk = document.getElementById("chk-audio-alert");
+      if (audioChk && !audioChk.checked) return;
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "triangle";
+        osc.frequency.setValueAtTime(880, ctx.currentTime); // High pitch alarm note A5
+        osc.frequency.exponentialRampToValueAtTime(440, ctx.currentTime + 0.3);
+        gain.gain.setValueAtTime(0.3, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.3);
+      } catch (e) {
+        // Audio context play blocked
+      }
+    }
+
+    function showNotifToast(notif) {
+      const container = document.getElementById("notif-toast-container");
+      if (!container) return;
+
+      const toast = document.createElement("div");
+      toast.style.cssText = `
+        background: #ffffff;
+        border-left: 5px solid #e11d48;
+        border-radius: 8px;
+        box-shadow: 0 10px 25px rgba(0,0,0,0.18);
+        padding: 14px 18px;
+        pointer-events: auto;
+        animation: slideInRight 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      `;
+      toast.innerHTML = `
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <span style="font-size: 16px;">🚨</span>
+            <strong style="font-size: 13px; color: #be123c; text-transform: uppercase;">
+              STAMPEDE WARNING
+            </strong>
+          </div>
+          <span style="font-size: 11px; color: #64748b;">${new Date(notif.timestamp * 1000).toLocaleTimeString()}</span>
+        </div>
+        <div style="font-size: 12px; font-weight: 700; color: #0f172a;">${notif.camera_name} (${notif.location})</div>
+        <div style="font-size: 11px; color: #334155; line-height: 1.4;">${notif.message}</div>
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 4px; font-size: 10px; color: #0284c7; font-weight: 700;">
+          <span>Confidence: ${notif.confidence_percent}%</span>
+          <a href="${notif.maps_url}" target="_blank" style="color: #0284c7; text-decoration: underline;">Google Maps Pin ➔</a>
+        </div>
+      `;
+      container.appendChild(toast);
+
+      setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transition = 'opacity 0.4s ease';
+        setTimeout(() => toast.remove(), 400);
+      }, 7000);
+    }
+
+    function renderNotificationsList(notifications) {
+      const listEl = document.getElementById("notif-list");
+      if (!listEl) return;
+
+      if (!notifications || notifications.length === 0) {
+        listEl.innerHTML = `
+          <div style="text-align: center; color: #64748b; padding: 50px 16px; font-size: 13px;">
+            <div style="font-size: 32px; margin-bottom: 10px;">✅</div>
+            No active stampede warnings detected.<br>All monitored crowd sectors are safe.
+          </div>
+        `;
+        return;
+      }
+
+      listEl.innerHTML = notifications.map(notif => `
+        <div style="background: #ffffff; border: 1px solid #e2e8f0; border-left: 5px solid #e11d48; border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 8px; box-shadow: 0 2px 6px rgba(0,0,0,0.04);">
+          <div style="display: flex; align-items: center; justify-content: space-between;">
+            <span style="background: #ffe4e6; color: #be123c; font-size: 10px; font-weight: 800; padding: 3px 8px; border-radius: 9999px;">
+              🚨 STAMPEDE WARNING
+            </span>
+            <span style="font-size: 10px; font-weight: 600; color: #64748b;">${new Date(notif.timestamp * 1000).toLocaleTimeString()}</span>
+          </div>
+          <div style="font-size: 13px; font-weight: 800; color: #0f172a;">${notif.camera_name} — ${notif.location}</div>
+          <div style="font-size: 12px; color: #334155; line-height: 1.4;">${notif.message}</div>
+          ${notif.forecast ? `
+            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 8px; font-size: 11px; display: flex; flex-direction: column; gap: 4px;">
+              <div style="font-weight: 700; color: #0369a1;">Forecast Horizon: +${notif.forecast.horizon}</div>
+              <div>Count Growth: ${notif.forecast.current_count} ➔ <strong>${notif.forecast.predicted_count} pax</strong> (+${notif.forecast.growth_percent}%)</div>
+              <div>Prediction Confidence: <strong>${notif.confidence_percent}%</strong></div>
+            </div>
+          ` : `
+            <div style="font-size: 11px; color: #64748b;">Risk Index: <strong>${notif.risk_index.toFixed(1)}/100</strong> | Confidence: <strong>${notif.confidence_percent}%</strong></div>
+          `}
+          ${notif.primary_causes && notif.primary_causes.length ? `
+            <div style="font-size: 10px; color: #b45309; font-weight: 600;">Drivers: ${notif.primary_causes.join(', ')}</div>
+          ` : ''}
+          <div style="margin-top: 4px;">
+            <a href="${notif.maps_url}" target="_blank" style="display: inline-block; background: #e0f2fe; color: #0369a1; border: 1px solid #bae6fd; padding: 5px 12px; border-radius: 6px; font-size: 11px; font-weight: 700; text-decoration: none;">
+              📍 Open Google Maps Pin
+            </a>
+          </div>
+        </div>
+      `).join("");
+    }
+
+    async function pollNotifications() {
+      try {
+        const res = await fetch("/api/notifications");
+        if (!res.ok) return;
+        const data = await res.json();
+        const notifications = data.notifications || [];
+        updateNotifBadge(notifications.length);
+
+        let hasNew = false;
+        notifications.forEach(n => {
+          if (!knownNotifIds.has(n.id)) {
+            knownNotifIds.add(n.id);
+            hasNew = true;
+            showNotifToast(n);
+          }
+        });
+
+        if (hasNew) {
+          playAlarmSound();
+        }
+
+        renderNotificationsList(notifications);
+      } catch (e) {
+        console.error("Failed polling notifications:", e);
+      }
+    }
+
     // Initialize Page
     async function init() {
       await syncModeFromServer();
       await loadCamerasFromBackend();
       setInterval(pollCameras, CAMERA_POLL_INTERVAL_MS);
+      pollNotifications();
+      setInterval(pollNotifications, NOTIF_POLL_INTERVAL_MS);
     }
 
     init();
   </script>
+
+  <!-- Toast Container -->
+  <div id="notif-toast-container"></div>
+
+  <!-- Stampede Warning Notification Drawer -->
+  <div id="notif-drawer-overlay" class="hidden" onclick="toggleNotifDrawer()"
+    style="position: fixed; inset: 0; z-index: 9990; background: rgba(15, 23, 42, 0.4); backdrop-filter: blur(4px); transition: opacity 0.3s ease;">
+  </div>
+  <aside id="notif-drawer" class="hidden"
+    style="position: fixed; top: 0; right: 0; bottom: 0; width: 440px; max-width: 95vw; z-index: 9995; background: #ffffff; box-shadow: -4px 0 25px rgba(0,0,0,0.15); display: flex; flex-direction: column; transition: transform 0.3s ease;">
+    <!-- Drawer Header -->
+    <div style="padding: 20px; border-bottom: 1px solid #e2e8f0; display: flex; align-items: center; justify-content: space-between; background: #fff1f2;">
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <span style="font-size: 22px;">🚨</span>
+        <div>
+          <h2 style="font-size: 16px; font-weight: 800; color: #9f1239; margin: 0;">Stampede Warning System</h2>
+          <div style="font-size: 11px; font-weight: 600; color: #be123c;">Real-Time Crowd Risk & Buildup Alerts</div>
+        </div>
+      </div>
+      <button onclick="toggleNotifDrawer()" style="background: transparent; border: none; font-size: 20px; color: #881337; cursor: pointer; padding: 4px;">✕</button>
+    </div>
+
+    <!-- Drawer Toolbar -->
+    <div style="padding: 12px 20px; border-bottom: 1px solid #f1f5f9; display: flex; align-items: center; justify-content: space-between; background: #f8fafc; font-size: 12px;">
+      <button onclick="clearNotificationsUI()" style="background: #e2e8f0; border: none; color: #475569; padding: 6px 12px; border-radius: 6px; font-weight: 700; cursor: pointer;">Clear All</button>
+      <div style="display: flex; align-items: center; gap: 8px; font-weight: 600; color: #475569;">
+        <input type="checkbox" id="chk-audio-alert" checked style="accent-color: #e11d48; cursor: pointer;">
+        <label for="chk-audio-alert" style="cursor: pointer;">Sound Alarm</label>
+      </div>
+    </div>
+
+    <!-- Drawer Content / Alert Cards List -->
+    <div id="notif-list" style="flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px;">
+      <div style="text-align: center; color: #64748b; padding: 40px 16px; font-size: 13px;">
+        No active stampede warnings detected. All monitored crowd sectors are safe.
+      </div>
+    </div>
+  </aside>
 </body>
 
 </html>
