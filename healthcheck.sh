@@ -19,9 +19,9 @@ else
     echo -e "${RED}[!] Nginx health check failed (HTTP ${HTTP_STATUS})${NC}"
 fi
 
-# Check FastAPI Application (Port 8000)
-echo -e "\n--- FastAPI App (Port 8000) ---"
-APP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8000/api/cameras || true)
+# Check FastAPI Application through Nginx
+echo -e "\n--- FastAPI App through Nginx ---"
+APP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1/api/cameras || true)
 if [ "$APP_STATUS" -eq 200 ]; then
     echo -e "${GREEN}[✓] FastAPI app API endpoint is healthy (HTTP ${APP_STATUS})${NC}"
 else
