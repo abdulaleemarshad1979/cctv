@@ -26,7 +26,8 @@ services:
       - "8554:8554"   # RTSP
       - "1935:1935"   # RTMP
       - "8888:8888"   # HLS
-      - "8889:8889"   # WebRTC
+      - "8889:8889"   # WebRTC Signalling
+      - "8189:8189/udp" # WebRTC Media
     volumes:
       - ./deployment/mediamtx.yml:/mediamtx.yml:ro
     networks:

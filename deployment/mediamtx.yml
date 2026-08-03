@@ -12,6 +12,8 @@ hlsAddress: :8888
 
 webrtc: yes
 webrtcAddress: :8889
+webrtcLocalUDPAddress: :8189
+# ponytail: simple production MediaMTX configuration for RTSP, RTMP, HLS, and WebRTC
 
 paths:
   all_others:

@@ -13,7 +13,8 @@ Required Open Ports for Host Firewall (UFW):
    - 8554/tcp : RTSP Ingest & Playback
    - 1935/tcp : RTMP Ingest & Playback
    - 8888/tcp : HLS Stream Output
-   - 8889/tcp : WebRTC Low-Latency Stream Output
+   - 8889/tcp : WebRTC Low-Latency Signalling
+   - 8189/udp : WebRTC Media Transport
 
 UFW Configuration Commands:
 
@@ -23,5 +24,9 @@ sudo ufw default allow outgoing
 sudo ufw allow OpenSSH
 sudo ufw allow 80/tcp
 sudo ufw allow 443/tcp
+sudo ufw allow 1935/tcp
+sudo ufw allow 8889/tcp
+sudo ufw allow 8189/udp
 sudo ufw enable
 sudo ufw status
+
