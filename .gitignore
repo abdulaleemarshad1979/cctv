@@ -38,3 +38,5 @@ mediamtx.zip
 
 # Local backup files are not source artifacts.
 *.backup
+
+certificate/

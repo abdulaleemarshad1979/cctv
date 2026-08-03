@@ -271,18 +271,21 @@ CCTV_SOURCES = {
     "drone40": os.environ.get("CCTV_SOURCE_40", 'rtsp://127.0.0.1:8554/live/drone40'),
 }
 
-# Compatibility helper: make DRONE_SOURCES a list of the 40 URLs
-DRONE_SOURCES = [CCTV_SOURCES[f"drone{i}"] for i in range(1, 41)]
+# ponytail: dynamic count helper driven by DRONE_COUNT env var
+_drone_count = int(os.getenv("DRONE_COUNT", "4"))
 
-DRONE_NAMES = [f"Drone {i}" for i in range(1, 41)]
+# Compatibility helper: make DRONE_SOURCES a list of active drone URLs
+DRONE_SOURCES = [CCTV_SOURCES[f"drone{i}"] for i in range(1, _drone_count + 1)]
 
-DRONE_ALTITUDES_M = [30.0] * 40
+DRONE_NAMES = [f"Drone {i}" for i in range(1, _drone_count + 1)]
+
+DRONE_ALTITUDES_M = [30.0] * _drone_count
 
 # GPS bounding boxes: [lat_min, lon_min, lat_max, lon_max]
-DRONE_GPS_BOUNDS = [[16.9820, 81.7355, 16.9850, 81.7380] for _ in range(40)]
+DRONE_GPS_BOUNDS = [[16.9820, 81.7355, 16.9850, 81.7380] for _ in range(_drone_count)]
 
 # Safe headcount per 3x3 cell per drone (tune from field measurements)
-ZONE_CAPACITY = [[[300, 400, 300], [350, 500, 350], [300, 400, 300]] for _ in range(40)]
+ZONE_CAPACITY = [[[300, 400, 300], [350, 500, 350], [300, 400, 300]] for _ in range(_drone_count)]
 
 BASELINE_PX_PER_M         = 50.0
 ENABLE_ALTITUDE_CORRECTION = False

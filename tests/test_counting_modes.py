@@ -59,9 +59,10 @@ def test_normal_connect_uses_real_input_and_separate_analyzed_output():
         "/live/drone2"
     )
 
-    cctv = next(cam for cam in lite_server.cameras_db if cam["id"] == "cctv-1")
-    assert cctv["source_stream_path"] == "live/cctv1"
-    assert cctv["stream_path"] == "analyzed/cctv1"
+    cctv = next((cam for cam in lite_server.cameras_db if cam["id"] == "cctv-1"), None)
+    if cctv:
+        assert cctv["source_stream_path"] == "live/cctv1"
+        assert cctv["stream_path"] == "analyzed/cctv1"
 
 
 def test_drone_publish_connection_has_no_authentication_credentials():

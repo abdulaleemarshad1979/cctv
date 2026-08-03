@@ -1,0 +1,27 @@
+==============================================================================
+Pushkaralu Deployment Firewall Ports Reference
+==============================================================================
+
+Required Open Ports for Host Firewall (UFW):
+
+1. Standard Web & Admin Access:
+   - 22/tcp  : OpenSSH Remote Management
+   - 80/tcp  : HTTP Dashboard (Nginx Reverse Proxy)
+   - 443/tcp : HTTPS Dashboard (Nginx TLS)
+
+2. MediaMTX Video Streaming Protocols (Internal / Edge Feeds):
+   - 8554/tcp : RTSP Ingest & Playback
+   - 1935/tcp : RTMP Ingest & Playback
+   - 8888/tcp : HLS Stream Output
+   - 8889/tcp : WebRTC Low-Latency Stream Output
+
+UFW Configuration Commands:
+
+sudo apt install -y ufw
+sudo ufw default deny incoming
+sudo ufw default allow outgoing
+sudo ufw allow OpenSSH
+sudo ufw allow 80/tcp
+sudo ufw allow 443/tcp
+sudo ufw enable
+sudo ufw status

@@ -112,8 +112,12 @@ def load_cameras():
     cameras_db = []
     video_files = _bundled_video_files()
     
-    # Load 40 Drone Feeds (using Fusion model)
-    for i in range(1, 41):
+    # ponytail: keep UI slots scalable (40 slots), while server caps active AI concurrency via MAX_CONCURRENT_AI_FEEDS
+    max_drone_slots = int(os.getenv("MAX_DRONE_SLOTS", os.getenv("DRONE_COUNT", "40")))
+    cctv_count = int(os.getenv("CCTV_COUNT", "0"))
+
+    # Load Drone Feeds (using Fusion model)
+    for i in range(1, max_drone_slots + 1):
         vid = video_files[(i - 1) % len(video_files)] if video_files else "Kumbh.mp4"
         fallback_path = f"Videos/{vid}"
         cameras_db.append({
@@ -152,8 +156,8 @@ def load_cameras():
             "forecast": crowd_forecaster.snapshot(f"drone-{i}"),
         })
 
-    # Load 20 CCTV Feeds (using YOLOv11 model)
-    for i in range(1, 21):
+    # Load CCTV Feeds (using YOLOv11 model)
+    for i in range(1, cctv_count + 1):
         vid = video_files[(i - 1) % len(video_files)] if video_files else "Kumbh.mp4"
         fallback_path = f"Videos/{vid}"
         cameras_db.append({

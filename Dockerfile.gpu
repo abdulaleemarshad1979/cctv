@@ -1,0 +1,27 @@
+FROM pytorch/pytorch:2.1.0-cuda12.1-cudnn8-runtime
+
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+ENV PIP_NO_CACHE_DIR=1
+
+RUN apt-get update && apt-get install -y \
+    curl \
+    tar \
+    ffmpeg \
+    libgl1 \
+    libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN sed -i 's/opencv-python>=/opencv-python-headless>=/g' requirements.txt \
+    && pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+RUN mkdir -p /app/outputs /app/logs
+
+EXPOSE 8000
+
+CMD ["uvicorn", "lite_server:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
