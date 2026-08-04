@@ -948,6 +948,8 @@
     </div>
   </main>
 
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+
   <script>
     let cameras = [];
     let activeFilter = "All";
@@ -955,7 +957,7 @@
     const hlsPlayers = {};
     const CAMERA_POLL_INTERVAL_MS = 1000;
     let cameraPollInFlight = false;
-    let useWebRtc = true;
+    let useWebRtc = false;
 
     function isCameraPlayable(cam) {
       // Older backends kept a raw publisher in "connecting" until analyzed
@@ -1354,7 +1356,7 @@
         const webrtcBase = (window.location.protocol === 'https:' || window.location.port === '' || window.location.port === '80' || window.location.port === '443')
           ? `${window.location.protocol}//${window.location.host}/webrtc`
           : `http://${window.location.hostname}:8889`;
-        iframe.src = `${webrtcBase}/${playbackPath}?controls=true&muted=true&autoplay=true`;
+        iframe.src = `${webrtcBase}/${playbackPath}/?controls=true&muted=true&autoplay=true`;
         container.appendChild(iframe);
         hlsPlayers[cam.id] = {
           egdmsPath: playbackPath,
@@ -1374,7 +1376,7 @@
       video.controls = true;
       container.appendChild(video);
 
-      const streamUrl = `http://${window.location.hostname}:8088/${playbackPath}/index.m3u8`;
+      const streamUrl = `${window.location.origin}/hls/${playbackPath}/index.m3u8`;
 
       if (typeof Hls !== "undefined" && Hls.isSupported()) {
         const hls = new Hls({
