@@ -13,7 +13,12 @@ hlsAddress: :8888
 webrtc: yes
 webrtcAddress: :8889
 webrtcLocalUDPAddress: :8189
+webrtcAdditionalHosts:
+  - 192.168.1.7
+  - 72.61.185.82
+  - stream.crowdzenith.com
 # ponytail: simple production MediaMTX configuration for RTSP, RTMP, HLS, and WebRTC
 
 paths:
   all_others:
+

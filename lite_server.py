@@ -60,12 +60,18 @@ async def lifespan(app: FastAPI):
             _close_process_log(p)
     running_processes.clear()
 
-app = FastAPI(title="AP Police Drone Monitoring Portal (LITE)", lifespan=lifespan)
+app = FastAPI(title="East Godavari District Monitoring System (EGDMS)", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 if os.path.exists("Videos"):
     app.mount("/Videos", StaticFiles(directory="Videos"), name="videos")
 
 global_counting_mode = True
+MEDIAMTX_HOST = os.getenv("MEDIAMTX_HOST", "mediamtx")
+MEDIAMTX_RTSP_PORT = int(os.getenv("MEDIAMTX_RTSP_PORT", "8554"))
+MEDIAMTX_RTMP_PORT = int(os.getenv("MEDIAMTX_RTMP_PORT", "1935"))
+MEDIAMTX_HLS_PORT = int(os.getenv("MEDIAMTX_HLS_PORT", "8888"))
+MEDIAMTX_WEBRTC_PORT = int(os.getenv("MEDIAMTX_WEBRTC_PORT", "8889"))
+
 ANALYTICS_STALE_AFTER_SECONDS = float(
     os.getenv("ANALYTICS_STALE_AFTER_SECONDS", "20")
 )
@@ -371,7 +377,7 @@ def start_live_analysis(camera):
     camera["analytics_status"] = "starting"
     camera["connection_message"] = "Live video connected. Counting is starting..."
     reset_camera_analytics(camera)
-    source_url = f"rtsp://127.0.0.1:8554/{source_path.strip('/')}"
+    source_url = f"rtsp://{MEDIAMTX_HOST}:{MEDIAMTX_RTSP_PORT}/{source_path.strip('/')}"
     print(f"[LITE SERVER] Starting analysis for {camera['id']} from {source_path}")
     try:
         return start_stream(camera, source_url)
@@ -455,22 +461,26 @@ def get_lan_ip():
 def generate_mediamtx_config(port: int):
     config_content = f"""# MediaMTX Low-Latency Configuration (Auto-generated)
 rtsp: yes
-rtspAddress: :8554
+rtspAddress: :{MEDIAMTX_RTSP_PORT}
 protocols: [udp, multicast, tcp]
 rtpAddress: :8002
 rtcpAddress: :8003
 
 rtmp: yes
-rtmpAddress: :1935
+rtmpAddress: :{MEDIAMTX_RTMP_PORT}
 
 srt: yes
 srtAddress: :8890
 
 webrtc: yes
-webrtcAddress: :8889
+webrtcAddress: :{MEDIAMTX_WEBRTC_PORT}
+webrtcAdditionalHosts:
+  - 192.168.1.7
+  - 72.61.185.82
+  - stream.crowdzenith.com
 
 hls: yes
-hlsAddress: :8088
+hlsAddress: :{MEDIAMTX_HLS_PORT}
 hlsVariant: lowLatency
 hlsSegmentCount: 3
 hlsSegmentDuration: 1s
@@ -509,12 +519,23 @@ def cleanup_and_start_mediamtx():
 
     mediamtx_bin = "mediamtx.exe" if os.name == "nt" else "mediamtx"
     mediamtx_path = os.path.join(os.getcwd(), mediamtx_bin)
-    if not os.path.exists(mediamtx_path) and os.name != "nt":
+    if not os.path.exists(mediamtx_path):
         import shutil
-        mediamtx_path = shutil.which("mediamtx") or "mediamtx"
+        mediamtx_path = shutil.which("mediamtx") or shutil.which("mediamtx.exe") or mediamtx_path
+
+    if not os.path.exists(mediamtx_path):
+        try:
+            from tools.gen_rtmp import check_or_download_mediamtx
+            print("[LITE SERVER] MediaMTX not found locally. Auto-downloading...")
+            check_or_download_mediamtx()
+            local_bin = os.path.join(os.getcwd(), mediamtx_bin)
+            if os.path.exists(local_bin):
+                mediamtx_path = local_bin
+        except Exception as dl_err:
+            print(f"[LITE SERVER] Failed to auto-download MediaMTX: {dl_err}")
 
     mediamtx_config = os.path.join(os.getcwd(), "mediamtx.yml")
-    if mediamtx_path:
+    if os.path.exists(mediamtx_path):
         try:
             print(f"[LITE SERVER] Starting MediaMTX ({mediamtx_path}) with configuration...")
             cmd = [mediamtx_path]
@@ -535,7 +556,7 @@ def cleanup_and_start_mediamtx():
 cleanup_and_start_mediamtx()
 
 def get_default_source_for_camera(camera):
-    return f"rtsp://127.0.0.1:8554/{camera['source_stream_path']}"
+    return f"rtsp://{MEDIAMTX_HOST}:{MEDIAMTX_RTSP_PORT}/{camera['source_stream_path']}"
 
 
 def get_sample_source_for_camera(camera):
@@ -564,7 +585,7 @@ def get_sample_source_for_camera(camera):
 
 def get_analyzed_publish_target(camera):
     """Return the credential-free local RTMP destination for one analyzer."""
-    return f"rtmp://127.0.0.1:1935/{camera['stream_path']}"
+    return f"rtmp://{MEDIAMTX_HOST}:{MEDIAMTX_RTMP_PORT}/{camera['stream_path']}"
 
 
 def start_stream(camera, source_url):
@@ -583,7 +604,12 @@ def start_stream(camera, source_url):
     normalized_source = str(source_url).lower()
     if normalized_source.startswith(("videos/", "videos\\")) or os.path.isfile(str(source_url)):
         camera["source_kind"] = "sample"
-    elif normalized_source.startswith("rtsp://127.0.0.1:8554/"):
+    elif normalized_source.startswith((
+        f"rtsp://{MEDIAMTX_HOST}:{MEDIAMTX_RTSP_PORT}/",
+        "rtsp://127.0.0.1:8554/",
+        "rtsp://mediamtx:8554/",
+        "rtsp://localhost:8554/",
+    )):
         camera["source_kind"] = "live_publish"
     else:
         camera["source_kind"] = "live_url"

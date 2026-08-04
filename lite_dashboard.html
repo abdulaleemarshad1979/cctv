@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Centralised Drone Monitoring Portal - AP Police</title>
+  <title>East Godavari District Monitoring System - EGDMS - AP Police</title>
   <link rel="icon" href="data:,">
   <style>
     :root {
@@ -843,9 +843,9 @@
           style="font-size: 24px; font-weight: 800; color: #0284c7; margin: 0; font-family: system-ui, -apple-system, sans-serif; text-transform: uppercase; letter-spacing: 0.5px; line-height: 1.2;">
           Andhra Pradesh Police Department</h1>
         <div style="font-size: 16px; font-weight: 700; color: #0f172a; margin-top: 2px;">East Godavari District Police -
-          CDMP</div>
-        <div style="font-size: 13px; font-weight: 600; color: #475569; margin-top: 1px;">Centralised Drone Monitoring
-          Portal - (CDMP)</div>
+          EGDMS</div>
+        <div style="font-size: 13px; font-weight: 600; color: #475569; margin-top: 1px;">East Godavari District Monitoring
+          System - (EGDMS)</div>
       </div>
     </div>
 
@@ -1027,7 +1027,7 @@
     }
 
     function playerUsesPath(player, path) {
-      return Boolean(player) && (player.cdmpPath === path || player._cdmpPath === path);
+      return Boolean(player) && (player.egdmsPath === path || player._egdmsPath === path);
     }
 
     // Fetch cameras from the backend
@@ -1037,7 +1037,7 @@
         cameras = await res.json();
         renderGrid();
       } catch (e) {
-        console.error("[CDMP] Failed to load cameras from backend:", e);
+        console.error("[EGDMS] Failed to load cameras from backend:", e);
       }
     }
 
@@ -1353,12 +1353,13 @@
         iframe.title = `${cam.name} live video`;
         iframe.allow = "autoplay; fullscreen; picture-in-picture";
         iframe.setAttribute("allowfullscreen", "");
-        iframe.src =
-          `http://${window.location.hostname}:8889/${playbackPath}` +
-          `?controls=true&muted=true&autoplay=true`;
+        const webrtcBase = (window.location.protocol === 'https:' || window.location.port === '' || window.location.port === '80' || window.location.port === '443')
+          ? `${window.location.protocol}//${window.location.host}/webrtc`
+          : `http://${window.location.hostname}:8889`;
+        iframe.src = `${webrtcBase}/${playbackPath}?controls=true&muted=true&autoplay=true`;
         container.appendChild(iframe);
         hlsPlayers[cam.id] = {
-          cdmpPath: playbackPath,
+          egdmsPath: playbackPath,
           destroy() {
             iframe.src = "about:blank";
             iframe.remove();
@@ -1389,7 +1390,7 @@
           startPosition: -1,
           enableWorker: true
         });
-        hls._cdmpPath = playbackPath;
+        hls._egdmsPath = playbackPath;
         hlsPlayers[cam.id] = hls;
         hls.loadSource(streamUrl);
         hls.attachMedia(video);
@@ -1413,7 +1414,7 @@
       } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
         video.src = streamUrl;
         hlsPlayers[cam.id] = {
-          cdmpPath: playbackPath,
+          egdmsPath: playbackPath,
           destroy() {
             video.pause();
             video.removeAttribute("src");

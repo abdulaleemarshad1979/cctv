@@ -21,7 +21,7 @@ fi
 
 # Check FastAPI Application through Nginx
 echo -e "\n--- FastAPI App through Nginx ---"
-APP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1/api/cameras || true)
+APP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1/cameras || true)
 if [ "$APP_STATUS" -eq 200 ]; then
     echo -e "${GREEN}[✓] FastAPI app API endpoint is healthy (HTTP ${APP_STATUS})${NC}"
 else

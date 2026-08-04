@@ -1,6 +1,6 @@
 @echo off
 setlocal
-title Drone Monitoring Portal (Unified Launcher)
+title East Godavari District Monitoring System - EGDMS (Unified Launcher)
 cd /d "%~dp0"
 
 set "CCTV_PYTHON_CMD="
@@ -10,11 +10,11 @@ if not defined CCTV_PYTHON_CMD if exist "venv\Scripts\python.exe" set "CCTV_PYTH
 if not defined CCTV_PYTHON_CMD set "CCTV_PYTHON_CMD=python"
 
 echo ====================================================================
-echo   CENTRALIZED DRONE MONITORING PORTAL (UNIFIED LAUNCHER)
+echo   EAST GODAVARI DISTRICT MONITORING SYSTEM - EGDMS (UNIFIED LAUNCHER)
 echo ====================================================================
 echo.
 
-echo [1/2] Opening Drone Monitoring Portal in default browser...
+echo [1/2] Opening EGDMS Portal in default browser...
 start "" http://127.0.0.1:8000/
 echo.
 

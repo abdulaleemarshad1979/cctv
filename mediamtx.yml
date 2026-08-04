@@ -13,9 +13,13 @@ srtAddress: :8890
 
 webrtc: yes
 webrtcAddress: :8889
+webrtcAdditionalHosts:
+  - 192.168.1.7
+  - 72.61.185.82
+  - stream.crowdzenith.com
 
 hls: yes
-hlsAddress: :8088
+hlsAddress: :8888
 hlsVariant: lowLatency
 hlsSegmentCount: 3
 hlsSegmentDuration: 1s

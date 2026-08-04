@@ -81,7 +81,7 @@ def check_or_download_mediamtx():
     
     def progress(count, block_size, total_size):
         percent = int(count * block_size * 100 / total_size)
-        sys.stdout.write(f"\rDownloading: [{('█' * (percent // 5)):<20}] {percent}%")
+        sys.stdout.write(f"\rDownloading: [{('=' * (percent // 5)):<20}] {percent}%")
         sys.stdout.flush()
         
     try:

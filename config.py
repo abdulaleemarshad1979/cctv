@@ -228,48 +228,14 @@ DRONE_CORRECT_DISTORTION = False
 # ─── Swarm Config ────────────────────────────────────────────────────
 SWARM_DRONE_COUNT = int(os.environ.get("SWARM_DRONE_COUNT", "4"))
 
+MEDIAMTX_HOST = os.environ.get("MEDIAMTX_HOST", "mediamtx")
+MEDIAMTX_RTSP_PORT = os.environ.get("MEDIAMTX_RTSP_PORT", "8554")
+
 CCTV_SOURCES = {
-    "drone1":  os.environ.get("CCTV_SOURCE_1",  'rtsp://127.0.0.1:8554/live/drone1'),
-    "drone2":  os.environ.get("CCTV_SOURCE_2",  'rtsp://127.0.0.1:8554/live/drone2'),
-    "drone3":  os.environ.get("CCTV_SOURCE_3",  'rtsp://127.0.0.1:8554/live/drone3'),
-    "drone4":  os.environ.get("CCTV_SOURCE_4",  'rtsp://127.0.0.1:8554/live/drone4'),
-    "drone5":  os.environ.get("CCTV_SOURCE_5",  'rtsp://127.0.0.1:8554/live/drone5'),
-    "drone6":  os.environ.get("CCTV_SOURCE_6",  'rtsp://127.0.0.1:8554/live/drone6'),
-    "drone7":  os.environ.get("CCTV_SOURCE_7",  'rtsp://127.0.0.1:8554/live/drone7'),
-    "drone8":  os.environ.get("CCTV_SOURCE_8",  'rtsp://127.0.0.1:8554/live/drone8'),
-    "drone9":  os.environ.get("CCTV_SOURCE_9",  'rtsp://127.0.0.1:8554/live/drone9'),
-    "drone10": os.environ.get("CCTV_SOURCE_10", 'rtsp://127.0.0.1:8554/live/drone10'),
-    "drone11": os.environ.get("CCTV_SOURCE_11", 'rtsp://127.0.0.1:8554/live/drone11'),
-    "drone12": os.environ.get("CCTV_SOURCE_12", 'rtsp://127.0.0.1:8554/live/drone12'),
-    "drone13": os.environ.get("CCTV_SOURCE_13", 'rtsp://127.0.0.1:8554/live/drone13'),
-    "drone14": os.environ.get("CCTV_SOURCE_14", 'rtsp://127.0.0.1:8554/live/drone14'),
-    "drone15": os.environ.get("CCTV_SOURCE_15", 'rtsp://127.0.0.1:8554/live/drone15'),
-    "drone16": os.environ.get("CCTV_SOURCE_16", 'rtsp://127.0.0.1:8554/live/drone16'),
-    "drone17": os.environ.get("CCTV_SOURCE_17", 'rtsp://127.0.0.1:8554/live/drone17'),
-    "drone18": os.environ.get("CCTV_SOURCE_18", 'rtsp://127.0.0.1:8554/live/drone18'),
-    "drone19": os.environ.get("CCTV_SOURCE_19", 'rtsp://127.0.0.1:8554/live/drone19'),
-    "drone20": os.environ.get("CCTV_SOURCE_20", 'rtsp://127.0.0.1:8554/live/drone20'),
-    "drone21": os.environ.get("CCTV_SOURCE_21", 'rtsp://127.0.0.1:8554/live/drone21'),
-    "drone22": os.environ.get("CCTV_SOURCE_22", 'rtsp://127.0.0.1:8554/live/drone22'),
-    "drone23": os.environ.get("CCTV_SOURCE_23", 'rtsp://127.0.0.1:8554/live/drone23'),
-    "drone24": os.environ.get("CCTV_SOURCE_24", 'rtsp://127.0.0.1:8554/live/drone24'),
-    "drone25": os.environ.get("CCTV_SOURCE_25", 'rtsp://127.0.0.1:8554/live/drone25'),
-    "drone26": os.environ.get("CCTV_SOURCE_26", 'rtsp://127.0.0.1:8554/live/drone26'),
-    "drone27": os.environ.get("CCTV_SOURCE_27", 'rtsp://127.0.0.1:8554/live/drone27'),
-    "drone28": os.environ.get("CCTV_SOURCE_28", 'rtsp://127.0.0.1:8554/live/drone28'),
-    "drone29": os.environ.get("CCTV_SOURCE_29", 'rtsp://127.0.0.1:8554/live/drone29'),
-    "drone30": os.environ.get("CCTV_SOURCE_30", 'rtsp://127.0.0.1:8554/live/drone30'),
-    "drone31": os.environ.get("CCTV_SOURCE_31", 'rtsp://127.0.0.1:8554/live/drone31'),
-    "drone32": os.environ.get("CCTV_SOURCE_32", 'rtsp://127.0.0.1:8554/live/drone32'),
-    "drone33": os.environ.get("CCTV_SOURCE_33", 'rtsp://127.0.0.1:8554/live/drone33'),
-    "drone34": os.environ.get("CCTV_SOURCE_34", 'rtsp://127.0.0.1:8554/live/drone34'),
-    "drone35": os.environ.get("CCTV_SOURCE_35", 'rtsp://127.0.0.1:8554/live/drone35'),
-    "drone36": os.environ.get("CCTV_SOURCE_36", 'rtsp://127.0.0.1:8554/live/drone36'),
-    "drone37": os.environ.get("CCTV_SOURCE_37", 'rtsp://127.0.0.1:8554/live/drone37'),
-    "drone38": os.environ.get("CCTV_SOURCE_38", 'rtsp://127.0.0.1:8554/live/drone38'),
-    "drone39": os.environ.get("CCTV_SOURCE_39", 'rtsp://127.0.0.1:8554/live/drone39'),
-    "drone40": os.environ.get("CCTV_SOURCE_40", 'rtsp://127.0.0.1:8554/live/drone40'),
+    f"drone{i}": os.environ.get(f"CCTV_SOURCE_{i}", f"rtsp://{MEDIAMTX_HOST}:{MEDIAMTX_RTSP_PORT}/live/drone{i}")
+    for i in range(1, 41)
 }
+
 
 # ponytail: dynamic count helper driven by DRONE_COUNT env var
 _drone_count = int(os.getenv("DRONE_COUNT", "4"))

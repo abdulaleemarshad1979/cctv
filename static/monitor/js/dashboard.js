@@ -18,7 +18,7 @@
       });
       clearTimeout(timeoutId);
       useWebRtc = true;
-      console.log("[CDMP] WebRTC detected on port 8889 (using WebRTC for video)");
+      console.log("[EGDMS] WebRTC detected on port 8889 (using WebRTC for video)");
       return;
     } catch (e) {
       useWebRtc = false;
@@ -36,7 +36,7 @@
         });
         clearTimeout(timeoutId);
         hlsPort = port;
-        console.log(`[CDMP] HLS detected on port: ${hlsPort}`);
+        console.log(`[EGDMS] HLS detected on port: ${hlsPort}`);
         break;
       } catch (e) {
         // try next
@@ -147,16 +147,12 @@
   });
 
   // Handle Stop Stream request
-  async function triggerStopStream(droneId) {
+  async function stopStream(droneId) {
     try {
-      const res = await fetch(`/cameras/${droneId}/stop`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" }
-      });
-      if (!res.ok) throw new Error("Failed to stop stream");
-      console.log(`[CDMP] Stream stopped for ${droneId}`);
+      await fetch(`/cameras/${droneId}/stop`, { method: "POST" });
+      console.log(`[EGDMS] Stream stopped for ${droneId}`);
     } catch (err) {
-      console.error(`[CDMP] Error stopping stream for ${droneId}:`, err);
+      console.error(`[EGDMS] Error stopping stream for ${droneId}:`, err);
     }
     pollStatus();
   }
@@ -243,13 +239,18 @@
                 parsedUrl.hostname = window.location.hostname;
               }
               if (useWebRtc) {
-                parsedUrl.port = "8889";
+                if (window.location.protocol === 'https:' || window.location.port === '' || window.location.port === '80' || window.location.port === '443') {
+                  playbackUrl = `${window.location.protocol}//${window.location.host}/webrtc${parsedUrl.pathname}${parsedUrl.search}`;
+                } else {
+                  parsedUrl.port = "8889";
+                  playbackUrl = parsedUrl.toString();
+                }
               } else if (parsedUrl.port === "8088" || parsedUrl.port === "8888") {
                 parsedUrl.port = hlsPort;
+                playbackUrl = parsedUrl.toString();
               }
-              playbackUrl = parsedUrl.toString();
             } catch (e) {
-              console.error("[CDMP] Error parsing stream URL:", e);
+              console.error("[EGDMS] Error parsing stream URL:", e);
             }
             tile.iframeEl.src = playbackUrl;
           }
@@ -293,7 +294,7 @@
       applyFiltering();
 
     } catch (err) {
-      console.error("[CDMP] Status poll failed:", err);
+      console.error("[EGDMS] Status poll failed:", err);
       // Mark all tiles offline if backend is unreachable
       Object.keys(tiles).forEach((id) => {
         const tile = tiles[id];
