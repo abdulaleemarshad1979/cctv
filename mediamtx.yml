@@ -15,8 +15,8 @@ webrtc: yes
 webrtcAddress: :8889
 webrtcAdditionalHosts:
   - 192.168.1.7
-  - 72.61.185.82
-  - stream.crowdzenith.com
+  - 117.216.215.157
+  - stream.dmsegpolice.in
 
 hls: yes
 hlsAddress: :8888

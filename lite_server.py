@@ -476,8 +476,8 @@ webrtc: yes
 webrtcAddress: :{MEDIAMTX_WEBRTC_PORT}
 webrtcAdditionalHosts:
   - 192.168.1.7
-  - 72.61.185.82
-  - stream.crowdzenith.com
+  - 117.216.215.157
+  - stream.dmsegpolice.in
 
 hls: yes
 hlsAddress: :{MEDIAMTX_HLS_PORT}
