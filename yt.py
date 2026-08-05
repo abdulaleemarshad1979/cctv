@@ -58,6 +58,6 @@ with yt_dlp.YoutubeDL(ydl_opts) as ydl:
 
 print("\nDownload Complete!")
 
-##.\run_lite.bat
+#.\run_lite.bat#
 ## .\run_gov.bat
 ## .\run_commercial.bat
