@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>East Godavari District Monitoring System - EGDMS - AP Police</title>
+  <title>East Godavari Drone Monitoring System - AP Police</title>
   <link rel="icon" href="data:,">
   <style>
     :root {
@@ -840,41 +840,38 @@
         <h1
           style="font-size: 26px; font-weight: 800; color: #0284c7; margin: 0; font-family: system-ui, -apple-system, sans-serif; text-transform: uppercase; letter-spacing: 0.5px; line-height: 1.2;">
           Andhra Pradesh Police Department</h1>
-        <div style="font-size: 18px; font-weight: 800; color: #0f172a; margin-top: 3px;">East Godavari District Police -
-          EGDMS</div>
-        <div style="font-size: 14px; font-weight: 600; color: #475569; margin-top: 2px;">East Godavari District Monitoring
-          System - (EGDMS)</div>
+        <div style="font-size: 20px; font-weight: 800; color: #0f172a; margin-top: 4px;">East Godavari Drone Monitoring System</div>
       </div>
     </div>
 
     <!-- Portrait Dignitaries aligned horizontally on the right -->
     <div class="dignitaries-group" style="display: flex; align-items: flex-start; gap: 24px; flex-shrink: 0;">
       <div style="display: flex; flex-direction: column; align-items: center; width: 175px; gap: 6px;">
-        <img src="/static/monitor/img/cm.png?v=4" alt="Hon'ble CM Sri N. Chandrababu Naidu"
-          style="height: 125px; width: 100%; border-radius: 8px; border: 2px solid #94a3b8; box-shadow: 0 4px 8px rgba(0,0,0,0.12); object-fit: cover; object-position: center center;">
         <div
           style="font-size: 13px; font-weight: 800; color: #0f172a; text-align: center; line-height: 1.2; text-transform: uppercase;">
           Hon'ble Chief Minister</div>
         <div style="font-size: 12px; font-weight: 700; color: #334155; text-align: center; line-height: 1.2;">Sri N.
           Chandrababu Naidu</div>
+        <img src="/static/monitor/img/cm.png?v=4" alt="Hon'ble CM Sri N. Chandrababu Naidu"
+          style="height: 125px; width: 100%; border-radius: 8px; border: 2px solid #94a3b8; box-shadow: 0 4px 8px rgba(0,0,0,0.12); object-fit: cover; object-position: center center;">
       </div>
       <div style="display: flex; flex-direction: column; align-items: center; width: 175px; gap: 6px;">
-        <img src="/static/monitor/img/dgp.png?v=4" alt="DGP Sri Harish Kumar Gupta, IPS"
-          style="height: 125px; width: 100%; border-radius: 8px; border: 2px solid #94a3b8; box-shadow: 0 4px 8px rgba(0,0,0,0.12); object-fit: cover; object-position: center center;">
         <div
           style="font-size: 13px; font-weight: 800; color: #0f172a; text-align: center; line-height: 1.2; text-transform: uppercase;">
           DGP, Andhra Pradesh</div>
         <div style="font-size: 12px; font-weight: 700; color: #334155; text-align: center; line-height: 1.2;">Sri Harish
           Kumar Gupta, IPS</div>
+        <img src="/static/monitor/img/dgp.png?v=4" alt="DGP Sri Harish Kumar Gupta, IPS"
+          style="height: 125px; width: 100%; border-radius: 8px; border: 2px solid #94a3b8; box-shadow: 0 4px 8px rgba(0,0,0,0.12); object-fit: cover; object-position: center center;">
       </div>
       <div style="display: flex; flex-direction: column; align-items: center; width: 175px; gap: 6px;">
-        <img src="/static/monitor/img/sp.png?v=4" alt="SP D. Narasimha Kishore, IPS"
-          style="height: 125px; width: 100%; border-radius: 8px; border: 2px solid #94a3b8; box-shadow: 0 4px 8px rgba(0,0,0,0.12); object-fit: cover; object-position: center center;">
         <div
           style="font-size: 13px; font-weight: 800; color: #0f172a; text-align: center; line-height: 1.2; text-transform: uppercase;">
           SP, East Godavari</div>
         <div style="font-size: 12px; font-weight: 700; color: #334155; text-align: center; line-height: 1.2;">D. Narasimha
           Kishore, IPS</div>
+        <img src="/static/monitor/img/sp.png?v=4" alt="SP D. Narasimha Kishore, IPS"
+          style="height: 125px; width: 100%; border-radius: 8px; border: 2px solid #94a3b8; box-shadow: 0 4px 8px rgba(0,0,0,0.12); object-fit: cover; object-position: center center;">
       </div>
     </div>
   </header>
@@ -885,7 +882,6 @@
     <div class="filter-group" style="display: flex; flex-wrap: wrap; gap: 16px; align-items: center;">
       <button class="pill active" data-filter="All">All Streams</button>
       <button class="pill" data-filter="Drone">Drone Feeds</button>
-      <button class="pill" data-filter="CCTV">CCTV Feeds</button>
       <button class="pill" data-filter="Pushkaralu">Pushkaralu Ghats</button>
       <button class="pill" data-filter="Rjy">Rajahmundry City</button>
       <button class="pill" data-filter="Active">Active Feeds</button>
@@ -1080,7 +1076,6 @@
             <span class="tile__name">${cam.name}</span>
             <div class="tile__meta">
               <span class="tile__count ${isOnline && globalMode === 'counting' ? '' : 'hidden'}" id="count-${cam.id}" title="${escapeHtml(cam.connection_message || '')}">${analyticsStarting ? analyticsMessage : `${cam.people_count || 0} pax`}</span>
-              <span class="tile__source-badge ${cam.source_kind === 'sample' ? 'sample' : 'live'} ${isOnline ? '' : 'hidden'}">${cam.source_kind === 'sample' ? 'SAMPLE' : 'REAL'}</span>
               <span class="tile__zone-badge ${(cam.comp_zone || 'SAFE').toLowerCase()} ${analyticsReady ? '' : 'hidden'}" id="zone-${cam.id}">${cam.comp_zone || 'SAFE'}</span>
               <span class="tile__location">${cam.location}</span>
               <span class="tile__status-dot"></span>
@@ -1159,10 +1154,8 @@
               </div>
             </div>
           </div>
-          <footer class="tile__footer">
-            <button class="btn btn--start ${isOnline || isConnecting ? 'hidden' : ''}" id="btn-start-${cam.id}" onclick="connectFeed('${cam.id}')">Connect Live Feed</button>
-            <button class="btn btn--sample ${isOnline || isConnecting ? 'hidden' : ''}" id="btn-sample-${cam.id}" onclick="startSampleFeed('${cam.id}')">Test Sample</button>
-            <button class="btn btn--stop ${isOnline || isConnecting ? '' : 'hidden'}" id="btn-stop-${cam.id}" onclick="disconnectFeed('${cam.id}')">Disconnect</button>
+          <footer class="tile__footer ${isOnline || isConnecting ? 'hidden' : ''}" id="footer-${cam.id}">
+            <button class="btn btn--start" id="btn-start-${cam.id}" onclick="connectFeed('${cam.id}')">Connect Live Feed</button>
           </footer>
         `;
         grid.appendChild(card);
@@ -1197,16 +1190,14 @@
       const loader = document.getElementById(`loader-${cam.id}`);
       const liveBadge = document.getElementById(`live-${cam.id}`);
       const startButton = document.getElementById(`btn-start-${cam.id}`);
-      const sampleButton = document.getElementById(`btn-sample-${cam.id}`);
-      const stopButton = document.getElementById(`btn-stop-${cam.id}`);
+      const footer = document.getElementById(`footer-${cam.id}`);
 
       container?.classList.toggle("hidden", !isOnline);
       placeholder?.classList.toggle("hidden", isOnline);
       liveBadge?.classList.toggle("hidden", !isOnline);
       loader?.classList.toggle("hidden", !isConnecting);
       startButton?.classList.toggle("hidden", isOnline || isConnecting);
-      sampleButton?.classList.toggle("hidden", isOnline || isConnecting);
-      stopButton?.classList.toggle("hidden", !(isOnline || isConnecting));
+      footer?.classList.toggle("hidden", isOnline || isConnecting);
 
       if (placeholderText) {
         placeholderText.textContent = getConnectionMessage(cam);
@@ -1214,14 +1205,6 @@
       if (publishUrl) {
         publishUrl.textContent = cam.publish_url || "";
         publishUrl.classList.toggle("hidden", !shouldShowPublishUrl(cam));
-      }
-
-      const sourceBadge = card.querySelector(".tile__source-badge");
-      if (sourceBadge) {
-        sourceBadge.textContent = cam.source_kind === "sample" ? "SAMPLE" : "REAL";
-        sourceBadge.classList.toggle("sample", cam.source_kind === "sample");
-        sourceBadge.classList.toggle("live", cam.source_kind !== "sample");
-        sourceBadge.classList.toggle("hidden", !isOnline);
       }
 
       if (isOnline) {
@@ -1273,54 +1256,6 @@
         cam.status = "offline";
         cam.connection_message = e.message || "Could not connect the video feed.";
         updateCameraConnectionState(cam);
-      }
-    }
-
-    async function startSampleFeed(id) {
-      const cam = cameras.find(c => c.id === id);
-      if (cam) {
-        cam.status = "connecting";
-        cam.enabled = true;
-        cam.source_kind = "sample";
-        cam.connection_message = "Starting bundled sample video...";
-      }
-      if (cam) updateCameraConnectionState(cam);
-
-      try {
-        const response = await fetch(`/cameras/${id}/start`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ use_sample: true })
-        });
-        const result = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(result.detail || `Sample failed (${response.status})`);
-        Object.assign(cam, result.camera || result);
-        updateCameraConnectionState(cam);
-      } catch (e) {
-        console.error("[CDMP] Error starting sample feed:", e);
-        cam.status = "offline";
-        cam.connection_message = e.message || "Could not start the sample feed.";
-        updateCameraConnectionState(cam);
-      }
-    }
-
-    // Disconnect Feed Trigger
-    async function disconnectFeed(id) {
-      try {
-        await fetch(`/cameras/${id}/stop`, { method: "POST" });
-        const cam = cameras.find(c => c.id === id);
-        if (cam) {
-          cam.status = "offline";
-          cam.enabled = false;
-          cam.source_online = false;
-          cam.output_online = false;
-          cam.connection_message = null;
-          cam.people_count = 0;
-          cam.comp_zone = "SAFE";
-          updateCameraConnectionState(cam);
-        }
-      } catch (e) {
-        console.error("[CDMP] Error disconnecting feed:", e);
       }
     }
 

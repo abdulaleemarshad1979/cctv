@@ -60,7 +60,7 @@ async def lifespan(app: FastAPI):
             _close_process_log(p)
     running_processes.clear()
 
-app = FastAPI(title="East Godavari District Monitoring System (EGDMS)", lifespan=lifespan)
+app = FastAPI(title="East Godavari Drone Monitoring System (EGDMS)", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 if os.path.exists("Videos"):
     app.mount("/Videos", StaticFiles(directory="Videos"), name="videos")
