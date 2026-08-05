@@ -136,13 +136,13 @@ def load_cameras():
             "fallback_video": fallback_path,
             "source_kind": "live_publish",
             "enabled": True,
-            "status": "offline",
-            "error_type": "stream not found",
-            "connection_message": "Video feed disconnected",
+            "status": "connecting",
+            "error_type": None,
+            "connection_message": "Waiting for drone camera stream...",
             "source_online": False,
             "output_online": False,
             "playback_stream_path": f"live/drone{i}",
-            "analytics_status": "idle",
+            "analytics_status": "waiting_for_source",
             "people_count": 0,
             "comp_zone": "SAFE",
             "pressure": 0.0,
@@ -176,13 +176,13 @@ def load_cameras():
             "fallback_video": fallback_path,
             "source_kind": "live_publish",
             "enabled": True,
-            "status": "offline",
-            "error_type": "stream not found",
-            "connection_message": "Video feed disconnected",
+            "status": "connecting",
+            "error_type": None,
+            "connection_message": "Waiting for camera stream...",
             "source_online": False,
             "output_online": False,
             "playback_stream_path": f"live/cctv{i}",
-            "analytics_status": "idle",
+            "analytics_status": "waiting_for_source",
             "people_count": 0,
             "comp_zone": "SAFE",
             "pressure": 0.0,
@@ -742,10 +742,11 @@ def update_camera_state(req: StateRequest):
     elif path_role == "source":
         matched_camera["source_online"] = False
         matched_camera["output_online"] = False
-        matched_camera["status"] = "offline"
-        matched_camera["error_type"] = "stream not found"
-        matched_camera["connection_message"] = "The camera stopped sending video."
-        matched_camera["analytics_status"] = "idle"
+        matched_camera["enabled"] = True
+        matched_camera["status"] = "connecting"
+        matched_camera["error_type"] = None
+        matched_camera["connection_message"] = "Waiting for drone camera stream to resume..."
+        matched_camera["analytics_status"] = "waiting_for_source"
         stop_stream(matched_camera["id"])
         reset_camera_analytics(matched_camera)
         reset_analytics_freshness(matched_camera)
@@ -771,11 +772,11 @@ def update_camera_state(req: StateRequest):
             elif not global_counting_mode:
                 matched_camera["analytics_status"] = "disabled"
         else:
-            matched_camera["status"] = "offline"
-            matched_camera["error_type"] = "stream not found"
-            matched_camera["analytics_status"] = "idle"
-            if matched_camera.get("enabled", True):
-                matched_camera["connection_message"] = "Video feed disconnected"
+            matched_camera["enabled"] = True
+            matched_camera["status"] = "connecting"
+            matched_camera["error_type"] = None
+            matched_camera["analytics_status"] = "waiting_for_source"
+            matched_camera["connection_message"] = "Waiting for drone camera stream..."
         update_camera_playback_path(matched_camera)
 
     return {"status": "updated", "camera_id": matched_camera["id"], "state": {

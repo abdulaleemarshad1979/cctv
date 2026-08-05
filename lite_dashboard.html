@@ -974,17 +974,12 @@
 
     function getConnectionMessage(cam) {
       const backendMessage = cam.connection_message || cam.status_message || cam.message;
-      if (backendMessage) return backendMessage;
-      if (cam.status === "connecting" && !cam.source_online && cam.source_kind === "live_publish") {
-        return "Waiting for the camera to start sending video.";
-      }
-      if (cam.error_type && cam.error_type !== "stream not found") return cam.error_type;
-      return cam.status === "connecting" ? "Connecting to video..." : "Video feed disconnected";
+      if (backendMessage && backendMessage !== "Video feed disconnected") return backendMessage;
+      return "Waiting for drone camera stream...";
     }
 
     function shouldShowPublishUrl(cam) {
-      return cam.status === "connecting" && !cam.source_online &&
-        cam.source_kind === "live_publish" && Boolean(cam.publish_url);
+      return !isCameraPlayable(cam) && Boolean(cam.publish_url);
     }
 
     function escapeHtml(value) {
@@ -1057,7 +1052,6 @@
         visibleCount++;
 
         const isOnline = isCameraPlayable(cam);
-        const isConnecting = !isOnline && cam.status === "connecting";
         const analyticsReady = isOnline && globalMode === 'counting' && cam.analytics_status === 'active';
         const analyticsStarting = isOnline && globalMode === 'counting' && !analyticsReady;
         const analyticsMessage = cam.analytics_status === 'stale'
@@ -1147,16 +1141,13 @@
                 ${escapeHtml(getConnectionMessage(cam))}
               </p>
               <code class="tile__publish-url ${shouldShowPublishUrl(cam) ? '' : 'hidden'}" id="publish-url-${cam.id}">${escapeHtml(cam.publish_url || '')}</code>
-              <div class="bouncing-loader ${isConnecting ? '' : 'hidden'}" id="loader-${cam.id}">
+              <div class="bouncing-loader ${isOnline ? 'hidden' : ''}" id="loader-${cam.id}">
                 <div></div>
                 <div></div>
                 <div></div>
               </div>
             </div>
           </div>
-          <footer class="tile__footer ${isOnline || isConnecting ? 'hidden' : ''}" id="footer-${cam.id}">
-            <button class="btn btn--start" id="btn-start-${cam.id}" onclick="connectFeed('${cam.id}')">Connect Live Feed</button>
-          </footer>
         `;
         grid.appendChild(card);
 
@@ -1179,7 +1170,6 @@
       if (!card) return false;
 
       const isOnline = isCameraPlayable(cam);
-      const isConnecting = !isOnline && cam.status === "connecting";
       card.setAttribute("data-status", isOnline ? "online" : cam.status);
       card.classList.toggle("tile--counting", isOnline && globalMode === "counting");
 
@@ -1189,15 +1179,11 @@
       const publishUrl = document.getElementById(`publish-url-${cam.id}`);
       const loader = document.getElementById(`loader-${cam.id}`);
       const liveBadge = document.getElementById(`live-${cam.id}`);
-      const startButton = document.getElementById(`btn-start-${cam.id}`);
-      const footer = document.getElementById(`footer-${cam.id}`);
 
       container?.classList.toggle("hidden", !isOnline);
       placeholder?.classList.toggle("hidden", isOnline);
       liveBadge?.classList.toggle("hidden", !isOnline);
-      loader?.classList.toggle("hidden", !isConnecting);
-      startButton?.classList.toggle("hidden", isOnline || isConnecting);
-      footer?.classList.toggle("hidden", isOnline || isConnecting);
+      loader?.classList.toggle("hidden", isOnline);
 
       if (placeholderText) {
         placeholderText.textContent = getConnectionMessage(cam);
@@ -1215,48 +1201,6 @@
         teardownVideoFeed(cam.id);
       }
       return true;
-    }
-
-    // Connect Feed Trigger
-    async function connectFeed(id) {
-      const cam = cameras.find(c => c.id === id);
-      if (!cam) return;
-
-      const publishUrl = cam.publish_url ||
-        `rtmp://${window.location.hostname}:1935/${cam.source_stream_path}`;
-      const enteredUrl = window.prompt(
-        `Connect ${cam.name} to real video.\n\n` +
-        `Paste its RTSP/RTMP URL, or leave this blank when the camera app ` +
-        `is publishing to:\n${publishUrl}`,
-        ""
-      );
-      if (enteredUrl === null) return;
-
-      cam.status = "connecting";
-      cam.enabled = true;
-      cam.source_kind = enteredUrl.trim() ? "live_url" : "live_publish";
-      if (enteredUrl.trim()) cam.source_online = false;
-      cam.connection_message = enteredUrl.trim()
-        ? "Opening the camera URL..."
-        : "Waiting for the camera to start sending video.";
-      updateCameraConnectionState(cam);
-
-      try {
-        const response = await fetch(`/cameras/${id}/start`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ source_url: enteredUrl.trim() || null })
-        });
-        const result = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(result.detail || `Connection failed (${response.status})`);
-        Object.assign(cam, result.camera || result);
-        updateCameraConnectionState(cam);
-      } catch (e) {
-        console.error("[CDMP] Error connecting feed:", e);
-        cam.status = "offline";
-        cam.connection_message = e.message || "Could not connect the video feed.";
-        updateCameraConnectionState(cam);
-      }
     }
 
     // Setup Video playback source (HLS live stream with overlays, or fallback direct MP4)
