@@ -51,72 +51,387 @@
       background-color: var(--bg-header);
       backdrop-filter: blur(12px);
       -webkit-backdrop-filter: blur(12px);
-      border-bottom: 1px solid var(--border-color);
+      border-bottom: 3px solid #cbd5e1;
       padding: 16px 24px;
       display: flex;
-      flex-direction: column;
-      gap: 16px;
-    }
-
-    @media (min-width: 768px) {
-      .header {
-        flex-direction: row;
-        align-items: center;
-        justify-content: space-between;
-      }
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+      box-shadow: 0 4px 10px -2px rgba(0, 0, 0, 0.08);
     }
 
     .header__brand {
       display: flex;
       align-items: center;
-      gap: 16px;
+      gap: 20px;
+      flex: 1;
     }
 
     .logo-group {
       display: flex;
       align-items: center;
-      gap: 8px;
-      background: rgba(15, 23, 42, 0.6);
-      padding: 8px;
-      border-radius: 12px;
-      border: 1px solid rgba(30, 41, 59, 0.5);
+      gap: 16px;
+      background: transparent;
+      border: none;
+      padding: 0;
     }
 
-    .logo-icon {
-      width: 32px;
-      height: 32px;
+    .brand-logo {
+      height: 75px;
+      width: auto;
+      object-fit: contain;
     }
 
-    .logo-icon--gold {
-      color: var(--text-gold);
-    }
-
-    .logo-icon--blue {
-      color: var(--text-blue);
-    }
-
-    .header__brand h2 {
-      font-size: 18px;
-      font-weight: 700;
-      letter-spacing: 0.025em;
+    .brand-title {
+      font-size: 26px;
+      font-weight: 800;
+      color: #0284c7;
+      margin: 0;
+      font-family: system-ui, -apple-system, sans-serif;
       text-transform: uppercase;
-      color: var(--text-main);
-      line-height: 1.1;
+      letter-spacing: 0.5px;
+      line-height: 1.2;
     }
 
-    .header__brand .subtitle {
-      font-size: 12px;
-      font-weight: 600;
-      color: var(--text-blue);
-      letter-spacing: 0.05em;
+    .brand-subtitle {
+      font-size: 20px;
+      font-weight: 800;
+      color: #0f172a;
       margin-top: 4px;
     }
 
-    .header__brand .credit {
-      font-size: 10px;
-      color: var(--text-muted);
-      font-family: monospace;
+    .dignitaries-group {
+      display: flex;
+      align-items: flex-start;
+      gap: 24px;
+      flex-shrink: 0;
+    }
+
+    .dignitary-card {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      width: 175px;
+      gap: 6px;
+    }
+
+    .dignitary-img {
+      height: 125px;
+      width: 100%;
+      border-radius: 8px;
+      border: 2px solid #94a3b8;
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.12);
+      object-fit: cover;
+      object-position: center center;
+    }
+
+    .dignitary-name {
+      font-size: 13px;
+      font-weight: 800;
+      color: #0f172a;
+      text-align: center;
+      line-height: 1.2;
       margin-top: 2px;
+    }
+
+    .dignitary-desig {
+      font-size: 11px;
+      font-weight: 700;
+      color: #0284c7;
+      text-align: center;
+      line-height: 1.2;
+      text-transform: uppercase;
+    }
+
+    /* ---------- Navigation Control Bar ---------- */
+    .nav-control-bar {
+      background-color: #ffffff;
+      border-bottom: 2px solid #cbd5e1;
+      padding: 12px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 16px;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+      margin-bottom: 8px;
+    }
+
+    .nav-right-group {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .notif-btn {
+      position: relative;
+      background: #fff1f2;
+      border: 1px solid #fecdd3;
+      color: #be123c;
+      padding: 8px 16px;
+      border-radius: 9999px;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.2s ease;
+      box-shadow: 0 2px 4px rgba(190, 18, 60, 0.1);
+    }
+
+    .notif-badge {
+      background: #e11d48;
+      color: #ffffff;
+      font-size: 11px;
+      font-weight: 800;
+      border-radius: 9999px;
+      padding: 2px 7px;
+      min-width: 18px;
+      text-align: center;
+    }
+
+    .csv-btn {
+      color: #0369a1;
+      background: #e0f2fe;
+      border: 1px solid #bae6fd;
+      border-radius: 9999px;
+      padding: 8px 14px;
+      font-size: 12px;
+      font-weight: 700;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+    }
+
+    .mode-toggle-group {
+      display: flex;
+      align-items: center;
+      background: #f1f5f9;
+      padding: 4px;
+      border-radius: 9999px;
+      border: 1px solid #cbd5e1;
+      box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.05);
+    }
+
+    .mode-pill {
+      background: transparent;
+      border: none;
+      padding: 8px 18px;
+      border-radius: 9999px;
+      font-size: 13px;
+      font-weight: 700;
+      color: #475569;
+      cursor: pointer;
+      transition: all 0.25s ease;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .mode-pill.active {
+      background: #0284c7;
+      color: #ffffff;
+      box-shadow: 0 2px 4px rgba(2, 132, 199, 0.3);
+    }
+
+    #notif-toast-container {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      z-index: 9999;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      max-width: 420px;
+      width: calc(100vw - 32px);
+      pointer-events: none;
+    }
+
+    @keyframes slideInRight {
+      from {
+        transform: translateX(100%);
+        opacity: 0;
+      }
+      to {
+        transform: translateX(0);
+        opacity: 1;
+      }
+    }
+
+    /* Responsive Media Queries */
+    @media (max-width: 1024px) {
+      .header {
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+        padding: 14px 16px;
+        gap: 16px;
+      }
+
+      .header__brand {
+        justify-content: center;
+        width: 100%;
+      }
+
+      .dignitaries-group {
+        width: 100%;
+        justify-content: center;
+        gap: 16px;
+      }
+    }
+
+    @media (max-width: 768px) {
+      .nav-control-bar {
+        padding: 10px 12px;
+        flex-direction: column;
+        justify-content: center;
+        gap: 10px;
+      }
+
+      .filter-group {
+        justify-content: center;
+        width: 100%;
+        gap: 8px;
+      }
+
+      .nav-right-group {
+        justify-content: center;
+        width: 100%;
+        gap: 8px;
+      }
+
+      .pill {
+        padding: 7px 14px;
+        font-size: 12px;
+      }
+
+      .notif-btn {
+        padding: 6px 12px;
+        font-size: 11px;
+      }
+
+      .csv-btn {
+        padding: 6px 12px;
+        font-size: 11px;
+      }
+
+      .mode-pill {
+        padding: 6px 12px;
+        font-size: 11px;
+      }
+    }
+
+    @media (max-width: 640px) {
+      .header {
+        padding: 10px 8px;
+        gap: 10px;
+      }
+
+      .header__brand {
+        gap: 10px;
+      }
+
+      .brand-logo {
+        height: 48px;
+      }
+
+      .brand-title {
+        font-size: 15px;
+        letter-spacing: 0;
+      }
+
+      .brand-subtitle {
+        font-size: 12px;
+        margin-top: 2px;
+      }
+
+      .dignitaries-group {
+        gap: 6px;
+      }
+
+      .dignitary-card {
+        width: calc(33.33% - 4px);
+        min-width: 85px;
+        max-width: 110px;
+        gap: 3px;
+      }
+
+      .dignitary-img {
+        height: 80px;
+      }
+
+      .dignitary-name {
+        font-size: 9.5px;
+      }
+
+      .dignitary-desig {
+        font-size: 8px;
+      }
+
+      .grid-container {
+        padding: 10px 6px;
+      }
+
+      .grid {
+        gap: 12px;
+      }
+
+      .tile {
+        border-radius: 10px;
+      }
+
+      .tile__header {
+        padding: 6px 10px;
+      }
+
+      .tile__name {
+        font-size: 11px;
+      }
+
+      .tile__hud {
+        padding: 6px 8px;
+      }
+
+      .tile__hud-stats-grid {
+        gap: 4px;
+      }
+
+      .zone-grid-cells {
+        gap: 3px;
+      }
+
+      .zone-cell {
+        padding: 3px 2px;
+      }
+
+      .zone-cell-count {
+        font-size: 12px;
+      }
+
+      .tile__footer {
+        padding: 8px 10px;
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      .btn {
+        width: 100%;
+        padding: 8px 12px;
+        text-align: center;
+      }
+
+      #notif-toast-container {
+        bottom: 12px;
+        left: 12px;
+        right: 12px;
+        width: auto;
+      }
+
+      #notif-drawer {
+        width: 100% !important;
+      }
     }
 
     .filter-group {
@@ -827,92 +1142,77 @@
 
 <body>
 
-  <!-- Premium Header -->
-  <header class="header"
-    style="display: flex; align-items: center; justify-content: space-between; border-bottom: 3px solid #cbd5e1; padding: 16px 28px; gap: 24px; background-color: #ffffff; box-shadow: 0 4px 10px -2px rgba(0, 0, 0, 0.08);">
-    <div class="header__brand" style="display: flex; align-items: center; gap: 24px; flex: 1;">
-      <div class="logo-group"
-        style="display: flex; align-items: center; gap: 16px; background: transparent; border: none; padding: 0;">
-        <img src="/static/monitor/img/ap_police_logo.png" alt="AP Police Logo"
-          style="height: 75px; width: auto; object-fit: contain;">
+  <!-- Premium Responsive Header -->
+  <header class="header">
+    <div class="header__brand">
+      <div class="logo-group">
+        <img src="/static/monitor/img/ap_police_logo.png" alt="AP Police Logo" class="brand-logo">
       </div>
       <div>
-        <h1
-          style="font-size: 26px; font-weight: 800; color: #0284c7; margin: 0; font-family: system-ui, -apple-system, sans-serif; text-transform: uppercase; letter-spacing: 0.5px; line-height: 1.2;">
-          Andhra Pradesh Police Department</h1>
-        <div style="font-size: 20px; font-weight: 800; color: #0f172a; margin-top: 4px;">East Godavari Drone Monitoring System</div>
+        <h1 class="brand-title">Andhra Pradesh Police Department</h1>
+        <div class="brand-subtitle">East Godavari Drone Monitoring System</div>
       </div>
     </div>
 
-    <!-- Portrait Dignitaries aligned horizontally on the right -->
-    <div class="dignitaries-group" style="display: flex; align-items: flex-start; gap: 24px; flex-shrink: 0;">
-      <div style="display: flex; flex-direction: column; align-items: center; width: 175px; gap: 6px;">
-        <img src="/static/monitor/img/cm.png?v=4" alt="Hon'ble CM Sri N. Chandrababu Naidu"
-          style="height: 125px; width: 100%; border-radius: 8px; border: 2px solid #94a3b8; box-shadow: 0 4px 8px rgba(0,0,0,0.12); object-fit: cover; object-position: center center;">
-        <div style="font-size: 13px; font-weight: 800; color: #0f172a; text-align: center; line-height: 1.2; margin-top: 2px;">Sri N. Chandrababu Naidu</div>
-        <div style="font-size: 11px; font-weight: 700; color: #0284c7; text-align: center; line-height: 1.2; text-transform: uppercase;">Hon'ble Chief Minister</div>
+    <!-- Portrait Dignitaries aligned horizontally -->
+    <div class="dignitaries-group">
+      <div class="dignitary-card">
+        <img src="/static/monitor/img/cm.png?v=4" alt="Hon'ble CM Sri N. Chandrababu Naidu" class="dignitary-img">
+        <div class="dignitary-name">Sri N. Chandrababu Naidu</div>
+        <div class="dignitary-desig">Hon'ble Chief Minister</div>
       </div>
-      <div style="display: flex; flex-direction: column; align-items: center; width: 175px; gap: 6px;">
-        <img src="/static/monitor/img/dgp.png?v=4" alt="DGP Sri Harish Kumar Gupta, IPS"
-          style="height: 125px; width: 100%; border-radius: 8px; border: 2px solid #94a3b8; box-shadow: 0 4px 8px rgba(0,0,0,0.12); object-fit: cover; object-position: center center;">
-        <div style="font-size: 13px; font-weight: 800; color: #0f172a; text-align: center; line-height: 1.2; margin-top: 2px;">Sri Harish Kumar Gupta, IPS</div>
-        <div style="font-size: 11px; font-weight: 700; color: #0284c7; text-align: center; line-height: 1.2; text-transform: uppercase;">DGP, Andhra Pradesh</div>
+      <div class="dignitary-card">
+        <img src="/static/monitor/img/dgp.png?v=4" alt="DGP Sri Harish Kumar Gupta, IPS" class="dignitary-img">
+        <div class="dignitary-name">Sri Harish Kumar Gupta, IPS</div>
+        <div class="dignitary-desig">DGP, Andhra Pradesh</div>
       </div>
-      <div style="display: flex; flex-direction: column; align-items: center; width: 175px; gap: 6px;">
-        <img src="/static/monitor/img/sp.png?v=4" alt="SP D. Narasimha Kishore, IPS"
-          style="height: 125px; width: 100%; border-radius: 8px; border: 2px solid #94a3b8; box-shadow: 0 4px 8px rgba(0,0,0,0.12); object-fit: cover; object-position: center center;">
-        <div style="font-size: 13px; font-weight: 800; color: #0f172a; text-align: center; line-height: 1.2; margin-top: 2px;">D. Narasimha Kishore, IPS</div>
-        <div style="font-size: 11px; font-weight: 700; color: #0284c7; text-align: center; line-height: 1.2; text-transform: uppercase;">SP, East Godavari</div>
+      <div class="dignitary-card">
+        <img src="/static/monitor/img/sp.png?v=4" alt="SP D. Narasimha Kishore, IPS" class="dignitary-img">
+        <div class="dignitary-name">D. Narasimha Kishore, IPS</div>
+        <div class="dignitary-desig">SP, East Godavari</div>
       </div>
     </div>
   </header>
 
-  <!-- Navigation & Filter Pills -->
-  <div
-    style="background-color: #ffffff; border-bottom: 2px solid #cbd5e1; padding: 12px 24px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); margin-bottom: 8px;">
-    <div class="filter-group" style="display: flex; flex-wrap: wrap; gap: 16px; align-items: center;">
+  <!-- Navigation & Filter Control Bar -->
+  <div class="nav-control-bar">
+    <div class="filter-group">
       <button class="pill active" data-filter="All">All Streams</button>
       <button class="pill" data-filter="Active">Active Feeds</button>
     </div>
 
-    <div style="display: flex; align-items: center; gap: 10px;">
+    <div class="nav-right-group">
       <!-- Stampede Warning Notification Bell -->
-      <button id="notif-bell-btn" onclick="toggleNotifDrawer()"
-        style="position: relative; background: #fff1f2; border: 1px solid #fecdd3; color: #be123c; padding: 8px 16px; border-radius: 9999px; font-size: 13px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 8px; transition: all 0.2s ease; box-shadow: 0 2px 4px rgba(190, 18, 60, 0.1);">
+      <button id="notif-bell-btn" onclick="toggleNotifDrawer()" class="notif-btn">
         <svg style="width: 18px; height: 18px;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"
             d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
         </svg>
         <span>Stampede Warnings</span>
-        <span id="notif-badge" class="hidden"
-          style="background: #e11d48; color: #ffffff; font-size: 11px; font-weight: 800; border-radius: 9999px; padding: 2px 7px; min-width: 18px; text-align: center;">0</span>
+        <span id="notif-badge" class="hidden notif-badge">0</span>
       </button>
 
-      <a href="/forecast/history.csv" download
-        style="color: #0369a1; background: #e0f2fe; border: 1px solid #bae6fd; border-radius: 9999px; padding: 8px 14px; font-size: 12px; font-weight: 700; text-decoration: none;">
+      <a href="/forecast/history.csv" download class="csv-btn">
         Download Forecast CSV
       </a>
       <!-- Premium Mode Toggle -->
-      <div class="mode-toggle-group"
-        style="display: flex; align-items: center; background: #f1f5f9; padding: 4px; border-radius: 9999px; border: 1px solid #cbd5e1; box-shadow: inset 0 2px 4px rgba(0,0,0,0.05); margin-right: 8px;">
-      <button id="btn-mode-viewing" class="mode-pill" onclick="changeGlobalMode('viewing')"
-        style="background: transparent; border: none; padding: 8px 18px; border-radius: 9999px; font-size: 13px; font-weight: 700; color: #475569; cursor: pointer; transition: all 0.25s ease; display: flex; align-items: center; gap: 6px;">
-        <svg style="width: 16px; height: 16px;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"
-            d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"
-            d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-        </svg>
-        Viewing Mode
-      </button>
-      <button id="btn-mode-counting" class="mode-pill active" onclick="changeGlobalMode('counting')"
-        style="background: #0284c7; border: none; padding: 8px 18px; border-radius: 9999px; font-size: 13px; font-weight: 700; color: #ffffff; cursor: pointer; transition: all 0.25s ease; display: flex; align-items: center; gap: 6px; box-shadow: 0 2px 4px rgba(2, 132, 199, 0.3);">
-        <svg style="width: 16px; height: 16px;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"
-            d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 002 2h2a2 2 0 002-2z" />
-        </svg>
-        Counting Mode
-      </button>
+      <div class="mode-toggle-group">
+        <button id="btn-mode-viewing" class="mode-pill" onclick="changeGlobalMode('viewing')">
+          <svg style="width: 16px; height: 16px;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"
+              d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"
+              d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+          </svg>
+          Viewing Mode
+        </button>
+        <button id="btn-mode-counting" class="mode-pill active" onclick="changeGlobalMode('counting')">
+          <svg style="width: 16px; height: 16px;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"
+              d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 002 2h2a2 2 0 002-2z" />
+          </svg>
+          Counting Mode
+        </button>
       </div>
     </div>
   </div>
