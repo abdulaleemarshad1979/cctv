@@ -17,12 +17,8 @@ webrtcAdditionalHosts:
   - 192.168.1.7
   - 117.216.215.157
   - stream.dmsegpolice.in
-# ponytail: simple production MediaMTX configuration for RTSP, RTMP, HLS, and WebRTC
 
 paths:
-  all:
+  all_others:
     runOnReady: 'curl -X POST http://app:8000/cameras/state -H "Content-Type: application/json" -d "{\"path\":\"$MTX_PATH\", \"status\":\"online\"}"'
     runOnNotReady: 'curl -X POST http://app:8000/cameras/state -H "Content-Type: application/json" -d "{\"path\":\"$MTX_PATH\", \"status\":\"offline\"}"'
-
-
-
