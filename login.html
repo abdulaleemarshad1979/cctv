@@ -159,12 +159,31 @@
     }
 
     .login-footer {
-      padding: 16px 28px 24px;
+      padding: 16px 28px 20px;
       text-align: center;
       font-size: 11px;
       color: #64748b;
-      border-top: 1px solid #f1f5f9;
+      border-top: 1px solid #e2e8f0;
       background: #f8fafc;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      align-items: center;
+    }
+
+    .powered-by {
+      font-size: 12px;
+      font-weight: 600;
+      color: #475569;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .powered-by span {
+      font-weight: 800;
+      color: #0284c7;
+      letter-spacing: 0.2px;
     }
   </style>
 </head>
@@ -207,7 +226,8 @@
     </div>
 
     <div class="login-footer">
-      East Godavari Drone Monitoring System &bull; Official AP Police Portal
+      <div>East Godavari Drone Monitoring System &bull; Official AP Police Portal</div>
+      <div class="powered-by">Powered by <span>Aditya University</span></div>
     </div>
   </div>
 
