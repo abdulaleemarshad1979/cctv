@@ -107,7 +107,7 @@
     .dignitaries-group {
       display: flex;
       align-items: center;
-      gap: 14px;
+      gap: 12px;
       flex-shrink: 0;
     }
 
@@ -115,12 +115,12 @@
       display: flex;
       flex-direction: column;
       align-items: center;
-      width: 145px;
-      gap: 3px;
+      width: 105px;
+      gap: 2px;
     }
 
     .dignitary-img {
-      height: 50px;
+      height: 48px;
       width: 100%;
       border-radius: 6px;
       border: 1.5px solid #94a3b8;
@@ -130,22 +130,28 @@
     }
 
     .dignitary-name {
-      font-size: 10.5px;
+      font-size: 10px;
       font-weight: 800;
       color: #0f172a;
       text-align: center;
       line-height: 1.1;
       white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 100%;
     }
 
     .dignitary-desig {
-      font-size: 8.5px;
+      font-size: 8px;
       font-weight: 700;
       color: #0284c7;
       text-align: center;
       line-height: 1.1;
       text-transform: uppercase;
       white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 100%;
     }
 
     /* ---------- Navigation Control Bar ---------- */
@@ -516,29 +522,26 @@
       }
 
       .dignitaries-group {
-        gap: 8px;
+        gap: 6px;
       }
 
       .dignitary-card {
-        width: calc(33.33% - 6px);
-        min-width: 95px;
-        max-width: 145px;
+        width: calc(33.33% - 4px);
+        min-width: 85px;
+        max-width: 110px;
         gap: 3px;
       }
 
       .dignitary-img {
-        height: 60px;
+        height: 80px;
       }
 
       .dignitary-name {
         font-size: 9.5px;
-        white-space: normal;
-        word-break: break-word;
       }
 
       .dignitary-desig {
         font-size: 8px;
-        white-space: normal;
       }
 
       .grid-container {

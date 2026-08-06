@@ -17,6 +17,8 @@ authInternalUsers:
       - action: read
       - action: playback
       - action: api
+
+
 rtsp: yes
 rtspAddress: :8554
 
