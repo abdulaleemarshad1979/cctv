@@ -726,6 +726,8 @@ async def auth_middleware(request: Request, call_next):
         "/cameras/update_stats",
         "/get_mode",
         "/api/notifications",
+        "/hls",
+        "/stream",
     )
     if any(path.startswith(p) for p in public_paths):
         return await call_next(request)

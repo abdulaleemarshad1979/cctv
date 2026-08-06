@@ -1818,7 +1818,10 @@
           liveMaxLatencyDurationCount: 2,
           maxLiveSyncPlaybackRate: 1.5,
           startPosition: -1,
-          enableWorker: true
+          enableWorker: true,
+          xhrSetup: function (xhr) {
+            xhr.withCredentials = true;
+          }
         });
         hls._egdmsPath = playbackPath;
         hlsPlayers[cam.id] = hls;
