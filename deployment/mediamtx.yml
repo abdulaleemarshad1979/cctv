@@ -38,5 +38,5 @@ webrtcAdditionalHosts:
 
 paths:
   all_others:
-    runOnReady: 'curl -X POST http://app:8000/cameras/state -H "Content-Type: application/json" -d "{\"path\":\"$MTX_PATH\", \"status\":\"online\"}"'
-    runOnNotReady: 'curl -X POST http://app:8000/cameras/state -H "Content-Type: application/json" -d "{\"path\":\"$MTX_PATH\", \"status\":\"offline\"}"'
+    runOnAvailable: 'curl --fail --silent --show-error --max-time 3 -X POST http://app:8000/cameras/state -H "Content-Type: application/json" -d "{\"path\":\"$MTX_PATH\", \"status\":\"online\"}"'
+    runOnUnavailable: 'curl --fail --silent --show-error --max-time 3 -X POST http://app:8000/cameras/state -H "Content-Type: application/json" -d "{\"path\":\"$MTX_PATH\", \"status\":\"offline\"}"'

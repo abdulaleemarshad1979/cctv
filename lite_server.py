@@ -21,6 +21,7 @@ import config
 import numpy as np
 from src.crowd_forecast import CrowdForecaster
 from src import geo_alert
+from src.stream_state_monitor import MediaMTXStateMonitor
 
 def _sanitize_for_json(obj):
     if isinstance(obj, dict):
@@ -45,21 +46,28 @@ running_processes = {}
 stampede_notifications = []
 _notifications_lock = threading.Lock()
 _last_notification_time = {}
+_stream_state_monitor = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    yield
-    print("[LITE SERVER] Shutting down. Terminating managed child processes...")
-    for pid, p in list(running_processes.items()):
-        try:
-            print(f"[LITE SERVER] Terminating process for {pid}...")
-            p.terminate()
-            p.wait(timeout=1.0)
-        except Exception as e:
-            print(f"[LITE SERVER] Failed to terminate {pid}: {e}")
-        finally:
-            _close_process_log(p)
-    running_processes.clear()
+    global _stream_state_monitor
+    _stream_state_monitor = build_stream_state_monitor()
+    _stream_state_monitor.start()
+    try:
+        yield
+    finally:
+        _stream_state_monitor.stop()
+        print("[LITE SERVER] Shutting down. Terminating managed child processes...")
+        for pid, p in list(running_processes.items()):
+            try:
+                print(f"[LITE SERVER] Terminating process for {pid}...")
+                p.terminate()
+                p.wait(timeout=1.0)
+            except Exception as e:
+                print(f"[LITE SERVER] Failed to terminate {pid}: {e}")
+            finally:
+                _close_process_log(p)
+        running_processes.clear()
 
 app = FastAPI(title="East Godavari Drone Monitoring System (EGDMS)", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -72,6 +80,10 @@ MEDIAMTX_RTSP_PORT = int(os.getenv("MEDIAMTX_RTSP_PORT", "8554"))
 MEDIAMTX_RTMP_PORT = int(os.getenv("MEDIAMTX_RTMP_PORT", "1935"))
 MEDIAMTX_HLS_PORT = int(os.getenv("MEDIAMTX_HLS_PORT", "8888"))
 MEDIAMTX_WEBRTC_PORT = int(os.getenv("MEDIAMTX_WEBRTC_PORT", "8889"))
+MEDIAMTX_API_PORT = int(os.getenv("MEDIAMTX_API_PORT", "9997"))
+MEDIAMTX_STATE_POLL_SECONDS = float(
+    os.getenv("MEDIAMTX_STATE_POLL_SECONDS", "2")
+)
 
 ANALYTICS_STALE_AFTER_SECONDS = float(
     os.getenv("ANALYTICS_STALE_AFTER_SECONDS", "20")
@@ -213,6 +225,28 @@ class ModeRequest(BaseModel):
 class StateRequest(BaseModel):
     path: str
     status: str
+
+
+def build_stream_state_monitor():
+    """Create the backend-owned MediaMTX reconciler.
+
+    This is intentionally independent from ``lite_dashboard.html``.  UI edits
+    can change presentation, but cannot become the source of truth for whether
+    a drone publisher is online.
+    """
+    return MediaMTXStateMonitor(
+        api_url=(
+            f"http://{MEDIAMTX_HOST}:{MEDIAMTX_API_PORT}/v3/paths/list"
+        ),
+        list_cameras=lambda: list(cameras_db),
+        resolve_camera=find_camera_by_stream_path,
+        apply_state=lambda path, status: update_camera_state(
+            StateRequest(path=path, status=status)
+        ),
+        interval_seconds=MEDIAMTX_STATE_POLL_SECONDS,
+        request_timeout_seconds=2.0,
+        offline_confirmations=2,
+    )
 
 class StartRequest(BaseModel):
     source_url: Optional[str] = None
@@ -504,8 +538,8 @@ writeTimeout: 5s
 
 paths:
   all:
-    runOnReady: 'curl -X POST http://127.0.0.1:{port}/cameras/state -H "Content-Type: application/json" -d "{{\\"path\\":\\"$MTX_PATH\\", \\"status\\":\\"online\\"}}"'
-    runOnNotReady: 'curl -X POST http://127.0.0.1:{port}/cameras/state -H "Content-Type: application/json" -d "{{\\"path\\":\\"$MTX_PATH\\", \\"status\\":\\"offline\\"}}"'
+    runOnAvailable: 'curl -X POST http://127.0.0.1:{port}/cameras/state -H "Content-Type: application/json" -d "{{\\"path\\":\\"$MTX_PATH\\", \\"status\\":\\"online\\"}}"'
+    runOnUnavailable: 'curl -X POST http://127.0.0.1:{port}/cameras/state -H "Content-Type: application/json" -d "{{\\"path\\":\\"$MTX_PATH\\", \\"status\\":\\"offline\\"}}"'
 """
     with open("mediamtx.yml", "w") as f:
         f.write(config_content.strip())
@@ -814,6 +848,11 @@ def health_check():
     return {
         "status": "healthy",
         "service": "lite-cctv-backend",
+        "stream_state": (
+            _stream_state_monitor.snapshot()
+            if _stream_state_monitor is not None
+            else {"running": False, "last_error": "not started"}
+        ),
         "counting_available": dependency_error is None,
         "counting_message": dependency_error,
     }

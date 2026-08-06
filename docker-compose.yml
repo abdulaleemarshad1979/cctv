@@ -19,7 +19,10 @@ services:
       - mediamtx
 
   mediamtx:
-    image: bluenviron/mediamtx:latest
+    build:
+      context: .
+      dockerfile: deployment/Dockerfile.mediamtx
+    image: pushkaralu-mediamtx-curl:1.19.3
     container_name: pushkaralu-mediamtx
     restart: unless-stopped
     ports:
@@ -30,6 +33,12 @@ services:
       - "8189:8189/udp" # WebRTC Media
     volumes:
       - ./deployment/mediamtx.yml:/mediamtx.yml:ro
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9997/v3/paths/list"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
     networks:
       - pushkaralu
 
