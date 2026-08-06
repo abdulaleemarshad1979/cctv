@@ -4,7 +4,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 import pytest
 from fastapi.testclient import TestClient
-from lite_server import app, ADMIN_USERNAME, ADMIN_PASSWORD, SESSION_COOKIE_NAME
+from lite_server import app, ADMIN_USERNAME, SESSION_COOKIE_NAME
 
 client = TestClient(app)
 
@@ -19,12 +19,13 @@ def test_unauthenticated_api_rejection():
     assert response.json()["detail"] == "Unauthenticated. Please log in."
 
 def test_login_invalid_credentials():
-    response = client.post("/login", data={"username": "wrong", "password": "bad"})
+    response = client.post("/login", json={"username": "wrong", "password": "bad"})
     assert response.status_code == 401
 
 def test_login_success_and_logout():
     # Login
-    response = client.post("/login", data={"username": ADMIN_USERNAME, "password": ADMIN_PASSWORD})
+    test_password = os.getenv("ADMIN_PASSWORD", "Egdronepolice@1143")
+    response = client.post("/login", json={"username": ADMIN_USERNAME, "password": test_password})
     assert response.status_code == 200
     assert SESSION_COOKIE_NAME in client.cookies
 

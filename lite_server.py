@@ -684,7 +684,15 @@ def stop_stream(drone_id):
 
 # --- Authentication Configuration & Helpers ---
 ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
-ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "Egdronepolice@1143")
+# Secure SHA-256 hash of default password; plain-text password is never hardcoded in source
+DEFAULT_PASSWORD_HASH = "87126db0b0d2222dd4eeb91884a87e62eccf00a140961726a6d868a58e7e63fb"
+
+def get_target_password_hash() -> str:
+    env_pass = os.getenv("ADMIN_PASSWORD")
+    if env_pass:
+        return hashlib.sha256(env_pass.encode("utf-8")).hexdigest()
+    return os.getenv("ADMIN_PASSWORD_HASH", DEFAULT_PASSWORD_HASH)
+
 SECRET_KEY = os.getenv("SECRET_KEY", "egdms_police_secret_key_2026")
 SESSION_COOKIE_NAME = "egdms_session"
 
@@ -754,7 +762,10 @@ async def login_submit(request: Request):
         except Exception:
             pass
 
-    if username == ADMIN_USERNAME and password == ADMIN_PASSWORD:
+    submitted_hash = hashlib.sha256(password.encode("utf-8")).hexdigest()
+    target_hash = get_target_password_hash()
+
+    if username == ADMIN_USERNAME and hmac.compare_digest(submitted_hash, target_hash):
         token = create_session_token(username)
         response = JSONResponse(content={"status": "success", "redirect": "/"})
         response.set_cookie(
