@@ -4,6 +4,20 @@ logDestinations: [stdout]
 api: yes
 apiAddress: :9997
 
+# Default internal auth only allows the 'api' action from 127.0.0.1/::1.
+# The app container calls this API from a different IP on the internal
+# docker network (port 9997 is not published to the host or internet),
+# so we explicitly allow publish/read/playback/api for any caller here.
+authInternalUsers:
+  - user: any
+    pass:
+    ips: []
+    permissions:
+      - action: publish
+      - action: read
+      - action: playback
+      - action: api
+
 rtsp: yes
 rtspAddress: :8554
 
