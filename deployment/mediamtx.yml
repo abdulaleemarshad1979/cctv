@@ -20,7 +20,9 @@ webrtcAdditionalHosts:
 # ponytail: simple production MediaMTX configuration for RTSP, RTMP, HLS, and WebRTC
 
 paths:
-  all_others:
+  all:
+    runOnReady: 'curl -X POST http://app:8000/cameras/state -H "Content-Type: application/json" -d "{\"path\":\"$MTX_PATH\", \"status\":\"online\"}"'
+    runOnNotReady: 'curl -X POST http://app:8000/cameras/state -H "Content-Type: application/json" -d "{\"path\":\"$MTX_PATH\", \"status\":\"offline\"}"'
 
 
 
