@@ -68,7 +68,7 @@
       display: flex;
       align-items: center;
       gap: 14px;
-      flex: 1;
+      flex-shrink: 0;
     }
 
     .logo-group {
@@ -107,51 +107,47 @@
     .dignitaries-group {
       display: flex;
       align-items: center;
-      gap: 12px;
-      flex-shrink: 0;
+      justify-content: flex-end;
+      gap: 18px;
+      flex: 1;
     }
 
     .dignitary-card {
       display: flex;
       flex-direction: column;
       align-items: center;
-      width: 105px;
-      gap: 2px;
+      width: 175px;
+      gap: 4px;
     }
 
     .dignitary-img {
-      height: 48px;
-      width: 100%;
+      height: 56px;
+      width: auto;
+      max-width: 100%;
       border-radius: 6px;
       border: 1.5px solid #94a3b8;
       box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-      object-fit: cover;
-      object-position: center center;
+      object-fit: contain;
+      background-color: #f8fafc;
     }
 
     .dignitary-name {
-      font-size: 10px;
+      font-size: 11px;
       font-weight: 800;
       color: #0f172a;
       text-align: center;
-      line-height: 1.1;
+      line-height: 1.2;
       white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      max-width: 100%;
     }
 
     .dignitary-desig {
-      font-size: 8px;
+      font-size: 9.5px;
       font-weight: 700;
       color: #0284c7;
       text-align: center;
-      line-height: 1.1;
+      line-height: 1.2;
       text-transform: uppercase;
       white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      max-width: 100%;
     }
 
     /* ---------- Navigation Control Bar ---------- */
@@ -522,26 +518,34 @@
       }
 
       .dignitaries-group {
-        gap: 6px;
+        gap: 8px;
+        justify-content: center;
       }
 
       .dignitary-card {
-        width: calc(33.33% - 4px);
-        min-width: 85px;
-        max-width: 110px;
+        width: calc(33.33% - 6px);
+        min-width: 95px;
+        max-width: 130px;
         gap: 3px;
       }
 
       .dignitary-img {
-        height: 80px;
+        height: 48px;
+        width: auto;
+        max-width: 100%;
+        object-fit: contain;
       }
 
       .dignitary-name {
-        font-size: 9.5px;
+        font-size: 9px;
+        white-space: normal;
+        word-break: break-word;
       }
 
       .dignitary-desig {
-        font-size: 8px;
+        font-size: 7.5px;
+        white-space: normal;
+        word-break: break-word;
       }
 
       .grid-container {
