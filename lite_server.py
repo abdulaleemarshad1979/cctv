@@ -48,10 +48,7 @@ _last_notification_time = {}
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _mediamtx_poll_running
-    start_mediamtx_polling()
     yield
-    _mediamtx_poll_running = False
     print("[LITE SERVER] Shutting down. Terminating managed child processes...")
     for pid, p in list(running_processes.items()):
         try:
@@ -75,50 +72,6 @@ MEDIAMTX_RTSP_PORT = int(os.getenv("MEDIAMTX_RTSP_PORT", "8554"))
 MEDIAMTX_RTMP_PORT = int(os.getenv("MEDIAMTX_RTMP_PORT", "1935"))
 MEDIAMTX_HLS_PORT = int(os.getenv("MEDIAMTX_HLS_PORT", "8888"))
 MEDIAMTX_WEBRTC_PORT = int(os.getenv("MEDIAMTX_WEBRTC_PORT", "8889"))
-MEDIAMTX_API_PORT = int(os.getenv("MEDIAMTX_API_PORT", "9997"))
-
-_mediamtx_poll_running = False
-
-def _poll_mediamtx_paths_loop():
-    import urllib.request
-    global _mediamtx_poll_running
-    mediamtx_api_url = f"http://{MEDIAMTX_HOST}:{MEDIAMTX_API_PORT}/v3/paths/list"
-    while _mediamtx_poll_running:
-        try:
-            req = urllib.request.Request(mediamtx_api_url)
-            with urllib.request.urlopen(req, timeout=2.0) as resp:
-                if resp.status == 200:
-                    data = json.loads(resp.read().decode("utf-8"))
-                    items = data.get("items", []) or []
-                    ready_paths = {item["name"].strip("/"): item.get("ready", False) for item in items if "name" in item}
-                    
-                    for camera in list(cameras_db):
-                        source_path = (camera.get("source_stream_path") or "").strip("/")
-                        is_ready = ready_paths.get(source_path, False)
-                        
-                        if not is_ready:
-                            for p, ready_val in ready_paths.items():
-                                if ready_val:
-                                    matched_cam, role = find_camera_by_stream_path(p)
-                                    if matched_cam == camera and role == "source":
-                                        is_ready = True
-                                        break
-                        
-                        current_online = camera.get("source_online", False)
-                        if is_ready and not current_online:
-                            update_camera_state(StateRequest(path=source_path, status="online"))
-                        elif not is_ready and current_online and camera.get("source_kind") == "live_publish":
-                            update_camera_state(StateRequest(path=source_path, status="offline"))
-        except Exception:
-            pass
-        time.sleep(2.0)
-
-def start_mediamtx_polling():
-    global _mediamtx_poll_running
-    if not _mediamtx_poll_running:
-        _mediamtx_poll_running = True
-        t = threading.Thread(target=_poll_mediamtx_paths_loop, daemon=True)
-        t.start()
 
 ANALYTICS_STALE_AFTER_SECONDS = float(
     os.getenv("ANALYTICS_STALE_AFTER_SECONDS", "20")

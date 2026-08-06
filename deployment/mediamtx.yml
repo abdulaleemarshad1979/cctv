@@ -17,7 +17,6 @@ authInternalUsers:
       - action: read
       - action: playback
       - action: api
-
 rtsp: yes
 rtspAddress: :8554
 
@@ -37,3 +36,5 @@ webrtcAdditionalHosts:
 
 paths:
   all_others:
+    runOnReady: 'curl -X POST http://app:8000/cameras/state -H "Content-Type: application/json" -d "{\"path\":\"$MTX_PATH\", \"status\":\"online\"}"'
+    runOnNotReady: 'curl -X POST http://app:8000/cameras/state -H "Content-Type: application/json" -d "{\"path\":\"$MTX_PATH\", \"status\":\"offline\"}"'
