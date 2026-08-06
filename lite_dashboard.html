@@ -43,67 +43,71 @@
       -webkit-font-smoothing: antialiased;
     }
 
-    /* ---------- Header ---------- */
-    .header {
+    /* ---------- Sticky Nav Wrapper & Compact Header ---------- */
+    .sticky-nav-wrapper {
       position: sticky;
       top: 0;
       z-index: 50;
       background-color: var(--bg-header);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
       backdrop-filter: blur(12px);
       -webkit-backdrop-filter: blur(12px);
-      border-bottom: 3px solid #cbd5e1;
-      padding: 16px 24px;
+    }
+
+    .header {
+      background-color: var(--bg-header);
+      border-bottom: 1px solid #cbd5e1;
+      padding: 8px 20px;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 24px;
-      box-shadow: 0 4px 10px -2px rgba(0, 0, 0, 0.08);
+      gap: 16px;
     }
 
     .header__brand {
       display: flex;
       align-items: center;
-      gap: 20px;
+      gap: 14px;
       flex: 1;
     }
 
     .logo-group {
       display: flex;
       align-items: center;
-      gap: 16px;
+      gap: 12px;
       background: transparent;
       border: none;
       padding: 0;
     }
 
     .brand-logo {
-      height: 75px;
+      height: 44px;
       width: auto;
       object-fit: contain;
     }
 
     .brand-title {
-      font-size: 26px;
+      font-size: 17px;
       font-weight: 800;
       color: #0284c7;
       margin: 0;
       font-family: system-ui, -apple-system, sans-serif;
       text-transform: uppercase;
       letter-spacing: 0.5px;
-      line-height: 1.2;
+      line-height: 1.1;
     }
 
     .brand-subtitle {
-      font-size: 20px;
-      font-weight: 800;
+      font-size: 13px;
+      font-weight: 700;
       color: #0f172a;
-      margin-top: 4px;
+      margin-top: 1px;
     }
 
     .dignitaries-group {
       display: flex;
-      align-items: flex-start;
-      gap: 24px;
+      align-items: center;
+      gap: 12px;
       flex-shrink: 0;
     }
 
@@ -111,50 +115,220 @@
       display: flex;
       flex-direction: column;
       align-items: center;
-      width: 175px;
-      gap: 6px;
+      width: 105px;
+      gap: 2px;
     }
 
     .dignitary-img {
-      height: 125px;
+      height: 48px;
       width: 100%;
-      border-radius: 8px;
-      border: 2px solid #94a3b8;
-      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.12);
+      border-radius: 6px;
+      border: 1.5px solid #94a3b8;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
       object-fit: cover;
       object-position: center center;
     }
 
     .dignitary-name {
-      font-size: 13px;
+      font-size: 10px;
       font-weight: 800;
       color: #0f172a;
       text-align: center;
-      line-height: 1.2;
-      margin-top: 2px;
+      line-height: 1.1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 100%;
     }
 
     .dignitary-desig {
-      font-size: 11px;
+      font-size: 8px;
       font-weight: 700;
       color: #0284c7;
       text-align: center;
-      line-height: 1.2;
+      line-height: 1.1;
       text-transform: uppercase;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 100%;
     }
 
     /* ---------- Navigation Control Bar ---------- */
     .nav-control-bar {
       background-color: #ffffff;
       border-bottom: 2px solid #cbd5e1;
-      padding: 12px 24px;
+      padding: 8px 20px;
       display: flex;
       justify-content: space-between;
       align-items: center;
       flex-wrap: wrap;
-      gap: 16px;
-      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
-      margin-bottom: 8px;
+      gap: 12px;
+    }
+
+    .logout-btn {
+      color: #be123c;
+      background: #fff1f2;
+      border: 1px solid #fecdd3;
+      border-radius: 9999px;
+      padding: 8px 14px;
+      font-size: 12px;
+      font-weight: 700;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      transition: all 0.2s ease;
+    }
+
+    .logout-btn:hover {
+      background: #ffe4e6;
+      border-color: #fda4af;
+    }
+
+    /* ---------- Full View Modal & Controls ---------- */
+    .full-view-modal {
+      position: fixed;
+      inset: 0;
+      z-index: 10000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .full-view-backdrop {
+      position: absolute;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.85);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+    }
+
+    .full-view-content {
+      position: relative;
+      z-index: 10;
+      width: 100%;
+      max-width: 1380px;
+      height: 90vh;
+      background: #080d16;
+      border-radius: 14px;
+      border: 1px solid #334155;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.6);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .full-view-header {
+      background: #0f172a;
+      padding: 12px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid #1e293b;
+      flex-shrink: 0;
+    }
+
+    .full-view-title-group {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .full-view-badge {
+      background: #0284c7;
+      color: #fff;
+      font-size: 10px;
+      font-weight: 800;
+      padding: 3px 8px;
+      border-radius: 9999px;
+      letter-spacing: 0.05em;
+    }
+
+    .full-view-title {
+      color: #f8fafc;
+      font-size: 16px;
+      font-weight: 700;
+      margin: 0;
+    }
+
+    .full-view-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .full-view-btn {
+      background: #0284c7;
+      color: #fff;
+      border: none;
+      padding: 6px 14px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: background 0.2s ease;
+    }
+
+    .full-view-btn:hover {
+      background: #0369a1;
+    }
+
+    .full-view-close-btn {
+      background: #334155;
+      color: #fff;
+      border: none;
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      font-size: 16px;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.2s ease;
+    }
+
+    .full-view-close-btn:hover {
+      background: #e11d48;
+    }
+
+    .full-view-body {
+      flex: 1;
+      position: relative;
+      width: 100%;
+      height: 100%;
+      background: #000;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .tile__expand-btn {
+      background: rgba(15, 23, 42, 0.75);
+      color: #ffffff;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: 700;
+      cursor: pointer;
+      backdrop-filter: blur(4px);
+      transition: all 0.2s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .tile__expand-btn:hover {
+      background: #0284c7;
+      border-color: #0284c7;
     }
 
     .nav-right-group {
@@ -1142,77 +1316,88 @@
 
 <body>
 
-  <!-- Premium Responsive Header -->
-  <header class="header">
-    <div class="header__brand">
-      <div class="logo-group">
-        <img src="/static/monitor/img/ap_police_logo.png" alt="AP Police Logo" class="brand-logo">
+  <!-- Sticky Nav Wrapper (Compact Header + Control Bar) -->
+  <div class="sticky-nav-wrapper">
+    <!-- Premium Responsive Header -->
+    <header class="header">
+      <div class="header__brand">
+        <div class="logo-group">
+          <img src="/static/monitor/img/ap_police_logo.png" alt="AP Police Logo" class="brand-logo">
+        </div>
+        <div>
+          <h1 class="brand-title">Andhra Pradesh Police Department</h1>
+          <div class="brand-subtitle">East Godavari Drone Monitoring System</div>
+        </div>
       </div>
-      <div>
-        <h1 class="brand-title">Andhra Pradesh Police Department</h1>
-        <div class="brand-subtitle">East Godavari Drone Monitoring System</div>
-      </div>
-    </div>
 
-    <!-- Portrait Dignitaries aligned horizontally -->
-    <div class="dignitaries-group">
-      <div class="dignitary-card">
-        <img src="/static/monitor/img/cm.png?v=4" alt="Hon'ble CM Sri N. Chandrababu Naidu" class="dignitary-img">
-        <div class="dignitary-name">Sri N. Chandrababu Naidu</div>
-        <div class="dignitary-desig">Hon'ble Chief Minister</div>
+      <!-- Portrait Dignitaries aligned horizontally -->
+      <div class="dignitaries-group">
+        <div class="dignitary-card">
+          <img src="/static/monitor/img/cm.png?v=4" alt="Hon'ble CM Sri N. Chandrababu Naidu" class="dignitary-img">
+          <div class="dignitary-name">Sri N. Chandrababu Naidu</div>
+          <div class="dignitary-desig">Hon'ble Chief Minister</div>
+        </div>
+        <div class="dignitary-card">
+          <img src="/static/monitor/img/dgp.png?v=4" alt="DGP Sri Harish Kumar Gupta, IPS" class="dignitary-img">
+          <div class="dignitary-name">Sri Harish Kumar Gupta, IPS</div>
+          <div class="dignitary-desig">DGP, Andhra Pradesh</div>
+        </div>
+        <div class="dignitary-card">
+          <img src="/static/monitor/img/sp.png?v=4" alt="SP D. Narasimha Kishore, IPS" class="dignitary-img">
+          <div class="dignitary-name">D. Narasimha Kishore, IPS</div>
+          <div class="dignitary-desig">SP, East Godavari</div>
+        </div>
       </div>
-      <div class="dignitary-card">
-        <img src="/static/monitor/img/dgp.png?v=4" alt="DGP Sri Harish Kumar Gupta, IPS" class="dignitary-img">
-        <div class="dignitary-name">Sri Harish Kumar Gupta, IPS</div>
-        <div class="dignitary-desig">DGP, Andhra Pradesh</div>
+    </header>
+
+    <!-- Navigation & Filter Control Bar -->
+    <div class="nav-control-bar">
+      <div class="filter-group">
+        <button class="pill active" data-filter="All">All Streams</button>
+        <button class="pill" data-filter="Active">Active Feeds</button>
       </div>
-      <div class="dignitary-card">
-        <img src="/static/monitor/img/sp.png?v=4" alt="SP D. Narasimha Kishore, IPS" class="dignitary-img">
-        <div class="dignitary-name">D. Narasimha Kishore, IPS</div>
-        <div class="dignitary-desig">SP, East Godavari</div>
-      </div>
-    </div>
-  </header>
 
-  <!-- Navigation & Filter Control Bar -->
-  <div class="nav-control-bar">
-    <div class="filter-group">
-      <button class="pill active" data-filter="All">All Streams</button>
-      <button class="pill" data-filter="Active">Active Feeds</button>
-    </div>
-
-    <div class="nav-right-group">
-      <!-- Stampede Warning Notification Bell -->
-      <button id="notif-bell-btn" onclick="toggleNotifDrawer()" class="notif-btn">
-        <svg style="width: 18px; height: 18px;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"
-            d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-        </svg>
-        <span>Stampede Warnings</span>
-        <span id="notif-badge" class="hidden notif-badge">0</span>
-      </button>
-
-      <a href="/forecast/history.csv" download class="csv-btn">
-        Download Forecast CSV
-      </a>
-      <!-- Premium Mode Toggle -->
-      <div class="mode-toggle-group">
-        <button id="btn-mode-viewing" class="mode-pill" onclick="changeGlobalMode('viewing')">
-          <svg style="width: 16px; height: 16px;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <div class="nav-right-group">
+        <!-- Stampede Warning Notification Bell -->
+        <button id="notif-bell-btn" onclick="toggleNotifDrawer()" class="notif-btn">
+          <svg style="width: 18px; height: 18px;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"
-              d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"
-              d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+              d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
           </svg>
-          Viewing Mode
+          <span>Stampede Warnings</span>
+          <span id="notif-badge" class="hidden notif-badge">0</span>
         </button>
-        <button id="btn-mode-counting" class="mode-pill active" onclick="changeGlobalMode('counting')">
-          <svg style="width: 16px; height: 16px;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"
-              d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 002 2h2a2 2 0 002-2z" />
+
+        <a href="/forecast/history.csv" download class="csv-btn">
+          Download Forecast CSV
+        </a>
+        <!-- Premium Mode Toggle -->
+        <div class="mode-toggle-group">
+          <button id="btn-mode-viewing" class="mode-pill" onclick="changeGlobalMode('viewing')">
+            <svg style="width: 16px; height: 16px;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"
+                d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"
+                d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+            </svg>
+            Viewing Mode
+          </button>
+          <button id="btn-mode-counting" class="mode-pill active" onclick="changeGlobalMode('counting')">
+            <svg style="width: 16px; height: 16px;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"
+                d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 002 2h2a2 2 0 002-2z" />
+            </svg>
+            Counting Mode
+          </button>
+        </div>
+
+        <!-- Logout Button -->
+        <a href="/logout" class="logout-btn" title="Sign Out">
+          <span>Logout</span>
+          <svg style="width: 14px; height: 14px;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
           </svg>
-          Counting Mode
-        </button>
+        </a>
       </div>
     </div>
   </div>
@@ -1298,7 +1483,6 @@
         ? `${Number(forecast.accuracy_percent).toFixed(1)}% measured`
         : "validating…";
     }
-
     function forecastStatusText(forecast) {
       const message = forecast?.message || "Waiting for crowd samples";
       if (forecast?.raw_count == null || forecast?.stabilized_count == null) return message;
@@ -1309,10 +1493,60 @@
       return Boolean(player) && (player.egdmsPath === path || player._egdmsPath === path);
     }
 
+    // Full View Modal system
+    let activeFullViewCamId = null;
+
+    window.openFullViewModal = function(camId) {
+      const cam = cameras.find(c => c.id === camId);
+      if (!cam) return;
+
+      const container = document.getElementById(`player-container-${camId}`);
+      const fullViewBody = document.getElementById("full-view-body");
+      const fullViewModal = document.getElementById("full-view-modal");
+      const fullViewTitle = document.getElementById("full-view-title");
+
+      if (container && fullViewBody && fullViewModal) {
+        fullViewTitle.textContent = `${cam.name} — ${cam.location}`;
+        fullViewBody.appendChild(container);
+        fullViewModal.classList.remove("hidden");
+        activeFullViewCamId = camId;
+      }
+    };
+
+    window.closeFullViewModal = function() {
+      if (!activeFullViewCamId) return;
+      const camId = activeFullViewCamId;
+      const container = document.getElementById(`player-container-${camId}`);
+      const cardBody = document.querySelector(`.tile[data-id="${camId}"] .tile__body`);
+      const fullViewModal = document.getElementById("full-view-modal");
+
+      if (container && cardBody) {
+        cardBody.insertBefore(container, cardBody.firstChild);
+      }
+      if (fullViewModal) {
+        fullViewModal.classList.add("hidden");
+      }
+      activeFullViewCamId = null;
+    };
+
+    window.toggleNativeFullscreen = function() {
+      const body = document.getElementById("full-view-body");
+      if (!body) return;
+      if (!document.fullscreenElement) {
+        body.requestFullscreen().catch(err => console.error(err));
+      } else {
+        document.exitFullscreen().catch(err => console.error(err));
+      }
+    };
+
     // Fetch cameras from the backend
     async function loadCamerasFromBackend() {
       try {
         const res = await fetch("/cameras");
+        if (res.status === 401) {
+          window.location.href = "/login?error=expired";
+          return;
+        }
         cameras = await res.json();
         renderGrid();
       } catch (e) {
@@ -1320,13 +1554,128 @@
       }
     }
 
-    // Build the grid cards dynamically
+    function createTileCard(cam) {
+      const isOnline = isCameraPlayable(cam);
+      const analyticsReady = isOnline && globalMode === 'counting' && cam.analytics_status === 'active';
+      const analyticsStarting = isOnline && globalMode === 'counting' && !analyticsReady;
+      const analyticsMessage = cam.analytics_status === 'stale'
+        ? 'Waiting for new count…'
+        : (cam.analytics_status === 'error' ? 'Counting unavailable' : 'Analysis starting…');
+
+      const card = document.createElement("div");
+      card.className = `tile ${isOnline && globalMode === 'counting' ? 'tile--counting' : ''}`;
+      card.setAttribute("data-id", cam.id);
+      card.setAttribute("data-location", cam.location);
+      card.setAttribute("data-category", cam.category || "");
+      card.setAttribute("data-status", isOnline ? "online" : cam.status);
+
+      card.innerHTML = `
+        <header class="tile__header">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span class="tile__name">${cam.name}</span>
+            <button class="tile__expand-btn" onclick="openFullViewModal('${cam.id}')" title="Full View Modal">⤢ Full View</button>
+          </div>
+          <div class="tile__meta">
+            <span class="tile__count ${isOnline && globalMode === 'counting' ? '' : 'hidden'}" id="count-${cam.id}" title="${escapeHtml(cam.connection_message || '')}">${analyticsStarting ? analyticsMessage : `${cam.people_count || 0} pax`}</span>
+            <span class="tile__zone-badge ${(cam.comp_zone || 'SAFE').toLowerCase()} ${analyticsReady ? '' : 'hidden'}" id="zone-${cam.id}">${cam.comp_zone || 'SAFE'}</span>
+            <span class="tile__location">${cam.location}</span>
+            <span class="tile__status-dot"></span>
+          </div>
+        </header>
+        <div class="tile__body">
+          <div class="tile__player-container w-full h-full ${isOnline ? '' : 'hidden'}" id="player-container-${cam.id}"></div>
+          
+          <div class="tile__live-badge ${isOnline ? '' : 'hidden'}" id="live-${cam.id}">
+            <span class="tile__live-dot"></span>
+            <span class="tile__live-text">LIVE</span>
+          </div>
+
+          <div class="tile__hud ${analyticsReady ? '' : 'hidden'}" id="hud-${cam.id}">
+            <div class="tile__hud-row">
+              <div class="tile__hud-metric">
+                <div class="tile__hud-value-container">
+                  <span class="tile__hud-label">Pressure</span>
+                  <span class="tile__hud-value" id="hud-pressure-${cam.id}">0%</span>
+                </div>
+                <div class="tile__hud-bar-bg">
+                  <div class="tile__hud-bar-fill" id="hud-pressure-bar-${cam.id}"></div>
+                </div>
+              </div>
+              <div class="tile__hud-metric">
+                <div class="tile__hud-value-container">
+                  <span class="tile__hud-label">Crowd Risk Index</span>
+                  <span class="tile__hud-value" id="hud-stampede-${cam.id}">0/100</span>
+                </div>
+                <div class="tile__hud-bar-bg">
+                  <div class="tile__hud-bar-fill" id="hud-stampede-bar-${cam.id}"></div>
+                </div>
+              </div>
+            </div>
+            <div class="tile__hud-stats-grid">
+              <div class="tile__hud-stat">
+                <span class="tile__hud-stat-name">Flow Speed</span>
+                <span class="tile__hud-stat-val" id="hud-flow-${cam.id}">0.0</span>
+              </div>
+              <div class="tile__hud-stat">
+                <span class="tile__hud-stat-name">Turbulence</span>
+                <span class="tile__hud-stat-val" id="hud-turb-${cam.id}">0.0</span>
+              </div>
+            </div>
+            <div class="tile__forecast" id="forecast-${cam.id}">
+              <div class="tile__forecast-header">
+                <span>Crowd forecast</span>
+                <span class="tile__forecast-accuracy" id="forecast-accuracy-${cam.id}">${forecastAccuracyText(cam.forecast)}</span>
+              </div>
+              <div class="tile__forecast-grid" id="forecast-values-${cam.id}">${forecastItemsMarkup(cam.forecast)}</div>
+              <div class="tile__forecast-status" id="forecast-status-${cam.id}">${escapeHtml(forecastStatusText(cam.forecast))}</div>
+            </div>
+            <div class="tile__zone-grid" id="zone-grid-${cam.id}">
+              <div class="zone-grid-header">ZONE COUNTS</div>
+              <div class="zone-grid-cells" id="zone-cells-${cam.id}"></div>
+            </div>
+          </div>
+
+          <div class="tile__warning-overlay hidden" id="warning-overlay-${cam.id}">
+            <span id="warning-text-${cam.id}">WARNING: HIGH RISK</span>
+          </div>
+          
+          <div class="tile__placeholder ${isOnline ? 'hidden' : ''}" id="placeholder-${cam.id}">
+            <p class="tile__error-text" id="placeholder-text-${cam.id}">
+              ${escapeHtml(getConnectionMessage(cam))}
+            </p>
+            <code class="tile__publish-url ${shouldShowPublishUrl(cam) ? '' : 'hidden'}" id="publish-url-${cam.id}">${escapeHtml(cam.publish_url || '')}</code>
+            <div class="bouncing-loader ${isOnline ? 'hidden' : ''}" id="loader-${cam.id}">
+              <div></div>
+              <div></div>
+              <div></div>
+            </div>
+          </div>
+        </div>
+      `;
+      return card;
+    }
+
+    // Build the grid cards dynamically without destroying existing active video players
     function renderGrid() {
       const grid = document.getElementById("drone-grid");
-      Object.keys(hlsPlayers).forEach(id => teardownVideoFeed(id));
-      grid.innerHTML = "";
+      const existingCards = new Map();
+      grid.querySelectorAll(".tile").forEach(card => {
+        existingCards.set(card.getAttribute("data-id"), card);
+      });
 
+      const currentCamMap = new Map(cameras.map(c => [c.id, c]));
       let visibleCount = 0;
+
+      // 1. Remove cards that no longer exist in backend DB
+      existingCards.forEach((card, id) => {
+        if (!currentCamMap.has(id)) {
+          if (activeFullViewCamId === id) closeFullViewModal();
+          card.remove();
+          teardownVideoFeed(id);
+        }
+      });
+
+      // 2. Add new cards or update existing cards
       cameras.forEach(cam => {
         const matchesFilter =
           activeFilter === "All" ||
@@ -1336,112 +1685,26 @@
           (activeFilter === "Drone" && cam.category === "DRONE") ||
           (activeFilter === "CCTV" && cam.category === "CCTV");
 
-        if (!matchesFilter) return;
+        let card = existingCards.get(cam.id);
+        const isOnline = isCameraPlayable(cam);
+
+        if (!matchesFilter) {
+          if (card) card.classList.add("hidden");
+          return;
+        }
+
         visibleCount++;
 
-        const isOnline = isCameraPlayable(cam);
-        const analyticsReady = isOnline && globalMode === 'counting' && cam.analytics_status === 'active';
-        const analyticsStarting = isOnline && globalMode === 'counting' && !analyticsReady;
-        const analyticsMessage = cam.analytics_status === 'stale'
-          ? 'Waiting for new count…'
-          : (cam.analytics_status === 'error' ? 'Counting unavailable' : 'Analysis starting…');
-
-        const card = document.createElement("div");
-        card.className = `tile ${isOnline && globalMode === 'counting' ? 'tile--counting' : ''}`;
-        card.setAttribute("data-id", cam.id);
-        card.setAttribute("data-location", cam.location);
-        card.setAttribute("data-category", cam.category || "");
-        card.setAttribute("data-status", isOnline ? "online" : cam.status);
-
-        card.innerHTML = `
-          <header class="tile__header">
-            <span class="tile__name">${cam.name}</span>
-            <div class="tile__meta">
-              <span class="tile__count ${isOnline && globalMode === 'counting' ? '' : 'hidden'}" id="count-${cam.id}" title="${escapeHtml(cam.connection_message || '')}">${analyticsStarting ? analyticsMessage : `${cam.people_count || 0} pax`}</span>
-              <span class="tile__zone-badge ${(cam.comp_zone || 'SAFE').toLowerCase()} ${analyticsReady ? '' : 'hidden'}" id="zone-${cam.id}">${cam.comp_zone || 'SAFE'}</span>
-              <span class="tile__location">${cam.location}</span>
-              <span class="tile__status-dot"></span>
-            </div>
-          </header>
-          <div class="tile__body">
-            <!-- Video Display Container -->
-            <div class="tile__player-container w-full h-full ${isOnline ? '' : 'hidden'}" id="player-container-${cam.id}"></div>
-            
-            <div class="tile__live-badge ${isOnline ? '' : 'hidden'}" id="live-${cam.id}">
-              <span class="tile__live-dot"></span>
-              <span class="tile__live-text">LIVE</span>
-            </div>
-
-            <!-- Sleek Glassmorphic HUD -->
-            <div class="tile__hud ${analyticsReady ? '' : 'hidden'}" id="hud-${cam.id}">
-              <div class="tile__hud-row">
-                <div class="tile__hud-metric">
-                  <div class="tile__hud-value-container">
-                    <span class="tile__hud-label">Pressure</span>
-                    <span class="tile__hud-value" id="hud-pressure-${cam.id}">0%</span>
-                  </div>
-                  <div class="tile__hud-bar-bg">
-                    <div class="tile__hud-bar-fill" id="hud-pressure-bar-${cam.id}"></div>
-                  </div>
-                </div>
-                <div class="tile__hud-metric">
-                  <div class="tile__hud-value-container">
-                    <span class="tile__hud-label">Crowd Risk Index</span>
-                    <span class="tile__hud-value" id="hud-stampede-${cam.id}">0/100</span>
-                  </div>
-                  <div class="tile__hud-bar-bg">
-                    <div class="tile__hud-bar-fill" id="hud-stampede-bar-${cam.id}"></div>
-                  </div>
-                </div>
-              </div>
-              <div class="tile__hud-stats-grid">
-                <div class="tile__hud-stat">
-                  <span class="tile__hud-stat-name">Flow Speed</span>
-                  <span class="tile__hud-stat-val" id="hud-flow-${cam.id}">0.0</span>
-                </div>
-                <div class="tile__hud-stat">
-                  <span class="tile__hud-stat-name">Turbulence</span>
-                  <span class="tile__hud-stat-val" id="hud-turb-${cam.id}">0.0</span>
-                </div>
-              </div>
-              <div class="tile__forecast" id="forecast-${cam.id}">
-                <div class="tile__forecast-header">
-                  <span>Crowd forecast</span>
-                  <span class="tile__forecast-accuracy" id="forecast-accuracy-${cam.id}">${forecastAccuracyText(cam.forecast)}</span>
-                </div>
-                <div class="tile__forecast-grid" id="forecast-values-${cam.id}">${forecastItemsMarkup(cam.forecast)}</div>
-                <div class="tile__forecast-status" id="forecast-status-${cam.id}">${escapeHtml(forecastStatusText(cam.forecast))}</div>
-              </div>
-              <!-- Per-Zone Head Count Grid -->
-              <div class="tile__zone-grid" id="zone-grid-${cam.id}">
-                <div class="zone-grid-header">ZONE COUNTS</div>
-                <div class="zone-grid-cells" id="zone-cells-${cam.id}"></div>
-              </div>
-            </div>
-
-            <!-- Glowing Warning Banner -->
-            <div class="tile__warning-overlay hidden" id="warning-overlay-${cam.id}">
-              <span id="warning-text-${cam.id}">WARNING: HIGH RISK</span>
-            </div>
-            
-            <div class="tile__placeholder ${isOnline ? 'hidden' : ''}" id="placeholder-${cam.id}">
-              <p class="tile__error-text" id="placeholder-text-${cam.id}">
-                ${escapeHtml(getConnectionMessage(cam))}
-              </p>
-              <code class="tile__publish-url ${shouldShowPublishUrl(cam) ? '' : 'hidden'}" id="publish-url-${cam.id}">${escapeHtml(cam.publish_url || '')}</code>
-              <div class="bouncing-loader ${isOnline ? 'hidden' : ''}" id="loader-${cam.id}">
-                <div></div>
-                <div></div>
-                <div></div>
-              </div>
-            </div>
-          </div>
-        `;
-        grid.appendChild(card);
-
-        if (isOnline) {
-          setupVideoFeed(cam);
-          updateLiveStats(cam);
+        if (!card) {
+          card = createTileCard(cam);
+          grid.appendChild(card);
+          if (isOnline) {
+            setupVideoFeed(cam);
+            updateLiveStats(cam);
+          }
+        } else {
+          card.classList.remove("hidden");
+          updateCameraConnectionState(cam);
         }
       });
 
@@ -2128,6 +2391,29 @@
       </div>
     </div>
   </aside>
+
+  <!-- Dedicated Full View Modal Overlay -->
+  <div id="full-view-modal" class="full-view-modal hidden">
+    <div class="full-view-backdrop" onclick="closeFullViewModal()"></div>
+    <div class="full-view-content">
+      <div class="full-view-header">
+        <div class="full-view-title-group">
+          <span class="full-view-badge">LIVE MONITORING</span>
+          <h2 id="full-view-title" class="full-view-title">Camera Feed</h2>
+        </div>
+        <div class="full-view-actions">
+          <button class="full-view-btn" onclick="toggleNativeFullscreen()">
+            <svg style="width: 16px; height: 16px;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-5h-4m4 0v4m0-4l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+            </svg>
+            <span>Native Fullscreen</span>
+          </button>
+          <button class="full-view-close-btn" onclick="closeFullViewModal()">✕</button>
+        </div>
+      </div>
+      <div id="full-view-body" class="full-view-body"></div>
+    </div>
+  </div>
 </body>
 
 </html>

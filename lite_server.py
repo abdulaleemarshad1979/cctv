@@ -7,13 +7,14 @@ import subprocess
 import importlib.util
 import ipaddress
 import threading
+import hashlib
+import hmac
 from datetime import datetime, timezone
 from functools import lru_cache
 from contextlib import asynccontextmanager
 from typing import Optional
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
-from fastapi.responses import RedirectResponse
+from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi.responses import FileResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 import config
@@ -66,7 +67,7 @@ if os.path.exists("Videos"):
     app.mount("/Videos", StaticFiles(directory="Videos"), name="videos")
 
 global_counting_mode = True
-MEDIAMTX_HOST = os.getenv("MEDIAMTX_HOST", "mediamtx")
+MEDIAMTX_HOST = os.getenv("MEDIAMTX_HOST", "127.0.0.1")
 MEDIAMTX_RTSP_PORT = int(os.getenv("MEDIAMTX_RTSP_PORT", "8554"))
 MEDIAMTX_RTMP_PORT = int(os.getenv("MEDIAMTX_RTMP_PORT", "1935"))
 MEDIAMTX_HLS_PORT = int(os.getenv("MEDIAMTX_HLS_PORT", "8888"))
@@ -681,7 +682,101 @@ def stop_stream(drone_id):
 
 
 
+# --- Authentication Configuration & Helpers ---
+ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "Egdronepolice@1143")
+SECRET_KEY = os.getenv("SECRET_KEY", "egdms_police_secret_key_2026")
+SESSION_COOKIE_NAME = "egdms_session"
+
+def create_session_token(username: str) -> str:
+    signature = hmac.new(SECRET_KEY.encode(), username.encode(), hashlib.sha256).hexdigest()
+    return f"{username}:{signature}"
+
+def verify_session_token(token: Optional[str]) -> bool:
+    if not token or ":" not in token:
+        return False
+    username, sig = token.split(":", 1)
+    if username != ADMIN_USERNAME:
+        return False
+    expected_sig = hmac.new(SECRET_KEY.encode(), username.encode(), hashlib.sha256).hexdigest()
+    return hmac.compare_digest(sig, expected_sig)
+
+def is_authenticated(request: Request) -> bool:
+    token = request.cookies.get(SESSION_COOKIE_NAME)
+    return verify_session_token(token)
+
+@app.middleware("http")
+async def auth_middleware(request: Request, call_next):
+    path = request.url.path
+    public_paths = (
+        "/login",
+        "/logout",
+        "/health",
+        "/static",
+        "/favicon.ico",
+        "/cameras/state",
+        "/cameras/update_stats",
+        "/get_mode",
+        "/api/notifications",
+    )
+    if any(path.startswith(p) for p in public_paths):
+        return await call_next(request)
+
+    if not is_authenticated(request):
+        if path in ("/", "/commercial", "/forecast/history.csv"):
+            return RedirectResponse(url="/login", status_code=307)
+        return JSONResponse(status_code=401, content={"detail": "Unauthenticated. Please log in."})
+
+    return await call_next(request)
+
 # --- Endpoints ---
+
+@app.get("/login", response_class=FileResponse)
+def login_page(request: Request):
+    if is_authenticated(request):
+        return RedirectResponse(url="/", status_code=307)
+    return FileResponse("login.html")
+
+@app.post("/login")
+async def login_submit(request: Request):
+    username, password = "", ""
+    try:
+        data = await request.json()
+        username = str(data.get("username", "")).strip()
+        password = str(data.get("password", "")).strip()
+    except Exception:
+        try:
+            body = await request.body()
+            from urllib.parse import parse_qs
+            parsed = parse_qs(body.decode("utf-8", errors="ignore"))
+            username = parsed.get("username", [""])[0].strip()
+            password = parsed.get("password", [""])[0].strip()
+        except Exception:
+            pass
+
+    if username == ADMIN_USERNAME and password == ADMIN_PASSWORD:
+        token = create_session_token(username)
+        response = JSONResponse(content={"status": "success", "redirect": "/"})
+        response.set_cookie(
+            key=SESSION_COOKIE_NAME,
+            value=token,
+            httponly=True,
+            max_age=86400 * 7,
+            samesite="lax"
+        )
+        return response
+
+    return JSONResponse(status_code=401, content={"detail": "Invalid username or password."})
+
+@app.api_route("/logout", methods=["GET", "POST"])
+def logout():
+    response = RedirectResponse(url="/login", status_code=307)
+    response.delete_cookie(SESSION_COOKIE_NAME)
+    return response
+
+@app.get("/api/auth/check")
+def check_auth(request: Request):
+    return {"authenticated": is_authenticated(request)}
 
 @app.get("/", response_class=FileResponse)
 def index():

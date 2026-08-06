@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Login - East Godavari Drone Monitoring System</title>
+  <link rel="icon" href="data:,">
+  <style>
+    :root {
+      --bg-gradient-start: #0f172a;
+      --bg-gradient-end: #1e293b;
+      --card-bg: rgba(255, 255, 255, 0.95);
+      --accent-blue: #0284c7;
+      --accent-hover: #0369a1;
+      --text-main: #0f172a;
+      --text-muted: #64748b;
+      --error-red: #e11d48;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      min-height: 100vh;
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+      background: radial-gradient(circle at top left, #1e293b, #0f172a 80%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      color: var(--text-main);
+    }
+
+    .login-card {
+      width: 100%;
+      max-width: 440px;
+      background: var(--card-bg);
+      border-radius: 16px;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.4);
+      overflow: hidden;
+      backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+    }
+
+    .login-header {
+      background: #ffffff;
+      padding: 32px 28px 24px;
+      text-align: center;
+      border-bottom: 2px solid #e2e8f0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .brand-logo {
+      height: 70px;
+      width: auto;
+      object-fit: contain;
+    }
+
+    .brand-title {
+      font-size: 18px;
+      font-weight: 800;
+      color: #0284c7;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      line-height: 1.2;
+    }
+
+    .brand-subtitle {
+      font-size: 14px;
+      font-weight: 700;
+      color: #0f172a;
+      margin-top: 2px;
+    }
+
+    .login-body {
+      padding: 28px;
+    }
+
+    .login-form {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .form-label {
+      font-size: 12px;
+      font-weight: 700;
+      color: #334155;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .form-input {
+      width: 100%;
+      padding: 12px 16px;
+      font-size: 14px;
+      border-radius: 8px;
+      border: 1px solid #cbd5e1;
+      background: #ffffff;
+      color: #0f172a;
+      outline: none;
+      transition: all 0.2s ease;
+    }
+
+    .form-input:focus {
+      border-color: #0284c7;
+      box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.15);
+    }
+
+    .error-alert {
+      background: #fff1f2;
+      border: 1px solid #fecdd3;
+      color: var(--error-red);
+      padding: 10px 14px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      display: none;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .submit-btn {
+      width: 100%;
+      background: var(--accent-blue);
+      color: #ffffff;
+      border: none;
+      padding: 14px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background 0.2s ease, transform 0.1s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      box-shadow: 0 4px 12px rgba(2, 132, 199, 0.3);
+    }
+
+    .submit-btn:hover {
+      background: var(--accent-hover);
+    }
+
+    .submit-btn:active {
+      transform: scale(0.99);
+    }
+
+    .login-footer {
+      padding: 16px 28px 24px;
+      text-align: center;
+      font-size: 11px;
+      color: #64748b;
+      border-top: 1px solid #f1f5f9;
+      background: #f8fafc;
+    }
+  </style>
+</head>
+<body>
+  <div class="login-card">
+    <div class="login-header">
+      <img src="/static/monitor/img/ap_police_logo.png" alt="AP Police Logo" class="brand-logo">
+      <div>
+        <h1 class="brand-title">Andhra Pradesh Police Department</h1>
+        <div class="brand-subtitle">East Godavari Drone Monitoring System</div>
+      </div>
+    </div>
+
+    <div class="login-body">
+      <form id="loginForm" class="login-form" method="POST" action="/login">
+        <div id="errorAlert" class="error-alert">
+          <svg style="width: 18px; height: 18px; flex-shrink: 0;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+          </svg>
+          <span id="errorMessage">Invalid username or password</span>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="username">Username</label>
+          <input type="text" id="username" name="username" class="form-input" placeholder="Enter username" required autofocus autocomplete="username">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="password">Password</label>
+          <input type="password" id="password" name="password" class="form-input" placeholder="Enter password" required autocomplete="current-password">
+        </div>
+
+        <button type="submit" class="submit-btn">
+          <span>Sign In</span>
+          <svg style="width: 16px; height: 16px;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3" />
+          </svg>
+        </button>
+      </form>
+    </div>
+
+    <div class="login-footer">
+      East Godavari Drone Monitoring System &bull; Official AP Police Portal
+    </div>
+  </div>
+
+  <script>
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get("error")) {
+      const alertEl = document.getElementById("errorAlert");
+      const msgEl = document.getElementById("errorMessage");
+      if (urlParams.get("error") === "invalid") {
+        msgEl.textContent = "Invalid username or password.";
+      } else if (urlParams.get("error") === "expired") {
+        msgEl.textContent = "Session expired. Please log in again.";
+      }
+      alertEl.style.display = "flex";
+    }
+
+    document.getElementById("loginForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const form = e.target;
+      const alertEl = document.getElementById("errorAlert");
+      const msgEl = document.getElementById("errorMessage");
+      alertEl.style.display = "none";
+
+      const payload = {
+        username: form.username.value,
+        password: form.password.value
+      };
+
+      try {
+        const res = await fetch("/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+
+        if (res.ok) {
+          window.location.href = "/";
+        } else {
+          const data = await res.json().catch(() => ({}));
+          msgEl.textContent = data.detail || "Invalid username or password.";
+          alertEl.style.display = "flex";
+        }
+      } catch (err) {
+        msgEl.textContent = "Connection error. Please try again.";
+        alertEl.style.display = "flex";
+      }
+    });
+  </script>
+</body>
+</html>
