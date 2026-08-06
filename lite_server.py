@@ -262,7 +262,19 @@ def reset_camera_analytics(camera):
 def find_camera_by_stream_path(path):
     """Return (camera, path role) for a MediaMTX publish path."""
     normalized = (path or "").strip("/")
-    return _cameras_by_stream_path.get(normalized, (None, None))
+    res = _cameras_by_stream_path.get(normalized)
+    if res:
+        return res
+    if "/" in normalized:
+        prefix, name = normalized.split("/", 1)
+        norm_name = normalize_camera_id(name)
+        alt1 = f"{prefix}/{norm_name.replace('-', '')}"
+        if alt1 in _cameras_by_stream_path:
+            return _cameras_by_stream_path[alt1]
+        alt2 = f"{prefix}/{norm_name}"
+        if alt2 in _cameras_by_stream_path:
+            return _cameras_by_stream_path[alt2]
+    return (None, None)
 
 
 def normalize_camera_id(camera_id):
