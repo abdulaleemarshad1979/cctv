@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+source /etc/default/pushkaralu-recording-retention
+
+LOG_TAG="pushkaralu-recording-retention"
+
+log_message() {
+    logger -t "$LOG_TAG" -- "$*"
+    echo "$*"
+}
+
+get_usage() {
+    df -P -- "$RECORD_DIR" | awk 'NR == 2 {
+        gsub("%", "", $5)
+        print $5
+    }'
+}
+
+if [[ ! -d "$RECORD_DIR" ]]; then
+    log_message "ERROR: Recording directory not found: $RECORD_DIR"
+    exit 1
+fi
+
+CURRENT_USAGE="$(get_usage)"
+
+if (( CURRENT_USAGE < HIGH_WATER )); then
+    exit 0
+fi
+
+log_message "Storage is ${CURRENT_USAGE}%. Starting oldest-recording cleanup."
+
+DELETED_FILES=0
+DELETED_BYTES=0
+
+while IFS= read -r -d '' ITEM; do
+    VIDEO_FILE="${ITEM#* }"
+
+    [[ -f "$VIDEO_FILE" ]] || continue
+
+    VIDEO_SIZE="$(stat -c '%s' -- "$VIDEO_FILE" 2>/dev/null || echo 0)"
+
+    if rm -f -- "$VIDEO_FILE"; then
+        DELETED_FILES=$((DELETED_FILES + 1))
+        DELETED_BYTES=$((DELETED_BYTES + VIDEO_SIZE))
+        log_message "Deleted oldest completed recording: $VIDEO_FILE"
+    else
+        log_message "WARNING: Failed to delete: $VIDEO_FILE"
+    fi
+
+    CURRENT_USAGE="$(get_usage)"
+
+    if (( CURRENT_USAGE <= LOW_WATER )); then
+        break
+    fi
+done < <(
+    find "$RECORD_DIR" \
+        -type f \
+        -name '*.mp4' \
+        -mmin "+${MIN_AGE_MINUTES}" \
+        -printf '%T@ %p\0' \
+    | sort -z -n
+)
+
+CURRENT_USAGE="$(get_usage)"
+DELETED_MB=$((DELETED_BYTES / 1024 / 1024))
+
+log_message "Cleanup finished: ${DELETED_FILES} files and ${DELETED_MB} MB removed. Storage usage is now ${CURRENT_USAGE}%."
+
+if (( CURRENT_USAGE > LOW_WATER )); then
+    log_message "WARNING: Storage remains above ${LOW_WATER}%; no additional completed recordings were eligible."
+fi

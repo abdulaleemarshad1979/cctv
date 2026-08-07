@@ -36,6 +36,15 @@ webrtcAdditionalHosts:
   - 117.216.215.157
   - stream.dmsegpolice.in
 
+pathDefaults:
+  record: yes
+  recordPath: /recordings/%path/%Y-%m-%d_%H-%M-%S-%f
+  recordFormat: fmp4
+  recordPartDuration: 1s
+  recordMaxPartSize: 50M
+  recordSegmentDuration: 20m
+  recordDeleteAfter: 0s
+
 paths:
   all_others:
     runOnAvailable: 'curl --fail --silent --show-error --max-time 3 -X POST http://app:8000/cameras/state -H "Content-Type: application/json" -d "{\"path\":\"$MTX_PATH\", \"status\":\"online\"}"'

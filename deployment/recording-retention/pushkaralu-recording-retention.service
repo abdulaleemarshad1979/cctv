@@ -1,0 +1,12 @@
+[Unit]
+Description=Pushkaralu automatic oldest-recording cleanup
+After=local-fs.target docker.service
+RequiresMountsFor=/opt/pushkaralu/app/data/recordings/live
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/pushkaralu-recording-retention
+Nice=19
+IOSchedulingClass=idle
+CPUWeight=10
+IOWeight=10

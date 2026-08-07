@@ -33,6 +33,7 @@ services:
       - "8189:8189/udp" # WebRTC Media
     volumes:
       - ./deployment/mediamtx.yml:/mediamtx.yml:ro
+      - ./data/recordings:/recordings
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9997/v3/paths/list"]
       interval: 10s

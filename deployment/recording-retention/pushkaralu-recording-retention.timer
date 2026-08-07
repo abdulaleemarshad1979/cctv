@@ -1,0 +1,11 @@
+[Unit]
+Description=Check Pushkaralu recording storage every minute
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1min
+AccuracySec=15s
+Unit=pushkaralu-recording-retention.service
+
+[Install]
+WantedBy=timers.target
