@@ -3,18 +3,21 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Login - East Godavari Drone Monitoring System</title>
+  <title>East Godavari Drone Monitoring System - Login</title>
   <link rel="icon" href="data:,">
   <style>
     :root {
-      --bg-gradient-start: #0f172a;
-      --bg-gradient-end: #1e293b;
-      --card-bg: rgba(255, 255, 255, 0.95);
+      --bg-gradient-start: #0b1120;
+      --bg-gradient-end: #0f172a;
+      --card-bg: rgba(30, 41, 59, 0.95);
       --accent-blue: #0284c7;
       --accent-hover: #0369a1;
-      --text-main: #0f172a;
-      --text-muted: #64748b;
-      --error-red: #e11d48;
+      --accent-emerald: #10b981;
+      --accent-purple: #8b5cf6;
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --border-color: #334155;
+      --error-red: #ef4444;
     }
 
     * {
@@ -26,30 +29,30 @@
     body {
       min-height: 100vh;
       font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
-      background: radial-gradient(circle at top left, #1e293b, #0f172a 80%);
+      background: radial-gradient(circle at top left, #1e293b, #0b1120 85%);
       display: flex;
       align-items: center;
       justify-content: center;
-      padding: 20px;
+      padding: 24px;
       color: var(--text-main);
     }
 
     .login-card {
       width: 100%;
-      max-width: 440px;
+      max-width: 460px;
       background: var(--card-bg);
       border-radius: 16px;
-      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.4);
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.6);
       overflow: hidden;
       backdrop-filter: blur(16px);
-      border: 1px solid rgba(255, 255, 255, 0.2);
+      border: 1px solid rgba(255, 255, 255, 0.1);
     }
 
     .login-header {
-      background: #ffffff;
-      padding: 32px 28px 24px;
+      background: #0f172a;
+      padding: 28px 24px 20px;
       text-align: center;
-      border-bottom: 2px solid #e2e8f0;
+      border-bottom: 1px solid var(--border-color);
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -57,35 +60,104 @@
     }
 
     .brand-logo {
-      height: 70px;
+      height: 64px;
       width: auto;
       object-fit: contain;
+      filter: drop-shadow(0 4px 6px rgba(0,0,0,0.3));
     }
 
     .brand-title {
-      font-size: 18px;
+      font-size: 17px;
       font-weight: 800;
-      color: #0284c7;
+      color: #38bdf8;
       text-transform: uppercase;
       letter-spacing: 0.5px;
       line-height: 1.2;
     }
 
     .brand-subtitle {
-      font-size: 14px;
-      font-weight: 700;
-      color: #0f172a;
+      font-size: 13px;
+      font-weight: 600;
+      color: #94a3b8;
       margin-top: 2px;
     }
 
+    /* Role Selection Tabs */
+    .role-tabs {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      padding: 6px;
+      margin: 20px 24px 0;
+      background: #0f172a;
+      border-radius: 10px;
+      border: 1px solid var(--border-color);
+      gap: 6px;
+    }
+
+    .role-tab {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      font-size: 13px;
+      font-weight: 700;
+      padding: 10px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: all 0.2s ease;
+    }
+
+    .role-tab:hover {
+      color: #ffffff;
+      background: rgba(255, 255, 255, 0.05);
+    }
+
+    .role-tab.active {
+      background: var(--accent-blue);
+      color: #ffffff;
+      box-shadow: 0 2px 8px rgba(2, 132, 199, 0.4);
+    }
+
+    .role-tab.active.admin-tab {
+      background: linear-gradient(135deg, #0284c7, #6366f1);
+    }
+
     .login-body {
-      padding: 28px;
+      padding: 24px 28px 28px;
+    }
+
+    .role-badge-container {
+      margin-bottom: 18px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 14px;
+      border-radius: 8px;
+      background: rgba(2, 132, 199, 0.1);
+      border: 1px solid rgba(2, 132, 199, 0.25);
+    }
+
+    .role-badge-label {
+      font-size: 12px;
+      font-weight: 700;
+      color: #38bdf8;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .role-badge-desc {
+      font-size: 11px;
+      color: #94a3b8;
     }
 
     .login-form {
       display: flex;
       flex-direction: column;
-      gap: 20px;
+      gap: 18px;
     }
 
     .form-group {
@@ -97,7 +169,7 @@
     .form-label {
       font-size: 12px;
       font-weight: 700;
-      color: #334155;
+      color: #cbd5e1;
       text-transform: uppercase;
       letter-spacing: 0.05em;
     }
@@ -107,29 +179,29 @@
       padding: 12px 16px;
       font-size: 14px;
       border-radius: 8px;
-      border: 1px solid #cbd5e1;
-      background: #ffffff;
-      color: #0f172a;
+      border: 1px solid var(--border-color);
+      background: #0f172a;
+      color: #f8fafc;
       outline: none;
       transition: all 0.2s ease;
     }
 
     .form-input:focus {
-      border-color: #0284c7;
-      box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.15);
+      border-color: #38bdf8;
+      box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.2);
     }
 
     .error-alert {
-      background: #fff1f2;
-      border: 1px solid #fecdd3;
-      color: var(--error-red);
-      padding: 10px 14px;
+      background: rgba(239, 68, 68, 0.15);
+      border: 1px solid rgba(239, 68, 68, 0.35);
+      color: #fca5a5;
+      padding: 12px 14px;
       border-radius: 8px;
       font-size: 13px;
       font-weight: 600;
       display: none;
       align-items: center;
-      gap: 8px;
+      gap: 10px;
     }
 
     .submit-btn {
@@ -147,7 +219,8 @@
       align-items: center;
       justify-content: center;
       gap: 8px;
-      box-shadow: 0 4px 12px rgba(2, 132, 199, 0.3);
+      box-shadow: 0 4px 12px rgba(2, 132, 199, 0.35);
+      margin-top: 4px;
     }
 
     .submit-btn:hover {
@@ -159,12 +232,12 @@
     }
 
     .login-footer {
-      padding: 16px 28px 20px;
+      padding: 16px 24px;
       text-align: center;
       font-size: 11px;
       color: #64748b;
-      border-top: 1px solid #e2e8f0;
-      background: #f8fafc;
+      border-top: 1px solid var(--border-color);
+      background: #0f172a;
       display: flex;
       flex-direction: column;
       gap: 6px;
@@ -174,7 +247,7 @@
     .powered-by {
       font-size: 12px;
       font-weight: 600;
-      color: #475569;
+      color: #94a3b8;
       display: inline-flex;
       align-items: center;
       gap: 4px;
@@ -182,7 +255,7 @@
 
     .powered-by span {
       font-weight: 800;
-      color: #0284c7;
+      color: #38bdf8;
       letter-spacing: 0.2px;
     }
   </style>
@@ -192,15 +265,41 @@
     <div class="login-header">
       <img src="/static/monitor/img/ap_police_logo.png" alt="AP Police Logo" class="brand-logo">
       <div>
-        <h1 class="brand-title">Andhra Pradesh Police Department</h1>
-        <div class="brand-subtitle">East Godavari Drone Monitoring System</div>
+        <h1 class="brand-title">East Godavari Police EGDMS</h1>
+        <div class="brand-subtitle" id="headerSubtitle">Surveillance & Drone Fleet Operations</div>
       </div>
     </div>
 
+    <!-- Role Selection Tabs -->
+    <div class="role-tabs">
+      <button type="button" id="tabViewer" class="role-tab active" onclick="setLoginRole('viewer')">
+        <svg style="width: 16px; height: 16px;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+        </svg>
+        <span>Viewer Login</span>
+      </button>
+      <button type="button" id="tabAdmin" class="role-tab" onclick="setLoginRole('admin')">
+        <svg style="width: 16px; height: 16px;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+        </svg>
+        <span>Administrator Login</span>
+      </button>
+    </div>
+
     <div class="login-body">
+      <!-- Active Role Info Banner -->
+      <div id="roleInfoBanner" class="role-badge-container">
+        <span class="role-badge-label" id="roleBadgeLabel">
+          <span style="width: 8px; height: 8px; border-radius: 50%; background: #38bdf8; display: inline-block;"></span>
+          Viewer Portal
+        </span>
+        <span class="role-badge-desc" id="roleBadgeDesc">Read-Only Live Video & Analytics</span>
+      </div>
+
       <form id="loginForm" class="login-form" method="POST" action="/login">
         <div id="errorAlert" class="error-alert">
-          <svg style="width: 18px; height: 18px; flex-shrink: 0;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <svg style="width: 20px; height: 20px; flex-shrink: 0;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
           </svg>
           <span id="errorMessage">Invalid username or password</span>
@@ -208,7 +307,7 @@
 
         <div class="form-group">
           <label class="form-label" for="username">Username</label>
-          <input type="text" id="username" name="username" class="form-input" placeholder="Enter username" required autofocus autocomplete="username">
+          <input type="text" id="username" name="username" class="form-input" placeholder="Enter viewer username" required autofocus autocomplete="username">
         </div>
 
         <div class="form-group">
@@ -216,8 +315,8 @@
           <input type="password" id="password" name="password" class="form-input" placeholder="Enter password" required autocomplete="current-password">
         </div>
 
-        <button type="submit" class="submit-btn">
-          <span>Sign In</span>
+        <button type="submit" class="submit-btn" id="submitBtn">
+          <span id="submitBtnText">Sign In to Viewer Portal</span>
           <svg style="width: 16px; height: 16px;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3" />
           </svg>
@@ -226,20 +325,64 @@
     </div>
 
     <div class="login-footer">
-      <div>East Godavari Drone Monitoring System &bull; Official AP Police Portal</div>
+      <div>East Godavari Police Department &bull; Official Surveillance Portal</div>
       <div class="powered-by">Powered by <span>Aditya University</span></div>
     </div>
   </div>
 
   <script>
     const urlParams = new URLSearchParams(window.location.search);
-    if (urlParams.get("error")) {
+    let currentRole = "viewer";
+
+    function setLoginRole(role) {
+      currentRole = role;
+      const tabViewer = document.getElementById("tabViewer");
+      const tabAdmin = document.getElementById("tabAdmin");
+      const roleBadgeLabel = document.getElementById("roleBadgeLabel");
+      const roleBadgeDesc = document.getElementById("roleBadgeDesc");
+      const submitBtnText = document.getElementById("submitBtnText");
+      const userInput = document.getElementById("username");
+      const headerSub = document.getElementById("headerSubtitle");
+
+      if (role === "admin") {
+        tabViewer.classList.remove("active");
+        tabAdmin.classList.add("active", "admin-tab");
+        roleBadgeLabel.innerHTML = `<span style="width: 8px; height: 8px; border-radius: 50%; background: #a855f7; display: inline-block;"></span> Administrator Portal`;
+        roleBadgeDesc.textContent = "Fleet Management & Camera Controls";
+        submitBtnText.textContent = "Sign In as Administrator";
+        userInput.placeholder = "Enter admin username";
+        headerSub.textContent = "Fleet Management Console";
+      } else {
+        tabAdmin.classList.remove("active", "admin-tab");
+        tabViewer.classList.add("active");
+        roleBadgeLabel.innerHTML = `<span style="width: 8px; height: 8px; border-radius: 50%; background: #38bdf8; display: inline-block;"></span> Viewer Portal`;
+        roleBadgeDesc.textContent = "Read-Only Live Video & Analytics";
+        submitBtnText.textContent = "Sign In to Viewer Portal";
+        userInput.placeholder = "Enter viewer username";
+        headerSub.textContent = "Surveillance & Drone Live Monitoring";
+      }
+    }
+
+    // Auto-detect role preference from URL
+    const requestedRole = urlParams.get("role");
+    const requestedRedirect = urlParams.get("redirect") || "";
+    const requestedError = urlParams.get("error");
+
+    if (requestedRole === "admin" || requestedRedirect.startsWith("/admin") || requestedError === "admin_required") {
+      setLoginRole("admin");
+    } else {
+      setLoginRole("viewer");
+    }
+
+    if (requestedError) {
       const alertEl = document.getElementById("errorAlert");
       const msgEl = document.getElementById("errorMessage");
-      if (urlParams.get("error") === "invalid") {
+      if (requestedError === "invalid") {
         msgEl.textContent = "Invalid username or password.";
-      } else if (urlParams.get("error") === "expired") {
+      } else if (requestedError === "expired") {
         msgEl.textContent = "Session expired. Please log in again.";
+      } else if (requestedError === "admin_required") {
+        msgEl.textContent = "Administrator privileges required to access this resource.";
       }
       alertEl.style.display = "flex";
     }
@@ -251,10 +394,11 @@
       const msgEl = document.getElementById("errorMessage");
       alertEl.style.display = "none";
 
-      const redirectParam = urlParams.get("redirect") || "/";
+      const defaultDest = (currentRole === "admin") ? "/admin" : "/";
+      const redirectParam = urlParams.get("redirect") || defaultDest;
 
       const payload = {
-        username: form.username.value,
+        username: form.username.value.trim(),
         password: form.password.value,
         redirect: redirectParam
       };
@@ -268,8 +412,12 @@
 
         if (res.ok) {
           const data = await res.json().catch(() => ({}));
-          const dest = data.redirect || redirectParam || "/";
-          window.location.href = (dest.startsWith("/") && !dest.startsWith("//")) ? dest : "/";
+          let dest = data.redirect || redirectParam || "/";
+          // Validate open redirect protection
+          if (!dest.startsWith("/") || dest.startsWith("//") || dest.startsWith("/\\") || dest.includes("://")) {
+            dest = (data.role === "admin") ? "/admin" : "/";
+          }
+          window.location.href = dest;
         } else {
           const data = await res.json().catch(() => ({}));
           msgEl.textContent = data.detail || "Invalid username or password.";

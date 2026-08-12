@@ -1153,6 +1153,9 @@
   <!-- Toast Container -->
   <div id="toast-container" class="toast-container"></div>
 
+  <!-- HLS.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+
   <!-- Core Dashboard & Admin Scripts -->
   <script>
     let cameras = [];
@@ -1161,7 +1164,30 @@
     let searchQuery = "";
     let cameraPollInFlight = false;
     let activeFullViewCamId = null;
+    const hlsPlayers = {};
     const CAMERA_POLL_INTERVAL_MS = 1000;
+
+    async function verifyAdminAuth() {
+      try {
+        const res = await fetch("/api/auth/check");
+        if (!res.ok) {
+          window.location.href = "/login?role=admin&redirect=/admin";
+          return;
+        }
+        const data = await res.json();
+        if (!data.authenticated) {
+          window.location.href = "/login?role=admin&redirect=/admin";
+          return;
+        }
+        if (!data.is_admin) {
+          window.location.href = "/login?error=admin_required&redirect=/admin";
+          return;
+        }
+      } catch (e) {
+        console.error("Auth check failed:", e);
+      }
+    }
+    verifyAdminAuth();
 
     // --- Toast Notifications Helper ---
     function showToast(message, type = "success") {
@@ -1205,7 +1231,11 @@
       try {
         const res = await fetch("/cameras");
         if (res.status === 401) {
-          window.location.href = "/login?redirect=/admin";
+          window.location.href = "/login?role=admin&redirect=/admin";
+          return;
+        }
+        if (res.status === 403) {
+          window.location.href = "/login?error=admin_required&redirect=/admin";
           return;
         }
         cameras = await res.json();
@@ -1329,11 +1359,17 @@
           </div>
         </div>
 
-        <div class="tile__footer">
+        <div class="tile__footer" style="display: flex; justify-content: space-between; align-items: center; gap: 6px;">
           <span class="tile__id-tag">${cam.id}</span>
-          <button class="tile__rename-btn" onclick="openRenameModal('${cam.id}')" style="padding: 2px 7px;">
-            Quick Rename
-          </button>
+          <div style="display: flex; gap: 4px;">
+            <button class="tile__rename-btn" onclick="openRenameModal('${cam.id}')" style="padding: 2px 7px;">
+              ✏️ Rename
+            </button>
+            ${isOnline 
+              ? `<button class="tile__rename-btn" onclick="stopStream('${cam.id}')" style="padding: 2px 7px; background: rgba(220, 38, 38, 0.2); color: #f87171; border-color: rgba(220, 38, 38, 0.4);" title="Stop Stream">⏹ Stop</button>`
+              : `<button class="tile__rename-btn" onclick="startStream('${cam.id}')" style="padding: 2px 7px; background: rgba(16, 185, 129, 0.2); color: #34d399; border-color: rgba(16, 185, 129, 0.4);" title="Start Feed">▶ Start</button>`
+            }
+          </div>
         </div>
       `;
 
@@ -1344,24 +1380,107 @@
       return card;
     }
 
+    function teardownVideoFeed(camId) {
+      if (hlsPlayers[camId]) {
+        try {
+          hlsPlayers[camId].destroy();
+        } catch (e) {}
+        delete hlsPlayers[camId];
+      }
+    }
+
     function attachStreamPlayer(cam, container) {
       if (!container) return;
+      teardownVideoFeed(cam.id);
       container.innerHTML = "";
       const video = document.createElement("video");
       video.autoplay = true;
       video.muted = true;
       video.playsInline = true;
+      video.controls = true;
       video.style.width = "100%";
       video.style.height = "100%";
       video.style.objectFit = "cover";
 
       const streamPath = cameraPlaybackPath(cam);
-      const hlsUrl = `http://${window.location.hostname}:8888/${streamPath}/index.m3u8`;
+      const streamUrl = `${window.location.origin}/hls/${streamPath}/index.m3u8`;
 
-      if (video.canPlayType("application/vnd.apple.mpegurl")) {
-        video.src = hlsUrl;
+      if (typeof Hls !== "undefined" && Hls.isSupported()) {
+        const hls = new Hls({
+          lowLatencyMode: false,
+          maxBufferLength: 8,
+          maxMaxBufferLength: 16,
+          backBufferLength: 4,
+          enableWorker: true,
+          manifestLoadingMaxRetry: 10,
+          manifestLoadingRetryDelay: 1000,
+          xhrSetup: function (xhr) {
+            xhr.withCredentials = true;
+          }
+        });
+        hls.loadSource(streamUrl);
+        hls.attachMedia(video);
+        hls.on(Hls.Events.MANIFEST_PARSED, function () {
+          video.play().catch(() => {});
+        });
+        hls.on(Hls.Events.ERROR, function (event, data) {
+          if (data.fatal) {
+            switch (data.type) {
+              case Hls.ErrorTypes.NETWORK_ERROR:
+                hls.startLoad();
+                break;
+              case Hls.ErrorTypes.MEDIA_ERROR:
+                hls.recoverMediaError();
+                break;
+              default:
+                hls.destroy();
+                break;
+            }
+          }
+        });
+        hlsPlayers[cam.id] = hls;
+      } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+        video.src = streamUrl;
+        video.play().catch(() => {});
       }
       container.appendChild(video);
+    }
+
+    async function startStream(camId) {
+      try {
+        showToast(`Starting stream ${camId}...`);
+        const res = await fetch(`/cameras/${camId}/start`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({})
+        });
+        if (res.ok) {
+          showToast(`Stream ${camId} started successfully.`);
+          await loadCameras();
+        } else {
+          const err = await res.json().catch(() => ({}));
+          showToast(err.detail || `Failed to start ${camId}`, "error");
+        }
+      } catch (e) {
+        showToast(`Error starting ${camId}`, "error");
+      }
+    }
+
+    async function stopStream(camId) {
+      try {
+        showToast(`Stopping stream ${camId}...`);
+        const res = await fetch(`/cameras/${camId}/stop`, { method: "POST" });
+        if (res.ok) {
+          showToast(`Stream ${camId} stopped.`);
+          teardownVideoFeed(camId);
+          await loadCameras();
+        } else {
+          const err = await res.json().catch(() => ({}));
+          showToast(err.detail || `Failed to stop ${camId}`, "error");
+        }
+      } catch (e) {
+        showToast(`Error stopping ${camId}`, "error");
+      }
     }
 
     // --- Polling Cameras ---
@@ -1371,7 +1490,11 @@
       try {
         const res = await fetch("/cameras", { cache: "no-store" });
         if (res.status === 401) {
-          window.location.href = "/login?redirect=/admin";
+          window.location.href = "/login?role=admin&redirect=/admin";
+          return;
+        }
+        if (res.status === 403) {
+          window.location.href = "/login?error=admin_required&redirect=/admin";
           return;
         }
         const newCameras = await res.json();
