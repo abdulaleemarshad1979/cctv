@@ -2077,26 +2077,6 @@
       }
     }
 
-    // Toggle global mode (Counting vs Viewing)
-    async function changeGlobalMode(mode) {
-      globalMode = mode;
-
-      const btnViewing = document.getElementById("btn-mode-viewing");
-      const btnCounting = document.getElementById("btn-mode-counting");
-
-      if (mode === "viewing") {
-        btnViewing.style.background = "#0284c7";
-        btnViewing.style.color = "#ffffff";
-        btnViewing.style.boxShadow = "0 2px 4px rgba(2, 132, 199, 0.3)";
-        btnCounting.style.background = "transparent";
-        btnCounting.style.color = "#475569";
-        btnCounting.style.boxShadow = "none";
-      } else {
-        btnCounting.style.background = "#0284c7";
-        btnCounting.style.color = "#ffffff";
-        btnCounting.style.boxShadow = "0 2px 4px rgba(2, 132, 199, 0.3)";
-        btnViewing.style.background = "transparent";
-        btnViewing.style.color = "#475569";
     // Sync mode status from server (Read-only viewer display)
     async function syncModeFromServer() {
       try {
@@ -2170,12 +2150,6 @@
           drawer.classList.add("hidden");
         }
       }
-    };
-
-    window.clearNotificationsUI = function() {
-      knownNotifIds.clear();
-      renderNotificationsList([]);
-      updateNotifBadge(0);
     };
 
     function updateNotifBadge(count) {
@@ -2361,7 +2335,7 @@
 
     <!-- Drawer Toolbar -->
     <div style="padding: 12px 20px; border-bottom: 1px solid #f1f5f9; display: flex; align-items: center; justify-content: space-between; background: #f8fafc; font-size: 12px;">
-      <button onclick="clearNotificationsUI()" style="background: #e2e8f0; border: none; color: #475569; padding: 6px 12px; border-radius: 6px; font-weight: 700; cursor: pointer;">Clear All</button>
+      <span style="color: #64748b; font-weight: 700;">Read-only alerts</span>
       <div style="display: flex; align-items: center; gap: 8px; font-weight: 600; color: #475569;">
         <input type="checkbox" id="chk-audio-alert" checked style="accent-color: #e11d48; cursor: pointer;">
         <label for="chk-audio-alert" style="cursor: pointer;">Sound Alarm</label>

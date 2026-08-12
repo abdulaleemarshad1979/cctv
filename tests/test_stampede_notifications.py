@@ -2,17 +2,30 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 from src.crowd_forecast import CrowdForecaster
 from lite_server import app, stampede_notifications, _notifications_lock
+import lite_server
 from fastapi.testclient import TestClient
 
 
 class TestStampedeNotifications(unittest.TestCase):
     def setUp(self):
+        self.auth_env = patch.dict(os.environ, {
+            "ADMIN_USERNAME": "admin",
+            "ADMIN_PASSWORD": "review_admin_password_2026",
+            "VIEWER_USERNAME": "viewer",
+            "VIEWER_PASSWORD": "review_viewer_password_2026",
+            "SECRET_KEY": "review_only_secret_key_0123456789abcdef",
+        })
+        self.auth_env.start()
+        lite_server.global_counting_mode = True
         self.temp_dir = tempfile.TemporaryDirectory()
         self.tmp_path = Path(self.temp_dir.name)
 
     def tearDown(self):
+        lite_server.global_counting_mode = True
+        self.auth_env.stop()
         self.temp_dir.cleanup()
 
     def test_short_horizon_confidence_is_boosted_to_at_least_85(self):
@@ -46,8 +59,8 @@ class TestStampedeNotifications(unittest.TestCase):
 
     def test_notifications_api_endpoints(self):
         client = TestClient(app)
-        admin_user = os.getenv("ADMIN_USERNAME", "admin")
-        admin_pass = os.getenv("ADMIN_PASSWORD", "Egdronepolice@1143")
+        admin_user = os.environ["ADMIN_USERNAME"]
+        admin_pass = os.environ["ADMIN_PASSWORD"]
         client.post("/login", json={"username": admin_user, "password": admin_pass})
         
         from lite_server import _last_notification_time

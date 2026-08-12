@@ -45,4 +45,3 @@ certificate/
 !.env.example
 recordings/
 *.bak
-

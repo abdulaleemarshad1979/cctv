@@ -1308,7 +1308,7 @@
 
         <div class="tile__body">
           <div class="tile__player-container ${isOnline ? '' : 'hidden'}" id="player-container-${cam.id}"></div>
-          
+
           <div class="tile__live-badge ${isOnline ? '' : 'hidden'}" id="live-${cam.id}">
             <span class="tile__live-dot"></span>
             <span>LIVE</span>
@@ -1365,7 +1365,7 @@
             <button class="tile__rename-btn" onclick="openRenameModal('${cam.id}')" style="padding: 2px 7px;">
               ✏️ Rename
             </button>
-            ${isOnline 
+            ${isOnline
               ? `<button class="tile__rename-btn" onclick="stopStream('${cam.id}')" style="padding: 2px 7px; background: rgba(220, 38, 38, 0.2); color: #f87171; border-color: rgba(220, 38, 38, 0.4);" title="Stop Stream">⏹ Stop</button>`
               : `<button class="tile__rename-btn" onclick="startStream('${cam.id}')" style="padding: 2px 7px; background: rgba(16, 185, 129, 0.2); color: #34d399; border-color: rgba(16, 185, 129, 0.4);" title="Start Feed">▶ Start</button>`
             }

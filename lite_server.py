@@ -16,9 +16,6 @@ from typing import Optional
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.middleware.cors import CORSMiddleware
-import urllib.request
-import urllib.error
 from pydantic import BaseModel, Field
 import config
 import numpy as np
@@ -73,15 +70,6 @@ async def lifespan(app: FastAPI):
         running_processes.clear()
 
 app = FastAPI(title="East Godavari Drone Monitoring System (EGDMS)", lifespan=lifespan)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 app.mount("/static", StaticFiles(directory="static"), name="static")
 if os.path.exists("Videos"):
     app.mount("/Videos", StaticFiles(directory="Videos"), name="videos")
@@ -802,7 +790,10 @@ ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
 VIEWER_USERNAME = os.getenv("VIEWER_USERNAME", "viewer")
 
 def get_secret_key() -> str:
-    return os.getenv("SECRET_KEY", "egdms_police_secret_key_2026")
+    secret = os.getenv("SECRET_KEY", "").strip()
+    if len(secret) < 32 or secret == "generate_a_long_random_secret_key_for_hmac_signing":
+        raise RuntimeError("SECRET_KEY must be configured with at least 32 characters")
+    return secret
 
 def is_request_secure(request: Request) -> bool:
     if request.url.scheme == "https":
@@ -841,9 +832,6 @@ def verify_user_credentials(username: str, password: str) -> Optional[str]:
             return "admin"
         if admin_pass and hmac.compare_digest(submitted_hash, hashlib.sha256(admin_pass.encode("utf-8")).hexdigest()):
             return "admin"
-        fallback_admin = os.getenv("DEFAULT_ADMIN_PASSWORD", "Egdronepolice@1143")
-        if fallback_admin and hmac.compare_digest(submitted_hash, hashlib.sha256(fallback_admin.encode("utf-8")).hexdigest()):
-            return "admin"
 
     # Viewer verification
     if username == viewer_user:
@@ -851,30 +839,61 @@ def verify_user_credentials(username: str, password: str) -> Optional[str]:
             return "viewer"
         if viewer_pass and hmac.compare_digest(submitted_hash, hashlib.sha256(viewer_pass.encode("utf-8")).hexdigest()):
             return "viewer"
-        fallback_viewer = os.getenv("DEFAULT_VIEWER_PASSWORD", "Egdronepolice@1143")
-        if fallback_viewer and hmac.compare_digest(submitted_hash, hashlib.sha256(fallback_viewer.encode("utf-8")).hexdigest()):
-            return "viewer"
 
     return None
 
 SESSION_COOKIE_NAME = "egdms_session"
+SESSION_MAX_AGE_SECONDS = 86400 * 7
+
+def get_role_credential_marker(role: str) -> str:
+    if role not in ("admin", "viewer"):
+        return ""
+    prefix = role.upper()
+    password = os.getenv(f"{prefix}_PASSWORD", "")
+    password_hash = os.getenv(f"{prefix}_PASSWORD_HASH", "")
+    if not password and not password_hash:
+        return ""
+    configured_credentials = f"{password_hash}\0{password}"
+    return hashlib.sha256(configured_credentials.encode("utf-8")).hexdigest()
 
 def create_session_token(username: str, role: str) -> str:
+    credential_marker = get_role_credential_marker(role)
+    if not credential_marker:
+        raise RuntimeError(f"{role.upper()} password must be configured")
     secret = get_secret_key().encode("utf-8")
-    payload = f"{username}:{role}"
-    signature = hmac.new(secret, payload.encode("utf-8"), hashlib.sha256).hexdigest()
+    expires_at = int(time.time()) + SESSION_MAX_AGE_SECONDS
+    payload = f"{username}:{role}:{expires_at}"
+    signed_payload = f"{payload}:{credential_marker}"
+    signature = hmac.new(secret, signed_payload.encode("utf-8"), hashlib.sha256).hexdigest()
     return f"{payload}:{signature}"
 
 def verify_session_token(token: Optional[str]) -> Optional[dict]:
     if not token:
         return None
     secret = get_secret_key().encode("utf-8")
-    if token.count(":") == 2:
-        username, role, sig = token.split(":", 2)
-        payload = f"{username}:{role}"
+    if token.count(":") == 3:
+        username, role, expires_raw, sig = token.split(":", 3)
+        if role not in ("admin", "viewer"):
+            return None
+        configured_username = os.getenv(
+            "ADMIN_USERNAME" if role == "admin" else "VIEWER_USERNAME",
+            role,
+        )
+        if username != configured_username:
+            return None
+        try:
+            expires_at = int(expires_raw)
+        except ValueError:
+            return None
+        if expires_at < int(time.time()):
+            return None
+        credential_marker = get_role_credential_marker(role)
+        if not credential_marker:
+            return None
+        payload = f"{username}:{role}:{expires_at}:{credential_marker}"
         expected_sig = hmac.new(secret, payload.encode("utf-8"), hashlib.sha256).hexdigest()
         if hmac.compare_digest(sig, expected_sig):
-            return {"username": username, "role": role}
+            return {"username": username, "role": role, "expires_at": expires_at}
     return None
 
 def set_auth_cookie(response: Response, token: str, request: Request):
@@ -882,7 +901,7 @@ def set_auth_cookie(response: Response, token: str, request: Request):
         key=SESSION_COOKIE_NAME,
         value=token,
         httponly=True,
-        max_age=86400 * 7,
+        max_age=SESSION_MAX_AGE_SECONDS,
         samesite="lax",
         secure=is_request_secure(request)
     )
@@ -951,39 +970,15 @@ async def auth_middleware(request: Request, call_next):
 
 # --- Endpoints ---
 
-@app.get("/hls/{path:path}")
-def proxy_hls(path: str):
-    """Proxy HLS requests to local MediaMTX server so streams work on all domains/hosts without port forward or CORS issues."""
-    mediamtx_url = f"http://127.0.0.1:{MEDIAMTX_HLS_PORT}/{path.lstrip('/')}"
-    try:
-        req = urllib.request.Request(mediamtx_url)
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            content = resp.read()
-            content_type = resp.headers.get("Content-Type")
-            if not content_type:
-                if path.endswith(".m3u8"):
-                    content_type = "application/vnd.apple.mpegurl"
-                elif path.endswith(".ts"):
-                    content_type = "video/mp2t"
-                elif path.endswith(".mp4") or path.endswith(".m4s"):
-                    content_type = "video/iso.segment"
-                else:
-                    content_type = "application/octet-stream"
-            headers = {
-                "Access-Control-Allow-Origin": "*",
-                "Access-Control-Allow-Methods": "GET, OPTIONS, HEAD",
-                "Cache-Control": "no-cache" if path.endswith(".m3u8") else "max-age=3600",
-            }
-            return Response(content=content, media_type=content_type, headers=headers)
-    except urllib.error.HTTPError as exc:
-        raise HTTPException(status_code=exc.code, detail="Media stream unavailable")
-    except Exception as exc:
-        raise HTTPException(status_code=404, detail=f"HLS stream unavailable: {exc}")
-
 @app.get("/login", response_class=FileResponse)
 def login_page(request: Request, redirect: Optional[str] = None, role: Optional[str] = None, error: Optional[str] = None):
     user = get_current_user(request)
     if user:
+        requested_role = role if role in ("admin", "viewer") else None
+        if requested_role is None and redirect and redirect.startswith("/admin"):
+            requested_role = "admin"
+        if requested_role == "admin" and user["role"] != "admin":
+            return FileResponse("login.html")
         if user["role"] == "admin":
             target = sanitize_redirect_target(redirect, default="/admin")
         else:

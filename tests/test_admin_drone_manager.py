@@ -9,7 +9,6 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 import config
 from lite_server import (
     app,
-    ADMIN_USERNAME,
     SESSION_COOKIE_NAME,
     CAMERA_CUSTOMIZATIONS_FILE,
     load_cameras,
@@ -17,10 +16,21 @@ from lite_server import (
     save_camera_customizations
 )
 
+TEST_ADMIN_USERNAME = "admin"
+TEST_ADMIN_PASSWORD = "review_admin_password_2026"
+TEST_VIEWER_USERNAME = "viewer"
+TEST_VIEWER_PASSWORD = "review_viewer_password_2026"
+TEST_SECRET_KEY = "review_only_secret_key_0123456789abcdef"
+
 client = TestClient(app)
 
 @pytest.fixture(autouse=True)
-def cleanup_customizations():
+def cleanup_customizations(monkeypatch):
+    monkeypatch.setenv("ADMIN_USERNAME", TEST_ADMIN_USERNAME)
+    monkeypatch.setenv("ADMIN_PASSWORD", TEST_ADMIN_PASSWORD)
+    monkeypatch.setenv("VIEWER_USERNAME", TEST_VIEWER_USERNAME)
+    monkeypatch.setenv("VIEWER_PASSWORD", TEST_VIEWER_PASSWORD)
+    monkeypatch.setenv("SECRET_KEY", TEST_SECRET_KEY)
     # Setup: clean customizations
     save_camera_customizations({})
     load_cameras()
@@ -31,8 +41,7 @@ def cleanup_customizations():
 
 def test_drone_capacity_scale_to_60():
     """Verify that the system defaults to managing 60 drone slots."""
-    test_password = os.getenv("ADMIN_PASSWORD", "Egdronepolice@1143")
-    client.post("/login", json={"username": ADMIN_USERNAME, "password": test_password})
+    client.post("/login", json={"username": TEST_ADMIN_USERNAME, "password": TEST_ADMIN_PASSWORD})
     
     response = client.get("/cameras")
     assert response.status_code == 200
@@ -54,9 +63,8 @@ def test_admin_dashboard_auth_protection():
 
 def test_admin_dashboard_authenticated_access():
     """Ensure authenticated admin can access /admin."""
-    test_password = os.getenv("ADMIN_PASSWORD", "Egdronepolice@1143")
     auth_client = TestClient(app)
-    auth_client.post("/login", json={"username": ADMIN_USERNAME, "password": test_password})
+    auth_client.post("/login", json={"username": TEST_ADMIN_USERNAME, "password": TEST_ADMIN_PASSWORD})
     
     res = auth_client.get("/admin")
     assert res.status_code == 200
@@ -64,9 +72,8 @@ def test_admin_dashboard_authenticated_access():
 
 def test_rename_drone_endpoint():
     """Test renaming a single drone (e.g. drone-20 -> Rcpm Drone)."""
-    test_password = os.getenv("ADMIN_PASSWORD", "Egdronepolice@1143")
     auth_client = TestClient(app)
-    auth_client.post("/login", json={"username": ADMIN_USERNAME, "password": test_password})
+    auth_client.post("/login", json={"username": TEST_ADMIN_USERNAME, "password": TEST_ADMIN_PASSWORD})
 
     # Rename drone-20
     res = auth_client.post("/api/cameras/drone-20/rename", json={
@@ -90,9 +97,8 @@ def test_rename_drone_endpoint():
 
 def test_persistence_of_drone_customizations():
     """Verify that restarting/reloading cameras preserves saved customizations."""
-    test_password = os.getenv("ADMIN_PASSWORD", "Egdronepolice@1143")
     auth_client = TestClient(app)
-    auth_client.post("/login", json={"username": ADMIN_USERNAME, "password": test_password})
+    auth_client.post("/login", json={"username": TEST_ADMIN_USERNAME, "password": TEST_ADMIN_PASSWORD})
 
     auth_client.post("/api/cameras/drone-20/rename", json={
         "name": "Rcpm Main Drone",
@@ -110,9 +116,8 @@ def test_persistence_of_drone_customizations():
 
 def test_bulk_update_and_reset():
     """Test bulk update of drone metadata and factory reset."""
-    test_password = os.getenv("ADMIN_PASSWORD", "Egdronepolice@1143")
     auth_client = TestClient(app)
-    auth_client.post("/login", json={"username": ADMIN_USERNAME, "password": test_password})
+    auth_client.post("/login", json={"username": TEST_ADMIN_USERNAME, "password": TEST_ADMIN_PASSWORD})
 
     # Bulk update drone-1 and drone-2
     res = auth_client.post("/api/cameras/bulk-update", json=[

@@ -11,14 +11,28 @@ from lite_server import (
     save_camera_customizations,
     load_cameras
 )
+import lite_server
+
+TEST_ADMIN_USERNAME = "admin"
+TEST_ADMIN_PASSWORD = "review_admin_password_2026"
+TEST_VIEWER_USERNAME = "viewer"
+TEST_VIEWER_PASSWORD = "review_viewer_password_2026"
+TEST_SECRET_KEY = "review_only_secret_key_0123456789abcdef"
 
 client = TestClient(app)
 
 @pytest.fixture(autouse=True)
-def setup_teardown():
+def setup_teardown(monkeypatch):
+    monkeypatch.setenv("ADMIN_USERNAME", TEST_ADMIN_USERNAME)
+    monkeypatch.setenv("ADMIN_PASSWORD", TEST_ADMIN_PASSWORD)
+    monkeypatch.setenv("VIEWER_USERNAME", TEST_VIEWER_USERNAME)
+    monkeypatch.setenv("VIEWER_PASSWORD", TEST_VIEWER_PASSWORD)
+    monkeypatch.setenv("SECRET_KEY", TEST_SECRET_KEY)
+    lite_server.global_counting_mode = True
     save_camera_customizations({})
     load_cameras()
     yield
+    lite_server.global_counting_mode = True
     save_camera_customizations({})
     load_cameras()
 
@@ -50,9 +64,9 @@ def test_login_invalid_credentials():
 
 def test_viewer_login_success():
     viewer_client = TestClient(app)
-    viewer_user = os.getenv("VIEWER_USERNAME", "viewer")
-    viewer_pass = os.getenv("VIEWER_PASSWORD", "Egdronepolice@1143")
-    
+    viewer_user = TEST_VIEWER_USERNAME
+    viewer_pass = TEST_VIEWER_PASSWORD
+
     response = viewer_client.post("/login", json={
         "username": viewer_user,
         "password": viewer_pass
@@ -66,18 +80,21 @@ def test_viewer_login_success():
 
 def test_viewer_can_access_viewing_dashboard_and_reports():
     viewer_client = TestClient(app)
-    viewer_user = os.getenv("VIEWER_USERNAME", "viewer")
-    viewer_pass = os.getenv("VIEWER_PASSWORD", "Egdronepolice@1143")
-    
+    viewer_user = TEST_VIEWER_USERNAME
+    viewer_pass = TEST_VIEWER_PASSWORD
+
     viewer_client.post("/login", json={"username": viewer_user, "password": viewer_pass})
-    
+
     # Can access viewing dashboard
     res_dash = viewer_client.get("/")
     assert res_dash.status_code == 200
     assert "East Godavari Drone Monitoring System" in res_dash.text
-    # Viewer dashboard must not have Fleet Manager link or button
+    # Viewer dashboard must remain read-only.
     assert "Admin Console" not in res_dash.text
-    
+    assert "changeGlobalMode" not in res_dash.text
+    assert 'fetch("/set_mode"' not in res_dash.text
+    assert "Read-only alerts" in res_dash.text
+
     # Can view cameras
     res_cams = viewer_client.get("/cameras")
     assert res_cams.status_code == 200
@@ -92,20 +109,20 @@ def test_viewer_can_access_viewing_dashboard_and_reports():
 
 def test_viewer_blocked_from_admin_route_403():
     viewer_client = TestClient(app)
-    viewer_user = os.getenv("VIEWER_USERNAME", "viewer")
-    viewer_pass = os.getenv("VIEWER_PASSWORD", "Egdronepolice@1143")
+    viewer_user = TEST_VIEWER_USERNAME
+    viewer_pass = TEST_VIEWER_PASSWORD
     viewer_client.post("/login", json={"username": viewer_user, "password": viewer_pass})
-    
+
     # Viewer accessing /admin receives 403
     res_admin = viewer_client.get("/admin", follow_redirects=False)
     assert res_admin.status_code == 403
 
 def test_viewer_blocked_from_mutation_apis_403():
     viewer_client = TestClient(app)
-    viewer_user = os.getenv("VIEWER_USERNAME", "viewer")
-    viewer_pass = os.getenv("VIEWER_PASSWORD", "Egdronepolice@1143")
+    viewer_user = TEST_VIEWER_USERNAME
+    viewer_pass = TEST_VIEWER_PASSWORD
     viewer_client.post("/login", json={"username": viewer_user, "password": viewer_pass})
-    
+
     # Rename camera blocked
     res_rename = viewer_client.post("/api/cameras/drone-1/rename", json={"name": "Hacked Drone"})
     assert res_rename.status_code == 403
@@ -136,9 +153,9 @@ def test_viewer_blocked_from_mutation_apis_403():
 
 def test_admin_login_success():
     admin_client = TestClient(app)
-    admin_user = os.getenv("ADMIN_USERNAME", "admin")
-    admin_pass = os.getenv("ADMIN_PASSWORD", "Egdronepolice@1143")
-    
+    admin_user = TEST_ADMIN_USERNAME
+    admin_pass = TEST_ADMIN_PASSWORD
+
     response = admin_client.post("/login", json={
         "username": admin_user,
         "password": admin_pass
@@ -152,15 +169,17 @@ def test_admin_login_success():
 
 def test_admin_can_access_both_dashboards():
     admin_client = TestClient(app)
-    admin_user = os.getenv("ADMIN_USERNAME", "admin")
-    admin_pass = os.getenv("ADMIN_PASSWORD", "Egdronepolice@1143")
+    admin_user = TEST_ADMIN_USERNAME
+    admin_pass = TEST_ADMIN_PASSWORD
     admin_client.post("/login", json={"username": admin_user, "password": admin_pass})
-    
+
     # Admin can access /admin
     res_admin = admin_client.get("/admin")
     assert res_admin.status_code == 200
     assert "Admin Drone Feed Manager" in res_admin.text
-    
+    assert "changeGlobalMode" in res_admin.text
+    assert 'fetch("/set_mode"' in res_admin.text
+
     # Admin can also access viewing dashboard /
     res_viewer = admin_client.get("/")
     assert res_viewer.status_code == 200
@@ -174,10 +193,10 @@ def test_admin_can_access_both_dashboards():
 
 def test_admin_can_call_mutation_apis():
     admin_client = TestClient(app)
-    admin_user = os.getenv("ADMIN_USERNAME", "admin")
-    admin_pass = os.getenv("ADMIN_PASSWORD", "Egdronepolice@1143")
+    admin_user = TEST_ADMIN_USERNAME
+    admin_pass = TEST_ADMIN_PASSWORD
     admin_client.post("/login", json={"username": admin_user, "password": admin_pass})
-    
+
     # Rename camera succeeds
     res_rename = admin_client.post("/api/cameras/drone-1/rename", json={"name": "Command Drone 1", "location": "Main Ghat"})
     assert res_rename.status_code == 200
@@ -193,9 +212,9 @@ def test_admin_can_call_mutation_apis():
 
 def test_open_redirect_protection():
     admin_client = TestClient(app)
-    admin_user = os.getenv("ADMIN_USERNAME", "admin")
-    admin_pass = os.getenv("ADMIN_PASSWORD", "Egdronepolice@1143")
-    
+    admin_user = TEST_ADMIN_USERNAME
+    admin_pass = TEST_ADMIN_PASSWORD
+
     # Try malicious external redirects
     for evil in ["https://attacker.com", "//evil.com", "/\\evil.com", "javascript:alert(1)"]:
         res = admin_client.post("/login", json={
@@ -208,3 +227,52 @@ def test_open_redirect_protection():
         assert not dest.startswith("//")
         assert not dest.startswith("/\\")
         assert "://" not in dest
+
+
+def test_missing_password_configuration_fails_closed(monkeypatch):
+    monkeypatch.delenv("ADMIN_PASSWORD", raising=False)
+    monkeypatch.delenv("ADMIN_PASSWORD_HASH", raising=False)
+    response = TestClient(app).post(
+        "/login",
+        json={"username": TEST_ADMIN_USERNAME, "password": TEST_ADMIN_PASSWORD},
+    )
+    assert response.status_code == 401
+
+
+def test_missing_secret_key_fails_closed(monkeypatch):
+    monkeypatch.delenv("SECRET_KEY", raising=False)
+    with pytest.raises(RuntimeError):
+        lite_server.create_session_token(TEST_ADMIN_USERNAME, "admin")
+
+
+def test_password_change_invalidates_existing_session(monkeypatch):
+    token = lite_server.create_session_token(TEST_VIEWER_USERNAME, "viewer")
+    assert lite_server.verify_session_token(token)["role"] == "viewer"
+    monkeypatch.setenv("VIEWER_PASSWORD", "different_viewer_password_2026")
+    assert lite_server.verify_session_token(token) is None
+
+
+def test_expired_session_is_rejected(monkeypatch):
+    issued_at = 1_800_000_000
+    monkeypatch.setattr(lite_server.time, "time", lambda: issued_at)
+    token = lite_server.create_session_token(TEST_ADMIN_USERNAME, "admin")
+    monkeypatch.setattr(
+        lite_server.time,
+        "time",
+        lambda: issued_at + lite_server.SESSION_MAX_AGE_SECONDS + 1,
+    )
+    assert lite_server.verify_session_token(token) is None
+
+
+def test_viewer_can_open_admin_login_to_switch_roles():
+    viewer_client = TestClient(app)
+    viewer_client.post(
+        "/login",
+        json={"username": TEST_VIEWER_USERNAME, "password": TEST_VIEWER_PASSWORD},
+    )
+    response = viewer_client.get(
+        "/login?role=admin&redirect=/admin",
+        follow_redirects=False,
+    )
+    assert response.status_code == 200
+    assert "Administrator Login" in response.text
