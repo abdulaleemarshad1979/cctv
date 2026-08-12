@@ -85,7 +85,8 @@ def test_raw_drone1_publish_starts_analyzer_on_separate_output_path():
     camera["source_online"] = False
     camera["output_online"] = False
 
-    with patch.object(lite_server, "start_stream", return_value=1234) as start:
+    with patch.object(lite_server, "get_worker_dependency_error", return_value=None), \
+         patch.object(lite_server, "start_stream", return_value=1234) as start:
         result = lite_server.update_camera_state(
             lite_server.StateRequest(path="live/drone1", status="online")
         )

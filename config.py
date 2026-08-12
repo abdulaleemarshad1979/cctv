@@ -233,7 +233,7 @@ MEDIAMTX_RTSP_PORT = os.environ.get("MEDIAMTX_RTSP_PORT", "8554")
 
 CCTV_SOURCES = {
     f"drone{i}": os.environ.get(f"CCTV_SOURCE_{i}", f"rtsp://{MEDIAMTX_HOST}:{MEDIAMTX_RTSP_PORT}/live/drone{i}")
-    for i in range(1, 41)
+    for i in range(1, 61)
 }
 
 

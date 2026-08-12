@@ -15,7 +15,7 @@ Ubuntu Server 26.04 LTS
 ```
 
 ### UI vs AI Hardware Capacity Strategy
-- **Website UI Capacity**: Displays up to **40 Drone Slots** (`MAX_DRONE_SLOTS=40`).
+- **Website UI Capacity**: Displays up to **60 Drone Slots** (`MAX_DRONE_SLOTS=60`).
 - **CPU AI Hardware Cap**: Hardware caps simultaneous CPU AI inference workers to **4** (`MAX_CONCURRENT_AI_FEEDS=4`).
 - **Scalability**: Operators can switch AI counting on/off across any connected stream. Adding a GPU later only requires setting `MAX_CONCURRENT_AI_FEEDS=12` in `.env` — zero dashboard code changes required.
 

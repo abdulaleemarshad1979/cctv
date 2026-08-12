@@ -126,23 +126,52 @@ def _bundled_video_files():
     return crowd_files if crowd_files else files
 
 
+CAMERA_CUSTOMIZATIONS_FILE = os.path.join(
+    config.BASE_DIR, "config", "camera_customizations.json"
+)
+
+def load_camera_customizations() -> dict:
+    if os.path.exists(CAMERA_CUSTOMIZATIONS_FILE):
+        try:
+            with open(CAMERA_CUSTOMIZATIONS_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, dict):
+                    return data
+        except Exception as e:
+            print(f"[LITE SERVER] Error loading camera customizations: {e}")
+    return {}
+
+def save_camera_customizations(customizations: dict):
+    try:
+        os.makedirs(os.path.dirname(CAMERA_CUSTOMIZATIONS_FILE), exist_ok=True)
+        with open(CAMERA_CUSTOMIZATIONS_FILE, "w", encoding="utf-8") as f:
+            json.dump(customizations, f, indent=2)
+    except Exception as e:
+        print(f"[LITE SERVER] Error saving camera customizations: {e}")
+
+
 def load_cameras():
     global cameras_db
     cameras_db = []
     video_files = _bundled_video_files()
+    customizations = load_camera_customizations()
     
-    # ponytail: keep UI slots scalable (40 slots), while server caps active AI concurrency via MAX_CONCURRENT_AI_FEEDS
-    max_drone_slots = int(os.getenv("MAX_DRONE_SLOTS", os.getenv("DRONE_COUNT", "40")))
+    # Keep UI slots scalable (60 slots default), while server caps active AI concurrency via MAX_CONCURRENT_AI_FEEDS
+    max_drone_slots = int(os.getenv("MAX_DRONE_SLOTS", os.getenv("DRONE_COUNT", "60")))
     cctv_count = int(os.getenv("CCTV_COUNT", "0"))
 
     # Load Drone Feeds (using Fusion model)
     for i in range(1, max_drone_slots + 1):
         vid = video_files[(i - 1) % len(video_files)] if video_files else "Kumbh.mp4"
         fallback_path = f"Videos/{vid}"
+        cam_id = f"drone-{i}"
+        custom = customizations.get(cam_id, {})
+        cam_name = custom.get("name") or f"DRONE {i}"
+        cam_location = custom.get("location") or ("Pushkaralu" if i % 2 == 0 else "Rjy")
         cameras_db.append({
-            "id": f"drone-{i}",
-            "name": f"DRONE {i}",
-            "location": "Pushkaralu" if i % 2 == 0 else "Rjy",
+            "id": cam_id,
+            "name": cam_name,
+            "location": cam_location,
             "category": "DRONE",
             "source_stream_path": f"live/drone{i}",
             "stream_path": f"analyzed/drone{i}",
@@ -179,10 +208,14 @@ def load_cameras():
     for i in range(1, cctv_count + 1):
         vid = video_files[(i - 1) % len(video_files)] if video_files else "Kumbh.mp4"
         fallback_path = f"Videos/{vid}"
+        cam_id = f"cctv-{i}"
+        custom = customizations.get(cam_id, {})
+        cam_name = custom.get("name") or f"CCTV CAMERA {i}"
+        cam_location = custom.get("location") or ("Pushkaralu" if i % 2 == 0 else "Rjy")
         cameras_db.append({
-            "id": f"cctv-{i}",
-            "name": f"CCTV CAMERA {i}",
-            "location": "Pushkaralu" if i % 2 == 0 else "Rjy",
+            "id": cam_id,
+            "name": cam_name,
+            "location": cam_location,
             "category": "CCTV",
             "source_stream_path": f"live/cctv{i}",
             "stream_path": f"analyzed/cctv{i}",
@@ -225,6 +258,10 @@ class ModeRequest(BaseModel):
 class StateRequest(BaseModel):
     path: str
     status: str
+
+class CameraRenameRequest(BaseModel):
+    name: Optional[str] = None
+    location: Optional[str] = None
 
 
 def build_stream_state_monitor():
@@ -779,7 +816,7 @@ async def auth_middleware(request: Request, call_next):
         return await call_next(request)
 
     if not is_authenticated(request):
-        if path in ("/", "/commercial", "/forecast/history.csv"):
+        if path in ("/", "/admin", "/commercial", "/forecast/history.csv"):
             return RedirectResponse(url="/login", status_code=307)
         return JSONResponse(status_code=401, content={"detail": "Unauthenticated. Please log in."})
 
@@ -841,6 +878,91 @@ def check_auth(request: Request):
 def index():
     """Serve the static HTML page directly."""
     return FileResponse("lite_dashboard.html")
+
+@app.get("/admin", response_class=FileResponse)
+def admin_dashboard():
+    """Serve the Admin Drone Dashboard page."""
+    admin_path = os.path.join(config.BASE_DIR, "admin_dashboard.html")
+    if os.path.exists(admin_path):
+        return FileResponse(admin_path)
+    return FileResponse(os.path.join(config.BASE_DIR, "lite_dashboard.html"))
+
+@app.post("/api/cameras/{drone_id}/rename")
+@app.post("/api/cameras/{drone_id}/update")
+def rename_camera(drone_id: str, req: CameraRenameRequest):
+    drone_id = normalize_camera_id(drone_id)
+    matched_camera = find_camera_by_id(drone_id)
+    if not matched_camera:
+        raise HTTPException(status_code=404, detail="Camera not found")
+
+    customizations = load_camera_customizations()
+    if drone_id not in customizations:
+        customizations[drone_id] = {}
+
+    if req.name is not None:
+        new_name = req.name.strip()
+        if new_name:
+            matched_camera["name"] = new_name
+            customizations[drone_id]["name"] = new_name
+
+    if req.location is not None:
+        new_loc = req.location.strip()
+        if new_loc:
+            matched_camera["location"] = new_loc
+            customizations[drone_id]["location"] = new_loc
+
+    save_camera_customizations(customizations)
+
+    return {
+        "status": "success",
+        "drone_id": drone_id,
+        "name": matched_camera["name"],
+        "location": matched_camera["location"],
+        "camera": _sanitize_for_json(matched_camera),
+    }
+
+@app.post("/api/cameras/bulk-update")
+def bulk_update_cameras(updates: list[dict]):
+    customizations = load_camera_customizations()
+    updated = []
+    for item in updates:
+        raw_id = item.get("id") or item.get("drone_id")
+        if not raw_id:
+            continue
+        drone_id = normalize_camera_id(raw_id)
+        matched = find_camera_by_id(drone_id)
+        if matched:
+            if drone_id not in customizations:
+                customizations[drone_id] = {}
+            if "name" in item and str(item["name"]).strip():
+                matched["name"] = str(item["name"]).strip()
+                customizations[drone_id]["name"] = matched["name"]
+            if "location" in item and str(item["location"]).strip():
+                matched["location"] = str(item["location"]).strip()
+                customizations[drone_id]["location"] = matched["location"]
+            updated.append(drone_id)
+    save_camera_customizations(customizations)
+    return {"status": "success", "updated_count": len(updated), "updated_ids": updated}
+
+@app.post("/api/cameras/reset-names")
+def reset_camera_names():
+    save_camera_customizations({})
+    for cam in cameras_db:
+        if cam["id"].startswith("drone-"):
+            try:
+                idx = int(cam["id"].split("-")[-1])
+                cam["name"] = f"DRONE {idx}"
+                cam["location"] = "Pushkaralu" if idx % 2 == 0 else "Rjy"
+            except Exception:
+                pass
+        elif cam["id"].startswith("cctv-"):
+            try:
+                idx = int(cam["id"].split("-")[-1])
+                cam["name"] = f"CCTV CAMERA {idx}"
+                cam["location"] = "Pushkaralu" if idx % 2 == 0 else "Rjy"
+            except Exception:
+                pass
+    return {"status": "success", "message": "All camera names reset to default."}
 
 @app.get("/health")
 def health_check():

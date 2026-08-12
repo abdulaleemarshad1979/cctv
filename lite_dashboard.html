@@ -1359,9 +1359,19 @@
       <div class="filter-group">
         <button class="pill active" data-filter="All">All Streams</button>
         <button class="pill" data-filter="Active">Active Feeds</button>
+        <button class="pill" data-filter="Pushkaralu">Pushkaralu</button>
+        <button class="pill" data-filter="Rjy">Rjy</button>
       </div>
 
       <div class="nav-right-group">
+        <!-- Admin Console Nav Link -->
+        <a href="/admin" class="csv-btn" style="background: linear-gradient(135deg, #0284c7, #0369a1); color: #ffffff; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; font-weight: 700; border: 1px solid #38bdf8;">
+          <svg style="width: 15px; height: 15px;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+          </svg>
+          <span>Admin Console</span>
+        </a>
+
         <!-- Stampede Warning Notification Bell -->
         <button id="notif-bell-btn" onclick="toggleNotifDrawer()" class="notif-btn">
           <svg style="width: 18px; height: 18px;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1884,23 +1894,43 @@
 
           if (!oldCam) {
             needsRerender = true;
-          } else if (
-            oldCam.status !== newCam.status ||
-            oldCam.source_online !== newCam.source_online ||
-            oldCam.output_online !== newCam.output_online ||
-            oldCam.connection_message !== newCam.connection_message ||
-            cameraPlaybackPath(oldCam) !== cameraPlaybackPath(newCam)
-          ) {
-            // Active-filter membership can change; other filters can update
-            // one card without interrupting every existing video player.
-            if (activeFilter === "Active") {
-              needsRerender = true;
-            } else {
-              updateCameraConnectionState(newCam);
+          } else {
+            // Live-sync customized name & location without video teardown
+            if (oldCam.name !== newCam.name || oldCam.location !== newCam.location) {
+              const card = document.querySelector(`.tile[data-id="${newCam.id}"]`);
+              if (card) {
+                const nameEl = card.querySelector(".tile__name");
+                if (nameEl && nameEl.textContent !== newCam.name) nameEl.textContent = newCam.name;
+                const locEl = card.querySelector(".tile__location");
+                if (locEl && locEl.textContent !== newCam.location) locEl.textContent = newCam.location;
+                card.setAttribute("data-location", newCam.location);
+              }
+              if (activeFullViewCamId === newCam.id) {
+                const fullTitle = document.getElementById("full-view-title");
+                if (fullTitle) {
+                  fullTitle.textContent = `${newCam.name} — ${newCam.location}`;
+                }
+              }
             }
-          } else if (isCameraPlayable(newCam)) {
-            // Analytics changes update the HUD in place so video never restarts.
-            updateLiveStats(newCam);
+
+            if (
+              oldCam.status !== newCam.status ||
+              oldCam.source_online !== newCam.source_online ||
+              oldCam.output_online !== newCam.output_online ||
+              oldCam.connection_message !== newCam.connection_message ||
+              cameraPlaybackPath(oldCam) !== cameraPlaybackPath(newCam)
+            ) {
+              // Active-filter membership can change; other filters can update
+              // one card without interrupting every existing video player.
+              if (activeFilter === "Active") {
+                needsRerender = true;
+              } else {
+                updateCameraConnectionState(newCam);
+              }
+            } else if (isCameraPlayable(newCam)) {
+              // Analytics changes update the HUD in place so video never restarts.
+              updateLiveStats(newCam);
+            }
           }
         });
 
