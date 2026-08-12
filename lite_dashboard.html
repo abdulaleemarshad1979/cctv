@@ -1364,14 +1364,6 @@
       </div>
 
       <div class="nav-right-group">
-        <!-- Admin Console Nav Link -->
-        <a href="/admin" class="csv-btn" style="background: linear-gradient(135deg, #0284c7, #0369a1); color: #ffffff; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; font-weight: 700; border: 1px solid #38bdf8;">
-          <svg style="width: 15px; height: 15px;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-          </svg>
-          <span>Admin Console</span>
-        </a>
-
         <!-- Stampede Warning Notification Bell -->
         <button id="notif-bell-btn" onclick="toggleNotifDrawer()" class="notif-btn">
           <svg style="width: 18px; height: 18px;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1385,24 +1377,11 @@
         <a href="/forecast/history.csv" download class="csv-btn">
           Download Forecast CSV
         </a>
-        <!-- Premium Mode Toggle -->
-        <div class="mode-toggle-group">
-          <button id="btn-mode-viewing" class="mode-pill" onclick="changeGlobalMode('viewing')">
-            <svg style="width: 16px; height: 16px;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"
-                d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"
-                d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-            </svg>
-            Viewing Mode
-          </button>
-          <button id="btn-mode-counting" class="mode-pill active" onclick="changeGlobalMode('counting')">
-            <svg style="width: 16px; height: 16px;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"
-                d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 002 2h2a2 2 0 002-2z" />
-            </svg>
-            Counting Mode
-          </button>
+
+        <!-- Read-only Mode Indicator Badge -->
+        <div id="viewer-mode-badge" style="display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 20px; font-size: 12px; font-weight: 700; background: rgba(2, 132, 199, 0.15); border: 1px solid rgba(2, 132, 199, 0.4); color: #38bdf8;">
+          <span style="width: 8px; height: 8px; border-radius: 50%; background: #38bdf8; display: inline-block;"></span>
+          <span id="viewer-mode-text">Counting Mode</span>
         </div>
 
         <!-- Logout Button -->
@@ -2118,78 +2097,44 @@
         btnCounting.style.boxShadow = "0 2px 4px rgba(2, 132, 199, 0.3)";
         btnViewing.style.background = "transparent";
         btnViewing.style.color = "#475569";
-        btnViewing.style.boxShadow = "none";
-      }
-
-      try {
-        const response = await fetch("/set_mode", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ mode: mode })
-        });
-        if (!response.ok) throw new Error(`Mode change failed: ${response.status}`);
-      } catch (e) {
-        console.error("[CDMP] Failed to sync mode with backend:", e);
-      }
-
-      // Mode changes affect the browser HUD and inference only. The WebRTC/HLS
-      // player stays connected unless the backend changes between raw and
-      // analyzed video for this camera.
-      cameras.forEach(cam => {
-        const isOnline = isCameraPlayable(cam);
-        const countEl = document.getElementById(`count-${cam.id}`);
-        const zoneEl = document.getElementById(`zone-${cam.id}`);
-        const hudEl = document.getElementById(`hud-${cam.id}`);
-        const warningOverlay = document.getElementById(`warning-overlay-${cam.id}`);
-
-        if (mode === "viewing") {
-          const tileEl = document.querySelector(`.tile[data-id="${cam.id}"]`);
-          if (tileEl) tileEl.classList.remove("tile--counting");
-          if (countEl) countEl.classList.add("hidden");
-          if (zoneEl) zoneEl.classList.add("hidden");
-          if (hudEl) hudEl.classList.add("hidden");
-          if (warningOverlay) warningOverlay.classList.add("hidden");
-        } else {
-          if (isOnline) {
-            const tileEl = document.querySelector(`.tile[data-id="${cam.id}"]`);
-            if (tileEl) tileEl.classList.add("tile--counting");
-            if (countEl) countEl.classList.remove("hidden");
-            if (zoneEl) zoneEl.classList.remove("hidden");
-            if (hudEl) hudEl.classList.remove("hidden");
-            updateLiveStats(cam);
-          }
-        }
-        updateCameraConnectionState(cam);
-      });
-
-    }
-
-    // Sync mode status from server
+    // Sync mode status from server (Read-only viewer display)
     async function syncModeFromServer() {
       try {
         const res = await fetch("/get_mode");
+        if (!res.ok) return;
         const data = await res.json();
         const mode = data.counting_mode ? "counting" : "viewing";
-        globalMode = mode;
-
-        const btnViewing = document.getElementById("btn-mode-viewing");
-        const btnCounting = document.getElementById("btn-mode-counting");
-        if (btnViewing && btnCounting) {
-          if (mode === "viewing") {
-            btnViewing.style.background = "#0284c7";
-            btnViewing.style.color = "#ffffff";
-            btnViewing.style.boxShadow = "0 2px 4px rgba(2, 132, 199, 0.3)";
-            btnCounting.style.background = "transparent";
-            btnCounting.style.color = "#475569";
-            btnCounting.style.boxShadow = "none";
-          } else {
-            btnCounting.style.background = "#0284c7";
-            btnCounting.style.color = "#ffffff";
-            btnCounting.style.boxShadow = "0 2px 4px rgba(2, 132, 199, 0.3)";
-            btnViewing.style.background = "transparent";
-            btnViewing.style.color = "#475569";
-            btnViewing.style.boxShadow = "none";
+        if (globalMode !== mode) {
+          globalMode = mode;
+          const badgeText = document.getElementById("viewer-mode-text");
+          if (badgeText) {
+            badgeText.textContent = (mode === "counting" ? "Counting Mode" : "Viewing Mode");
           }
+          cameras.forEach(cam => {
+            const isOnline = isCameraPlayable(cam);
+            const countEl = document.getElementById(`count-${cam.id}`);
+            const zoneEl = document.getElementById(`zone-${cam.id}`);
+            const hudEl = document.getElementById(`hud-${cam.id}`);
+            const warningOverlay = document.getElementById(`warning-overlay-${cam.id}`);
+            const tileEl = document.querySelector(`.tile[data-id="${cam.id}"]`);
+
+            if (mode === "viewing") {
+              if (tileEl) tileEl.classList.remove("tile--counting");
+              if (countEl) countEl.classList.add("hidden");
+              if (zoneEl) zoneEl.classList.add("hidden");
+              if (hudEl) hudEl.classList.add("hidden");
+              if (warningOverlay) warningOverlay.classList.add("hidden");
+            } else {
+              if (isOnline) {
+                if (tileEl) tileEl.classList.add("tile--counting");
+                if (countEl) countEl.classList.remove("hidden");
+                if (zoneEl) zoneEl.classList.remove("hidden");
+                if (hudEl) hudEl.classList.remove("hidden");
+                updateLiveStats(cam);
+              }
+            }
+            updateCameraConnectionState(cam);
+          });
         }
       } catch (e) {
         console.error("[CDMP] Failed to sync mode from server:", e);
@@ -2227,15 +2172,10 @@
       }
     };
 
-    window.clearNotificationsUI = async function() {
-      try {
-        await fetch("/api/notifications/clear", { method: "POST" });
-        knownNotifIds.clear();
-        renderNotificationsList([]);
-        updateNotifBadge(0);
-      } catch (e) {
-        console.error("Failed to clear notifications:", e);
-      }
+    window.clearNotificationsUI = function() {
+      knownNotifIds.clear();
+      renderNotificationsList([]);
+      updateNotifBadge(0);
     };
 
     function updateNotifBadge(count) {

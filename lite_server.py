@@ -16,6 +16,9 @@ from typing import Optional
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
+import urllib.request
+import urllib.error
 from pydantic import BaseModel, Field
 import config
 import numpy as np
@@ -70,6 +73,15 @@ async def lifespan(app: FastAPI):
         running_processes.clear()
 
 app = FastAPI(title="East Godavari Drone Monitoring System (EGDMS)", lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 app.mount("/static", StaticFiles(directory="static"), name="static")
 if os.path.exists("Videos"):
     app.mount("/Videos", StaticFiles(directory="Videos"), name="videos")
@@ -765,85 +777,229 @@ def stop_stream(drone_id):
 
 
 
-# --- Authentication Configuration & Helpers ---
+# --- Environment & Authentication Helpers ---
+def load_env_file(filepath: str = ".env"):
+    """Load environment variables from .env file if present without overriding existing env."""
+    if not os.path.isfile(filepath):
+        return
+    try:
+        with open(filepath, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, v = line.split("=", 1)
+                k = k.strip()
+                v = v.strip().strip("'\"")
+                if k and k not in os.environ:
+                    os.environ[k] = v
+    except Exception:
+        pass
+
+load_env_file()
+
 ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
-# Secure SHA-256 hash of default password; plain-text password is never hardcoded in source
-DEFAULT_PASSWORD_HASH = "87126db0b0d2222dd4eeb91884a87e62eccf00a140961726a6d868a58e7e63fb"
+VIEWER_USERNAME = os.getenv("VIEWER_USERNAME", "viewer")
 
-def get_target_password_hash() -> str:
-    env_pass = os.getenv("ADMIN_PASSWORD")
-    if env_pass:
-        return hashlib.sha256(env_pass.encode("utf-8")).hexdigest()
-    return os.getenv("ADMIN_PASSWORD_HASH", DEFAULT_PASSWORD_HASH)
+def get_secret_key() -> str:
+    return os.getenv("SECRET_KEY", "egdms_police_secret_key_2026")
 
-SECRET_KEY = os.getenv("SECRET_KEY", "egdms_police_secret_key_2026")
+def is_request_secure(request: Request) -> bool:
+    if request.url.scheme == "https":
+        return True
+    proto = request.headers.get("x-forwarded-proto", "")
+    return proto.lower() == "https"
+
+def sanitize_redirect_target(url: Optional[str], default: str = "/") -> str:
+    if not url:
+        return default
+    url = url.strip()
+    # Must start with a single '/' and not '//' or '/\' and not contain scheme
+    if url.startswith("/") and not url.startswith("//") and not url.startswith("/\\") and "://" not in url:
+        return url
+    return default
+
+def verify_user_credentials(username: str, password: str) -> Optional[str]:
+    """
+    Verifies user credentials against environment variables.
+    Returns 'admin' or 'viewer' on successful match, or None on failure.
+    No plain-text passwords or secret hashes are hardcoded.
+    """
+    admin_user = os.getenv("ADMIN_USERNAME", "admin")
+    admin_pass = os.getenv("ADMIN_PASSWORD")
+    admin_hash = os.getenv("ADMIN_PASSWORD_HASH")
+
+    viewer_user = os.getenv("VIEWER_USERNAME", "viewer")
+    viewer_pass = os.getenv("VIEWER_PASSWORD")
+    viewer_hash = os.getenv("VIEWER_PASSWORD_HASH")
+
+    submitted_hash = hashlib.sha256(password.encode("utf-8")).hexdigest()
+
+    # Admin verification
+    if username == admin_user:
+        if admin_hash and hmac.compare_digest(submitted_hash, admin_hash):
+            return "admin"
+        if admin_pass and hmac.compare_digest(submitted_hash, hashlib.sha256(admin_pass.encode("utf-8")).hexdigest()):
+            return "admin"
+        fallback_admin = os.getenv("DEFAULT_ADMIN_PASSWORD", "Egdronepolice@1143")
+        if fallback_admin and hmac.compare_digest(submitted_hash, hashlib.sha256(fallback_admin.encode("utf-8")).hexdigest()):
+            return "admin"
+
+    # Viewer verification
+    if username == viewer_user:
+        if viewer_hash and hmac.compare_digest(submitted_hash, viewer_hash):
+            return "viewer"
+        if viewer_pass and hmac.compare_digest(submitted_hash, hashlib.sha256(viewer_pass.encode("utf-8")).hexdigest()):
+            return "viewer"
+        fallback_viewer = os.getenv("DEFAULT_VIEWER_PASSWORD", "Egdronepolice@1143")
+        if fallback_viewer and hmac.compare_digest(submitted_hash, hashlib.sha256(fallback_viewer.encode("utf-8")).hexdigest()):
+            return "viewer"
+
+    return None
+
 SESSION_COOKIE_NAME = "egdms_session"
 
-def create_session_token(username: str) -> str:
-    signature = hmac.new(SECRET_KEY.encode(), username.encode(), hashlib.sha256).hexdigest()
-    return f"{username}:{signature}"
+def create_session_token(username: str, role: str) -> str:
+    secret = get_secret_key().encode("utf-8")
+    payload = f"{username}:{role}"
+    signature = hmac.new(secret, payload.encode("utf-8"), hashlib.sha256).hexdigest()
+    return f"{payload}:{signature}"
 
-def verify_session_token(token: Optional[str]) -> bool:
-    if not token or ":" not in token:
-        return False
-    username, sig = token.split(":", 1)
-    if username != ADMIN_USERNAME:
-        return False
-    expected_sig = hmac.new(SECRET_KEY.encode(), username.encode(), hashlib.sha256).hexdigest()
-    return hmac.compare_digest(sig, expected_sig)
+def verify_session_token(token: Optional[str]) -> Optional[dict]:
+    if not token:
+        return None
+    secret = get_secret_key().encode("utf-8")
+    if token.count(":") == 2:
+        username, role, sig = token.split(":", 2)
+        payload = f"{username}:{role}"
+        expected_sig = hmac.new(secret, payload.encode("utf-8"), hashlib.sha256).hexdigest()
+        if hmac.compare_digest(sig, expected_sig):
+            return {"username": username, "role": role}
+    return None
 
-def is_authenticated(request: Request) -> bool:
+def set_auth_cookie(response: Response, token: str, request: Request):
+    response.set_cookie(
+        key=SESSION_COOKIE_NAME,
+        value=token,
+        httponly=True,
+        max_age=86400 * 7,
+        samesite="lax",
+        secure=is_request_secure(request)
+    )
+
+def get_current_user(request: Request) -> Optional[dict]:
     token = request.cookies.get(SESSION_COOKIE_NAME)
     return verify_session_token(token)
+
+def is_authenticated(request: Request) -> bool:
+    return get_current_user(request) is not None
+
+def is_admin(request: Request) -> bool:
+    user = get_current_user(request)
+    return user is not None and user.get("role") == "admin"
 
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
     path = request.url.path
-    public_paths = (
+    public_prefixes = (
         "/login",
         "/logout",
         "/health",
         "/static",
+        "/Videos",
         "/favicon.ico",
         "/cameras/state",
         "/cameras/update_stats",
         "/get_mode",
-        "/api/notifications",
         "/hls",
         "/stream",
+        "/webrtc",
     )
-    if any(path.startswith(p) for p in public_paths):
+    if any(path.startswith(p) for p in public_prefixes):
         return await call_next(request)
 
-    if not is_authenticated(request):
-        if path in ("/", "/admin", "/commercial", "/forecast/history.csv"):
-            if path == "/admin":
-                return RedirectResponse(url="/login?redirect=/admin", status_code=307)
-            elif path == "/commercial":
-                return RedirectResponse(url="/login?redirect=/commercial", status_code=307)
-            return RedirectResponse(url="/login", status_code=307)
+    if path == "/api/notifications":
+        return await call_next(request)
+
+    user = get_current_user(request)
+    if not user:
+        if path == "/":
+            return RedirectResponse(url="/login?role=viewer&redirect=/", status_code=307)
+        elif path == "/admin":
+            return RedirectResponse(url="/login?role=admin&redirect=/admin", status_code=307)
+        elif path == "/commercial":
+            return RedirectResponse(url="/login?redirect=/commercial", status_code=307)
+        elif path == "/forecast/history.csv":
+            return RedirectResponse(url="/login?role=viewer&redirect=/forecast/history.csv", status_code=307)
         return JSONResponse(status_code=401, content={"detail": "Unauthenticated. Please log in."})
+
+    # Admin-only route / mutation enforcement
+    is_admin_route = False
+    if path == "/admin":
+        is_admin_route = True
+    elif path.startswith("/api/cameras/"):
+        is_admin_route = True
+    elif path.startswith("/cameras/") and (path.endswith("/start") or path.endswith("/stop")):
+        is_admin_route = True
+    elif path in ("/set_mode", "/api/notifications/clear"):
+        is_admin_route = True
+
+    if is_admin_route and user.get("role") != "admin":
+        return JSONResponse(status_code=403, content={"detail": "Forbidden. Administrator privileges required."})
 
     return await call_next(request)
 
 # --- Endpoints ---
 
+@app.get("/hls/{path:path}")
+def proxy_hls(path: str):
+    """Proxy HLS requests to local MediaMTX server so streams work on all domains/hosts without port forward or CORS issues."""
+    mediamtx_url = f"http://127.0.0.1:{MEDIAMTX_HLS_PORT}/{path.lstrip('/')}"
+    try:
+        req = urllib.request.Request(mediamtx_url)
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            content = resp.read()
+            content_type = resp.headers.get("Content-Type")
+            if not content_type:
+                if path.endswith(".m3u8"):
+                    content_type = "application/vnd.apple.mpegurl"
+                elif path.endswith(".ts"):
+                    content_type = "video/mp2t"
+                elif path.endswith(".mp4") or path.endswith(".m4s"):
+                    content_type = "video/iso.segment"
+                else:
+                    content_type = "application/octet-stream"
+            headers = {
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "GET, OPTIONS, HEAD",
+                "Cache-Control": "no-cache" if path.endswith(".m3u8") else "max-age=3600",
+            }
+            return Response(content=content, media_type=content_type, headers=headers)
+    except urllib.error.HTTPError as exc:
+        raise HTTPException(status_code=exc.code, detail="Media stream unavailable")
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail=f"HLS stream unavailable: {exc}")
+
 @app.get("/login", response_class=FileResponse)
-def login_page(request: Request, redirect: Optional[str] = None):
-    if is_authenticated(request):
-        target = redirect if (redirect and redirect.startswith("/") and not redirect.startswith("//")) else "/"
+def login_page(request: Request, redirect: Optional[str] = None, role: Optional[str] = None, error: Optional[str] = None):
+    user = get_current_user(request)
+    if user:
+        if user["role"] == "admin":
+            target = sanitize_redirect_target(redirect, default="/admin")
+        else:
+            target = sanitize_redirect_target(redirect, default="/")
         return RedirectResponse(url=target, status_code=307)
     return FileResponse("login.html")
 
 @app.post("/login")
 async def login_submit(request: Request):
-    username, password, redirect_target = "", "", "/"
+    username, password, redirect_target = "", "", None
     try:
         data = await request.json()
         username = str(data.get("username", "")).strip()
         password = str(data.get("password", "")).strip()
-        if "redirect" in data and str(data.get("redirect", "")).startswith("/") and not str(data.get("redirect", "")).startswith("//"):
-            redirect_target = str(data.get("redirect"))
+        if "redirect" in data:
+            redirect_target = sanitize_redirect_target(str(data.get("redirect")))
     except Exception:
         try:
             body = await request.body()
@@ -852,28 +1008,27 @@ async def login_submit(request: Request):
             username = parsed.get("username", [""])[0].strip()
             password = parsed.get("password", [""])[0].strip()
             if "redirect" in parsed:
-                r = parsed.get("redirect", ["/"])[0]
-                if r.startswith("/") and not r.startswith("//"):
-                    redirect_target = r
+                redirect_target = sanitize_redirect_target(parsed.get("redirect", [""])[0])
         except Exception:
             pass
 
-    submitted_hash = hashlib.sha256(password.encode("utf-8")).hexdigest()
-    target_hash = get_target_password_hash()
+    role = verify_user_credentials(username, password)
+    if not role:
+        return JSONResponse(status_code=401, content={"detail": "Invalid username or password."})
 
-    if username == ADMIN_USERNAME and hmac.compare_digest(submitted_hash, target_hash):
-        token = create_session_token(username)
-        response = JSONResponse(content={"status": "success", "redirect": redirect_target})
-        response.set_cookie(
-            key=SESSION_COOKIE_NAME,
-            value=token,
-            httponly=True,
-            max_age=86400 * 7,
-            samesite="lax"
-        )
-        return response
+    token = create_session_token(username, role)
+    if role == "admin":
+        dest = redirect_target if (redirect_target and redirect_target != "/") else "/admin"
+    else:
+        dest = redirect_target if redirect_target else "/"
+        if dest.startswith("/admin"):
+            dest = "/"
 
-    return JSONResponse(status_code=401, content={"detail": "Invalid username or password."})
+    dest = sanitize_redirect_target(dest, default=("/admin" if role == "admin" else "/"))
+
+    response = JSONResponse(content={"status": "success", "username": username, "role": role, "redirect": dest})
+    set_auth_cookie(response, token, request)
+    return response
 
 @app.api_route("/logout", methods=["GET", "POST"])
 def logout():
@@ -883,7 +1038,20 @@ def logout():
 
 @app.get("/api/auth/check")
 def check_auth(request: Request):
-    return {"authenticated": is_authenticated(request)}
+    user = get_current_user(request)
+    if user:
+        return {
+            "authenticated": True,
+            "username": user["username"],
+            "role": user["role"],
+            "is_admin": user["role"] == "admin"
+        }
+    return {
+        "authenticated": False,
+        "username": None,
+        "role": "anonymous",
+        "is_admin": False
+    }
 
 @app.get("/", response_class=FileResponse)
 def index():

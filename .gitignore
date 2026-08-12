@@ -36,7 +36,13 @@ output/
 mediamtx.exe
 mediamtx.zip
 
-# Local backup files are not source artifacts.
-*.backup
-
 certificate/
+*.cert
+*.key
+*.pem
+.env
+.env.*
+!.env.example
+recordings/
+*.bak
+

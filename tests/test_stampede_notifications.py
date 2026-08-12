@@ -46,6 +46,9 @@ class TestStampedeNotifications(unittest.TestCase):
 
     def test_notifications_api_endpoints(self):
         client = TestClient(app)
+        admin_user = os.getenv("ADMIN_USERNAME", "admin")
+        admin_pass = os.getenv("ADMIN_PASSWORD", "Egdronepolice@1143")
+        client.post("/login", json={"username": admin_user, "password": admin_pass})
         
         from lite_server import _last_notification_time
         _last_notification_time.clear()
