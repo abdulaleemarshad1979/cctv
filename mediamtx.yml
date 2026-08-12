@@ -30,5 +30,5 @@ writeTimeout: 5s
 
 paths:
   all:
-    runOnReady: 'curl -X POST http://127.0.0.1:8000/cameras/state -H "Content-Type: application/json" -d "{\"path\":\"$MTX_PATH\", \"status\":\"online\"}"'
-    runOnNotReady: 'curl -X POST http://127.0.0.1:8000/cameras/state -H "Content-Type: application/json" -d "{\"path\":\"$MTX_PATH\", \"status\":\"offline\"}"'
+    runOnAvailable: 'curl -X POST http://127.0.0.1:8000/cameras/state -H "Content-Type: application/json" -d "{\"path\":\"$MTX_PATH\", \"status\":\"online\"}"'
+    runOnUnavailable: 'curl -X POST http://127.0.0.1:8000/cameras/state -H "Content-Type: application/json" -d "{\"path\":\"$MTX_PATH\", \"status\":\"offline\"}"'
