@@ -37,3 +37,26 @@ def test_login_success_and_logout():
     res_logout = client.get("/logout", follow_redirects=False)
     assert res_logout.status_code == 307
     assert "/login" in res_logout.headers["location"]
+
+def test_unauthenticated_redirect_admin():
+    unauth_client = TestClient(app)
+    response = unauth_client.get("/admin", follow_redirects=False)
+    assert response.status_code == 307
+    assert "/login?redirect=/admin" in response.headers["location"]
+
+def test_login_with_admin_redirect():
+    test_password = os.getenv("ADMIN_PASSWORD", "Egdronepolice@1143")
+    auth_client = TestClient(app)
+    response = auth_client.post("/login", json={
+        "username": ADMIN_USERNAME,
+        "password": test_password,
+        "redirect": "/admin"
+    })
+    assert response.status_code == 200
+    assert response.json()["redirect"] == "/admin"
+    assert SESSION_COOKIE_NAME in auth_client.cookies
+    
+    # Verify accessing /admin succeeds with the session
+    res_admin = auth_client.get("/admin")
+    assert res_admin.status_code == 200
+

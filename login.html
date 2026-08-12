@@ -251,9 +251,12 @@
       const msgEl = document.getElementById("errorMessage");
       alertEl.style.display = "none";
 
+      const redirectParam = urlParams.get("redirect") || "/";
+
       const payload = {
         username: form.username.value,
-        password: form.password.value
+        password: form.password.value,
+        redirect: redirectParam
       };
 
       try {
@@ -264,7 +267,9 @@
         });
 
         if (res.ok) {
-          window.location.href = "/";
+          const data = await res.json().catch(() => ({}));
+          const dest = data.redirect || redirectParam || "/";
+          window.location.href = (dest.startsWith("/") && !dest.startsWith("//")) ? dest : "/";
         } else {
           const data = await res.json().catch(() => ({}));
           msgEl.textContent = data.detail || "Invalid username or password.";

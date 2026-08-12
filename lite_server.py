@@ -817,6 +817,10 @@ async def auth_middleware(request: Request, call_next):
 
     if not is_authenticated(request):
         if path in ("/", "/admin", "/commercial", "/forecast/history.csv"):
+            if path == "/admin":
+                return RedirectResponse(url="/login?redirect=/admin", status_code=307)
+            elif path == "/commercial":
+                return RedirectResponse(url="/login?redirect=/commercial", status_code=307)
             return RedirectResponse(url="/login", status_code=307)
         return JSONResponse(status_code=401, content={"detail": "Unauthenticated. Please log in."})
 
@@ -825,18 +829,21 @@ async def auth_middleware(request: Request, call_next):
 # --- Endpoints ---
 
 @app.get("/login", response_class=FileResponse)
-def login_page(request: Request):
+def login_page(request: Request, redirect: Optional[str] = None):
     if is_authenticated(request):
-        return RedirectResponse(url="/", status_code=307)
+        target = redirect if (redirect and redirect.startswith("/") and not redirect.startswith("//")) else "/"
+        return RedirectResponse(url=target, status_code=307)
     return FileResponse("login.html")
 
 @app.post("/login")
 async def login_submit(request: Request):
-    username, password = "", ""
+    username, password, redirect_target = "", "", "/"
     try:
         data = await request.json()
         username = str(data.get("username", "")).strip()
         password = str(data.get("password", "")).strip()
+        if "redirect" in data and str(data.get("redirect", "")).startswith("/") and not str(data.get("redirect", "")).startswith("//"):
+            redirect_target = str(data.get("redirect"))
     except Exception:
         try:
             body = await request.body()
@@ -844,6 +851,10 @@ async def login_submit(request: Request):
             parsed = parse_qs(body.decode("utf-8", errors="ignore"))
             username = parsed.get("username", [""])[0].strip()
             password = parsed.get("password", [""])[0].strip()
+            if "redirect" in parsed:
+                r = parsed.get("redirect", ["/"])[0]
+                if r.startswith("/") and not r.startswith("//"):
+                    redirect_target = r
         except Exception:
             pass
 
@@ -852,7 +863,7 @@ async def login_submit(request: Request):
 
     if username == ADMIN_USERNAME and hmac.compare_digest(submitted_hash, target_hash):
         token = create_session_token(username)
-        response = JSONResponse(content={"status": "success", "redirect": "/"})
+        response = JSONResponse(content={"status": "success", "redirect": redirect_target})
         response.set_cookie(
             key=SESSION_COOKIE_NAME,
             value=token,

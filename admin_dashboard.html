@@ -1205,7 +1205,7 @@
       try {
         const res = await fetch("/cameras");
         if (res.status === 401) {
-          window.location.href = "/login";
+          window.location.href = "/login?redirect=/admin";
           return;
         }
         cameras = await res.json();
@@ -1371,7 +1371,7 @@
       try {
         const res = await fetch("/cameras", { cache: "no-store" });
         if (res.status === 401) {
-          window.location.href = "/login";
+          window.location.href = "/login?redirect=/admin";
           return;
         }
         const newCameras = await res.json();
