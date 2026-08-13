@@ -8,24 +8,22 @@
   <link rel="icon" href="data:,">
   <style>
     :root {
-      --bg-main: #0f172a;
-      --bg-surface: #1e293b;
-      --bg-header: #0a0f1d;
-      --border-color: #334155;
-      --border-hover: #475569;
-      --bg-tile: #1e293b;
-      --bg-tile-header: #0f172a;
-      --text-main: #f8fafc;
-      --text-muted: #94a3b8;
-      --text-blue: #38bdf8;
+      --bg-main: #f8fafc;
+      --bg-header: #ffffff;
+      --border-color: #cbd5e1;
+      --border-hover: #94a3b8;
+      --bg-tile: #ffffff;
+      --bg-tile-header: #f1f5f9;
+      --text-main: #0f172a;
+      --text-muted: #475569;
+      --text-blue: #1d4ed8;
+      --text-gold: #b45309;
       --accent-blue: #0284c7;
       --accent-blue-hover: #0369a1;
-      --accent-purple: #8b5cf6;
-      --accent-emerald: #10b981;
-      --live-green: #22c55e;
-      --error-red: #ef4444;
-      --warning-amber: #f59e0b;
-      --badge-critical: #dc2626;
+      --live-green: #15803d;
+      --error-red: #b91c1c;
+      --warning-amber: #b45309;
+      --badge-critical: #b91c1c;
     }
 
     * {
@@ -35,7 +33,7 @@
     }
 
     body {
-      background-color: #0b1120;
+      background-color: var(--bg-main);
       color: var(--text-main);
       font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
       min-height: 100vh;
@@ -51,20 +49,21 @@
       top: 0;
       z-index: 50;
       background-color: var(--bg-header);
-      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
-      border-bottom: 1px solid var(--border-color);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
     }
 
     .admin-banner {
-      background: linear-gradient(90deg, #1e1b4b, #0f172a, #0369a1);
+      background: linear-gradient(90deg, #0369a1, #0284c7, #0ea5e9);
       padding: 4px 20px;
       font-size: 11.5px;
       font-weight: 700;
-      color: #7dd3fc;
+      color: #ffffff;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      border-bottom: 1px solid #1e293b;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.2);
       letter-spacing: 0.5px;
     }
 
@@ -93,7 +92,8 @@
 
     .header {
       background-color: var(--bg-header);
-      padding: 10px 20px;
+      border-bottom: 1px solid #cbd5e1;
+      padding: 8px 20px;
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -118,47 +118,49 @@
     }
 
     .brand-logo {
-      height: 48px;
+      height: 44px;
       width: auto;
       object-fit: contain;
-      filter: drop-shadow(0 2px 8px rgba(2, 132, 199, 0.4));
     }
 
     .brand-title {
-      font-size: 18px;
-      font-weight: 900;
-      color: #38bdf8;
+      font-size: 17px;
+      font-weight: 800;
+      color: #0284c7;
       margin: 0;
+      font-family: system-ui, -apple-system, sans-serif;
       text-transform: uppercase;
       letter-spacing: 0.5px;
       line-height: 1.1;
     }
 
     .brand-subtitle {
-      font-size: 12.5px;
+      font-size: 13px;
       font-weight: 700;
-      color: #94a3b8;
-      margin-top: 2px;
+      color: #0f172a;
+      margin-top: 1px;
       display: flex;
       align-items: center;
       gap: 8px;
     }
 
     .brand-admin-tag {
-      background: rgba(56, 189, 248, 0.15);
-      color: #38bdf8;
-      border: 1px solid rgba(56, 189, 248, 0.3);
+      background: rgba(2, 132, 199, 0.12);
+      color: #0284c7;
+      border: 1px solid rgba(2, 132, 199, 0.3);
       padding: 1px 6px;
       border-radius: 4px;
       font-size: 10px;
       font-weight: 800;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
     }
 
     .dignitaries-group {
       display: flex;
       align-items: center;
       justify-content: flex-end;
-      gap: 16px;
+      gap: 18px;
       flex: 1;
     }
 
@@ -166,25 +168,25 @@
       display: flex;
       flex-direction: column;
       align-items: center;
-      width: 165px;
-      gap: 3px;
+      width: 175px;
+      gap: 4px;
     }
 
     .dignitary-img {
-      height: 52px;
+      height: 56px;
       width: auto;
       max-width: 100%;
       border-radius: 6px;
-      border: 1.5px solid #334155;
-      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+      border: 1.5px solid #94a3b8;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
       object-fit: contain;
-      background-color: #1e293b;
+      background-color: #f8fafc;
     }
 
     .dignitary-name {
       font-size: 11px;
       font-weight: 800;
-      color: #f8fafc;
+      color: #0f172a;
       text-align: center;
       line-height: 1.2;
       white-space: nowrap;
@@ -193,18 +195,18 @@
     .dignitary-desig {
       font-size: 9.5px;
       font-weight: 700;
-      color: #38bdf8;
+      color: #0284c7;
       text-align: center;
       line-height: 1.2;
       text-transform: uppercase;
       white-space: nowrap;
     }
 
-    /* ---------- Navigation & Controls Bar ---------- */
+    /* ---------- Navigation Control Bar ---------- */
     .nav-control-bar {
-      background-color: #131d31;
-      border-bottom: 1px solid var(--border-color);
-      padding: 10px 20px;
+      background-color: #ffffff;
+      border-bottom: 2px solid #cbd5e1;
+      padding: 8px 20px;
       display: flex;
       justify-content: space-between;
       align-items: center;
@@ -214,55 +216,58 @@
 
     .filter-group {
       display: flex;
-      align-items: center;
-      gap: 8px;
       flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
     }
 
     .pill {
-      background: #1e293b;
-      color: #94a3b8;
-      border: 1px solid #334155;
+      background-color: #ffffff;
+      border: 1px solid #cbd5e1;
+      color: #1e3a8a;
+      padding: 8px 18px;
       border-radius: 9999px;
-      padding: 6px 14px;
-      font-size: 12.5px;
+      font-size: 13px;
       font-weight: 700;
       cursor: pointer;
       transition: all 0.2s ease;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.04);
       display: inline-flex;
       align-items: center;
       gap: 6px;
     }
 
     .pill:hover {
-      background: #334155;
-      color: #f8fafc;
-      border-color: #475569;
+      background-color: #f1f5f9;
+      color: #0369a1;
+      border-color: #0369a1;
     }
 
     .pill.active {
-      background: #0284c7;
-      color: #ffffff;
-      border-color: #38bdf8;
-      box-shadow: 0 0 12px rgba(2, 132, 199, 0.4);
+      background-color: #ffffff;
+      border-color: #0284c7;
+      color: #0284c7;
+      box-shadow: 0 4px 10px rgba(2, 132, 199, 0.15);
     }
 
     .search-input-box {
-      background: #0f172a;
-      border: 1px solid #334155;
-      color: #f8fafc;
+      background: #ffffff;
+      border: 1px solid #cbd5e1;
+      color: #0f172a;
       border-radius: 9999px;
-      padding: 6px 14px;
-      font-size: 12px;
+      padding: 8px 16px;
+      font-size: 12.5px;
+      font-weight: 600;
       outline: none;
-      width: 180px;
+      width: 190px;
       transition: all 0.2s ease;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.04);
     }
 
     .search-input-box:focus {
-      border-color: #38bdf8;
-      box-shadow: 0 0 8px rgba(56, 189, 248, 0.3);
-      width: 220px;
+      border-color: #0284c7;
+      box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.15);
+      width: 230px;
     }
 
     .nav-right-group {
@@ -273,11 +278,11 @@
     }
 
     .btn-action {
-      background: #1e293b;
-      color: #f8fafc;
-      border: 1px solid #334155;
+      background: #ffffff;
+      color: #1e3a8a;
+      border: 1px solid #cbd5e1;
       border-radius: 9999px;
-      padding: 7px 14px;
+      padding: 8px 14px;
       font-size: 12px;
       font-weight: 700;
       cursor: pointer;
@@ -286,97 +291,117 @@
       gap: 6px;
       text-decoration: none;
       transition: all 0.2s ease;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.04);
     }
 
     .btn-action:hover {
-      background: #334155;
-      border-color: #475569;
+      background: #f1f5f9;
+      border-color: #0369a1;
+      color: #0369a1;
     }
 
     .btn-action-primary {
       background: linear-gradient(135deg, #0284c7, #0369a1);
-      border-color: #38bdf8;
+      border-color: #0284c7;
       color: #ffffff;
-      box-shadow: 0 2px 8px rgba(2, 132, 199, 0.3);
+      box-shadow: 0 2px 8px rgba(2, 132, 199, 0.25);
     }
 
     .btn-action-primary:hover {
       background: linear-gradient(135deg, #0369a1, #075985);
-    }
-
-    .btn-action-emerald {
-      background: linear-gradient(135deg, #059669, #047857);
-      border-color: #34d399;
       color: #ffffff;
+      border-color: #0369a1;
     }
 
-    .btn-action-emerald:hover {
-      background: linear-gradient(135deg, #047857, #065f46);
-    }
-
-    .mode-toggle-group {
-      display: flex;
-      background: #0f172a;
-      border: 1px solid #334155;
+    .notif-btn {
+      position: relative;
+      background: #fff1f2;
+      border: 1px solid #fecdd3;
+      color: #be123c;
+      padding: 8px 16px;
       border-radius: 9999px;
-      padding: 3px;
-      gap: 2px;
-    }
-
-    .mode-pill {
-      background: transparent;
-      border: none;
-      color: #94a3b8;
-      border-radius: 9999px;
-      padding: 5px 12px;
-      font-size: 11.5px;
+      font-size: 13px;
       font-weight: 700;
       cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.2s ease;
+      box-shadow: 0 2px 4px rgba(190, 18, 60, 0.1);
+    }
+
+    .notif-btn:hover {
+      background: #ffe4e6;
+      border-color: #fda4af;
+    }
+
+    .notif-badge {
+      background: #e11d48;
+      color: #ffffff;
+      font-size: 11px;
+      font-weight: 800;
+      border-radius: 9999px;
+      padding: 2px 7px;
+      min-width: 18px;
+      text-align: center;
+    }
+
+    .csv-btn {
+      color: #0369a1;
+      background: #e0f2fe;
+      border: 1px solid #bae6fd;
+      border-radius: 9999px;
+      padding: 8px 14px;
+      font-size: 12px;
+      font-weight: 700;
+      text-decoration: none;
       display: inline-flex;
       align-items: center;
       gap: 5px;
       transition: all 0.2s ease;
     }
 
+    .csv-btn:hover {
+      background: #bae6fd;
+    }
+
+    .mode-toggle-group {
+      display: flex;
+      align-items: center;
+      background: #f1f5f9;
+      padding: 3px;
+      border-radius: 9999px;
+      border: 1px solid #cbd5e1;
+      box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.05);
+    }
+
+    .mode-pill {
+      background: transparent;
+      border: none;
+      padding: 6px 14px;
+      border-radius: 9999px;
+      font-size: 12px;
+      font-weight: 700;
+      color: #475569;
+      cursor: pointer;
+      transition: all 0.25s ease;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
     .mode-pill.active {
       background: #0284c7;
       color: #ffffff;
-      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
-    }
-
-    .notif-btn {
-      position: relative;
-      background: #1e293b;
-      color: #f8fafc;
-      border: 1px solid #334155;
-      border-radius: 9999px;
-      padding: 7px 14px;
-      font-size: 12px;
-      font-weight: 700;
-      cursor: pointer;
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      transition: all 0.2s ease;
-    }
-
-    .notif-badge {
-      background: #dc2626;
-      color: #fff;
-      font-size: 10px;
-      font-weight: 800;
-      padding: 2px 6px;
-      border-radius: 9999px;
-      min-width: 18px;
-      text-align: center;
+      box-shadow: 0 2px 4px rgba(2, 132, 199, 0.3);
     }
 
     .logout-btn {
-      color: #fca5a5;
-      background: rgba(220, 38, 38, 0.15);
-      border: 1px solid rgba(220, 38, 38, 0.3);
+      color: #be123c;
+      background: #fff1f2;
+      border: 1px solid #fecdd3;
       border-radius: 9999px;
-      padding: 7px 14px;
+      padding: 8px 14px;
       font-size: 12px;
       font-weight: 700;
       text-decoration: none;
@@ -387,115 +412,131 @@
     }
 
     .logout-btn:hover {
-      background: rgba(220, 38, 38, 0.25);
-      border-color: #ef4444;
-      color: #ffffff;
+      background: #ffe4e6;
+      border-color: #fda4af;
     }
 
-    /* ---------- Main Grid ---------- */
+    /* ---------- Grid Layout ---------- */
     .grid-container {
+      padding: 24px;
       flex: 1;
-      padding: 20px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .grid {
       display: grid;
       grid-template-columns: repeat(1, minmax(0, 1fr));
-      gap: 20px;
-      max-width: 1920px;
-      margin: 0 auto;
-      width: 100%;
+      gap: 24px;
     }
 
     @media (min-width: 768px) {
-      .grid-container {
+      .grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }
     }
 
-    @media (min-width: 1280px) {
-      .grid-container {
+    @media (min-width: 1024px) {
+      .grid {
         grid-template-columns: repeat(3, minmax(0, 1fr));
       }
     }
 
-    /* ---------- Tile Component ---------- */
+    /* ---------- Stream Cards ---------- */
     .tile {
       background-color: var(--bg-tile);
-      border: 1px solid var(--border-color);
       border-radius: 12px;
+      border: 1px solid var(--border-color);
       overflow: hidden;
       display: flex;
       flex-direction: column;
-      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
-      transition: border-color 0.2s ease, box-shadow 0.2s ease;
+      height: 340px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+      transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .tile--counting {
+      height: auto;
+      min-height: 340px;
     }
 
     .tile:hover {
-      border-color: #475569;
-      box-shadow: 0 6px 24px rgba(0, 0, 0, 0.4);
+      border-color: var(--border-hover);
+      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
+      transform: translateY(-2px);
     }
 
     .tile__header {
       background-color: var(--bg-tile-header);
-      padding: 10px 14px;
+      padding: 8px 14px;
+      border-bottom: 1px solid var(--border-color);
       display: flex;
       align-items: center;
       justify-content: space-between;
-      border-bottom: 1px solid var(--border-color);
       gap: 8px;
     }
 
     .tile__title-group {
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 6px;
       flex: 1;
       overflow: hidden;
     }
 
     .tile__name {
-      font-weight: 800;
-      font-size: 14px;
-      color: #f8fafc;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      color: var(--text-main);
+      text-transform: uppercase;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
     }
 
     .tile__rename-btn {
-      background: rgba(56, 189, 248, 0.15);
-      color: #38bdf8;
-      border: 1px solid rgba(56, 189, 248, 0.3);
-      padding: 3px 8px;
-      border-radius: 6px;
-      font-size: 11px;
+      background: #e0f2fe;
+      color: #0369a1;
+      border: 1px solid #bae6fd;
+      padding: 3px 7px;
+      border-radius: 4px;
+      font-size: 10px;
       font-weight: 700;
       cursor: pointer;
       display: inline-flex;
       align-items: center;
-      gap: 4px;
+      gap: 3px;
       transition: all 0.2s ease;
+      white-space: nowrap;
     }
 
     .tile__rename-btn:hover {
       background: #0284c7;
       color: #ffffff;
-      border-color: #38bdf8;
+      border-color: #0284c7;
     }
 
     .tile__expand-btn {
-      background: #1e293b;
-      color: #94a3b8;
-      border: 1px solid #334155;
-      padding: 3px 8px;
-      border-radius: 6px;
-      font-size: 11px;
+      background: rgba(15, 23, 42, 0.75);
+      color: #ffffff;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      padding: 3px 7px;
+      border-radius: 4px;
+      font-size: 10px;
       font-weight: 700;
       cursor: pointer;
+      backdrop-filter: blur(4px);
       transition: all 0.2s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      white-space: nowrap;
     }
 
     .tile__expand-btn:hover {
-      background: #334155;
-      color: #f8fafc;
+      background: #0284c7;
+      border-color: #0284c7;
     }
 
     .tile__meta {
@@ -505,130 +546,180 @@
       flex-shrink: 0;
     }
 
+    .tile__location {
+      font-size: 10px;
+      color: var(--text-muted);
+      font-family: monospace;
+    }
+
     .tile__count {
-      font-weight: 800;
-      font-size: 12px;
-      color: #38bdf8;
-      background: rgba(56, 189, 248, 0.1);
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--text-blue);
+      background-color: rgba(96, 165, 250, 0.15);
       padding: 2px 6px;
       border-radius: 4px;
-      border: 1px solid rgba(56, 189, 248, 0.2);
+      font-family: monospace;
     }
 
     .tile__zone-badge {
-      font-size: 10px;
+      font-size: 9px;
       font-weight: 800;
-      padding: 2px 7px;
+      color: #fff;
+      padding: 2px 6px;
       border-radius: 4px;
+      letter-spacing: 0.05em;
       text-transform: uppercase;
-      letter-spacing: 0.5px;
     }
 
     .tile__zone-badge.safe {
-      background: rgba(34, 197, 94, 0.2);
-      color: #4ade80;
-      border: 1px solid rgba(34, 197, 94, 0.4);
+      background-color: rgba(16, 185, 129, 0.2);
+      color: var(--live-green);
+      border: 1px solid rgba(16, 185, 129, 0.3);
     }
 
+    .tile__zone-badge.warning,
     .tile__zone-badge.watch {
-      background: rgba(245, 158, 11, 0.2);
-      color: #fbbf24;
-      border: 1px solid rgba(245, 158, 11, 0.4);
+      background-color: rgba(245, 158, 11, 0.2);
+      color: var(--warning-amber);
+      border: 1px solid rgba(245, 158, 11, 0.3);
     }
 
-    .tile__zone-badge.alert {
-      background: rgba(249, 115, 22, 0.2);
-      color: #fb923c;
-      border: 1px solid rgba(249, 115, 22, 0.4);
+    .tile__zone-badge.alert,
+    .tile__zone-badge.high {
+      background-color: rgba(249, 115, 22, 0.2);
+      color: #ea580c;
+      border: 1px solid rgba(249, 115, 22, 0.3);
     }
 
-    .tile__zone-badge.stampede,
-    .tile__zone-badge.critical {
-      background: rgba(239, 68, 68, 0.25);
-      color: #f87171;
-      border: 1px solid rgba(239, 68, 68, 0.5);
-    }
-
-    .tile__location {
-      font-size: 11px;
-      font-weight: 700;
-      color: #94a3b8;
+    .tile__zone-badge.critical,
+    .tile__zone-badge.stampede {
+      background-color: rgba(239, 68, 68, 0.2);
+      color: var(--badge-critical);
+      border: 1px solid rgba(239, 68, 68, 0.3);
     }
 
     .tile__status-dot {
-      width: 9px;
-      height: 9px;
-      border-radius: 9999px;
-      background-color: #64748b;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background-color: var(--text-muted);
+      transition: background-color 0.3s ease;
     }
 
     .tile[data-status="online"] .tile__status-dot {
       background-color: var(--live-green);
-      box-shadow: 0 0 8px rgba(34, 197, 94, 0.6);
+      box-shadow: 0 0 8px var(--live-green);
+      animation: pulse 2s infinite;
     }
 
+    /* Video frame area */
     .tile__body {
+      flex: 1;
+      background-color: #080d16;
       position: relative;
-      background: #000000;
-      aspect-ratio: 16 / 9;
-      width: 100%;
       overflow: hidden;
+      display: flex;
+      align-items: stretch;
+      justify-content: center;
+      flex-direction: column;
+      min-height: 0;
     }
 
     .tile__player-container {
       width: 100%;
       height: 100%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
+      min-height: 0;
+      flex: 1 1 auto;
+      position: relative;
+      overflow: hidden;
+      background: #000;
     }
 
-    .tile__player-container video {
+    .tile--counting .tile__body {
+      flex: none;
+    }
+
+    .tile--counting .tile__player-container {
+      height: auto;
+      min-height: 210px;
+      flex: none;
+      aspect-ratio: 16 / 9;
+    }
+
+    .tile__video,
+    .tile__iframe {
       width: 100%;
       height: 100%;
       object-fit: cover;
+      border: none;
+      display: block;
     }
 
     .tile__live-badge {
       position: absolute;
-      top: 10px;
-      left: 10px;
-      background: rgba(0, 0, 0, 0.7);
-      border: 1px solid rgba(34, 197, 94, 0.5);
-      padding: 2px 8px;
-      border-radius: 4px;
+      top: 12px;
+      left: 12px;
       display: flex;
       align-items: center;
-      gap: 5px;
-      font-size: 10px;
-      font-weight: 800;
-      color: #4ade80;
+      gap: 6px;
+      background: rgba(255, 255, 255, 0.85);
+      border: 1px solid rgba(0, 0, 0, 0.08);
+      padding: 4px 10px;
+      border-radius: 6px;
+      backdrop-filter: blur(4px);
       z-index: 2;
     }
 
     .tile__live-dot {
       width: 6px;
       height: 6px;
-      border-radius: 9999px;
-      background: #22c55e;
-      box-shadow: 0 0 6px #22c55e;
+      border-radius: 50%;
+      background-color: var(--live-green);
+      animation: pulse 1.5s infinite;
     }
 
+    .tile__live-text {
+      font-size: 9px;
+      font-weight: 800;
+      letter-spacing: 0.05em;
+      color: #0f172a;
+    }
+
+    /* Glassmorphic HUD overlay */
     .tile__hud {
-      position: absolute;
-      bottom: 0;
-      left: 0;
-      right: 0;
-      background: linear-gradient(180deg, rgba(15, 23, 42, 0) 0%, rgba(15, 23, 42, 0.95) 100%);
-      padding: 10px 12px 6px;
-      z-index: 2;
+      position: static;
+      width: 100%;
+      flex: none;
+      background: #ffffff;
+      border-top: 1px solid rgba(0, 0, 0, 0.08);
+      padding: 8px 12px;
+      font-size: 11px;
+      color: var(--text-main);
+      z-index: 5;
       display: flex;
       flex-direction: column;
       gap: 6px;
+      transform: translateY(0);
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .tile__stream-switching {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #cbd5e1;
+      background: #080d16;
+      font-size: 11px;
+      letter-spacing: 0.04em;
     }
 
     .tile__hud-row {
       display: flex;
+      justify-content: space-between;
+      align-items: center;
       gap: 12px;
     }
 
@@ -639,23 +730,30 @@
       gap: 3px;
     }
 
+    .tile__hud-label {
+      font-size: 9px;
+      font-weight: 700;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
     .tile__hud-value-container {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      font-size: 10px;
-      font-weight: 700;
-      color: #94a3b8;
     }
 
     .tile__hud-value {
-      color: #f8fafc;
-      font-weight: 800;
+      font-family: monospace;
+      font-weight: 700;
+      color: var(--text-main);
     }
 
     .tile__hud-bar-bg {
+      width: 100%;
       height: 4px;
-      background: rgba(255, 255, 255, 0.15);
+      background: rgba(0, 0, 0, 0.1);
       border-radius: 2px;
       overflow: hidden;
     }
@@ -663,66 +761,359 @@
     .tile__hud-bar-fill {
       height: 100%;
       width: 0%;
-      background: #38bdf8;
-      transition: width 0.3s ease, background-color 0.3s ease;
+      border-radius: 2px;
+      transition: width 0.4s ease, background-color 0.3s ease;
     }
 
     .tile__hud-stats-grid {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
-      gap: 4px;
-      font-size: 9.5px;
-      color: #94a3b8;
-      border-top: 1px solid rgba(255, 255, 255, 0.1);
+      gap: 6px;
+      border-top: 1px solid rgba(0, 0, 0, 0.08);
       padding-top: 4px;
     }
 
     .tile__hud-stat {
       display: flex;
-      flex-direction: column;
+      justify-content: space-between;
+      font-size: 10px;
+    }
+
+    .tile__hud-stat-name {
+      color: var(--text-muted);
     }
 
     .tile__hud-stat-val {
-      font-weight: 800;
-      color: #f8fafc;
+      font-family: monospace;
+      font-weight: 600;
+      color: var(--text-blue);
     }
 
-    .tile__offline-state {
+    .tile__forecast {
+      border-top: 1px solid rgba(0, 0, 0, 0.08);
+      padding-top: 7px;
+    }
+
+    .tile__forecast-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 6px;
+      color: var(--text-muted);
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+
+    .tile__forecast-accuracy {
+      color: var(--text-blue);
+      letter-spacing: normal;
+      text-transform: none;
+    }
+
+    .tile__forecast-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 4px;
+    }
+
+    .tile__forecast-item {
+      border-radius: 4px;
+      background: #eff6ff;
+      border: 1px solid transparent;
+      padding: 5px 2px;
+      text-align: center;
+    }
+
+    .tile__forecast-item--trusted {
+      background: #ecfdf5;
+      border-color: #86efac;
+    }
+
+    .tile__forecast-item--validating {
+      opacity: 0.72;
+    }
+
+    .tile__forecast-time,
+    .tile__forecast-count,
+    .tile__forecast-range {
+      display: block;
+      font-family: monospace;
+    }
+
+    .tile__forecast-time {
+      color: var(--text-muted);
+      font-size: 8px;
+    }
+
+    .tile__forecast-count {
+      color: var(--text-blue);
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .tile__forecast-range {
+      color: var(--text-muted);
+      font-size: 8px;
+    }
+
+    .tile__forecast-status {
+      margin-top: 4px;
+      color: var(--text-muted);
+      font-size: 9px;
+      text-align: center;
+    }
+
+    /* Per-Zone Head Count Grid */
+    .tile__zone-grid {
+      border-top: 1px solid rgba(0, 0, 0, 0.08);
+      padding-top: 8px;
+      margin-top: 4px;
+    }
+
+    .zone-grid-header {
+      font-size: 9px;
+      font-weight: 700;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      text-align: center;
+      margin-bottom: 6px;
+    }
+
+    .zone-grid-cells {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 4px;
+    }
+
+    .zone-cell {
+      background: rgba(0, 0, 0, 0.05);
+      border-radius: 4px;
+      padding: 4px;
+      text-align: center;
+      transition: background-color 0.3s ease;
+    }
+
+    .zone-cell-label {
+      font-size: 8px;
+      font-weight: 700;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      margin-bottom: 2px;
+    }
+
+    .zone-cell-count {
+      font-family: monospace;
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text-main);
+    }
+
+    .zone-cell-count.safe {
+      color: var(--live-green);
+    }
+
+    .zone-cell-count.warning {
+      color: var(--warning-amber);
+    }
+
+    .zone-cell-count.high {
+      color: var(--badge-critical);
+    }
+
+    .zone-cell-count.critical {
+      color: var(--badge-critical);
+    }
+
+    /* Warning Overlay */
+    .tile__warning-overlay {
+      position: absolute;
+      top: 40px;
+      left: 12px;
+      right: 12px;
+      background: rgba(239, 68, 68, 0.95);
+      color: #fff;
+      font-size: 10px;
+      font-weight: 700;
+      padding: 6px 10px;
+      border-radius: 6px;
+      text-align: center;
+      z-index: 6;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.5);
+      animation: blinker 1.5s linear infinite;
+      backdrop-filter: blur(4px);
+    }
+
+    @keyframes blinker {
+      50% {
+        opacity: 0.85;
+      }
+    }
+
+    /* Offline Placeholder */
+    .tile__placeholder {
       position: absolute;
       inset: 0;
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      background: #090e17;
-      color: #64748b;
-      gap: 8px;
-      padding: 16px;
+      background: radial-gradient(circle at center, #ffffff 0%, #f1f5f9 100%);
+      padding: 24px;
       text-align: center;
+      z-index: 10;
+      transition: opacity 0.4s ease;
     }
 
+    .tile__error-text {
+      font-size: 13px;
+      color: var(--text-muted);
+      max-width: 260px;
+      line-height: 1.5;
+      margin: 0 0 10px;
+      white-space: pre-line;
+    }
+
+    .tile__publish-url {
+      max-width: 90%;
+      margin-bottom: 12px;
+      padding: 7px 9px;
+      color: #075985;
+      background: #e0f2fe;
+      border: 1px solid #bae6fd;
+      border-radius: 6px;
+      font: 600 10px/1.35 monospace;
+      overflow-wrap: anywhere;
+      user-select: all;
+    }
+
+    /* Tile Footer & Admin Controls */
     .tile__footer {
-      background: #131d31;
-      border-top: 1px solid var(--border-color);
+      background-color: var(--bg-tile-header);
       padding: 8px 14px;
+      border-top: 1px solid var(--border-color);
       display: flex;
       align-items: center;
       justify-content: space-between;
-      font-size: 11.5px;
+      gap: 6px;
     }
 
     .tile__id-tag {
       font-family: ui-monospace, monospace;
-      color: #64748b;
+      color: var(--text-muted);
       font-size: 11px;
+      font-weight: 700;
     }
 
-    /* ---------- Rename Popover / Modal ---------- */
+    .tile__footer-actions {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .btn-tile {
+      font-size: 11px;
+      font-weight: 700;
+      padding: 4px 9px;
+      border-radius: 6px;
+      cursor: pointer;
+      border: 1px solid transparent;
+      transition: all 0.2s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+    }
+
+    .btn-tile-rename {
+      background: #e0f2fe;
+      color: #0369a1;
+      border-color: #bae6fd;
+    }
+
+    .btn-tile-rename:hover {
+      background: #0284c7;
+      color: #ffffff;
+      border-color: #0284c7;
+    }
+
+    .btn-tile-start {
+      background: #ecfdf5;
+      color: #059669;
+      border-color: #a7f3d0;
+    }
+
+    .btn-tile-start:hover {
+      background: #059669;
+      color: #ffffff;
+      border-color: #059669;
+    }
+
+    .btn-tile-stop {
+      background: #fff1f2;
+      color: #e11d48;
+      border-color: #fecdd3;
+    }
+
+    .btn-tile-stop:hover {
+      background: #e11d48;
+      color: #ffffff;
+      border-color: #e11d48;
+    }
+
+    /* Bouncing loader */
+    .bouncing-loader {
+      display: flex;
+      justify-content: center;
+      gap: 6px;
+    }
+
+    .bouncing-loader>div {
+      width: 8px;
+      height: 8px;
+      background-color: var(--accent-blue);
+      border-radius: 50%;
+      animation: bouncing-loader 0.6s infinite alternate;
+    }
+
+    .bouncing-loader>div:nth-child(2) {
+      animation-delay: 0.2s;
+    }
+
+    .bouncing-loader>div:nth-child(3) {
+      animation-delay: 0.4s;
+    }
+
+    @keyframes bouncing-loader {
+      to {
+        opacity: 0.1;
+        transform: translateY(-8px);
+      }
+    }
+
+    @keyframes pulse {
+      0% {
+        transform: scale(1);
+        opacity: 1;
+      }
+      50% {
+        transform: scale(1.15);
+        opacity: 0.7;
+      }
+      100% {
+        transform: scale(1);
+        opacity: 1;
+      }
+    }
+
+    /* ---------- Modals ---------- */
     .modal-backdrop {
       position: fixed;
       inset: 0;
-      background: rgba(0, 0, 0, 0.75);
+      background: rgba(15, 23, 42, 0.6);
       backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
       z-index: 9999;
       display: flex;
       align-items: center;
@@ -731,12 +1122,12 @@
     }
 
     .modal-card {
-      background: #1e293b;
-      border: 1px solid #475569;
+      background: #ffffff;
+      border: 1px solid var(--border-color);
       border-radius: 14px;
       width: 100%;
       max-width: 520px;
-      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.6);
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
       overflow: hidden;
       display: flex;
       flex-direction: column;
@@ -749,23 +1140,23 @@
     }
 
     @keyframes modal-in {
-      from { opacity: 0; transform: scale(0.95) translateY(10px); }
+      from { opacity: 0; transform: scale(0.96) translateY(10px); }
       to { opacity: 1; transform: scale(1) translateY(0); }
     }
 
     .modal-header {
-      background: #0f172a;
+      background: #f8fafc;
       padding: 14px 20px;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      border-bottom: 1px solid #334155;
+      border-bottom: 1px solid var(--border-color);
     }
 
     .modal-title {
       font-size: 16px;
       font-weight: 800;
-      color: #f8fafc;
+      color: #0f172a;
       display: flex;
       align-items: center;
       gap: 8px;
@@ -774,7 +1165,7 @@
     .modal-close-btn {
       background: transparent;
       border: none;
-      color: #94a3b8;
+      color: var(--text-muted);
       font-size: 20px;
       cursor: pointer;
       line-height: 1;
@@ -782,7 +1173,7 @@
     }
 
     .modal-close-btn:hover {
-      color: #ffffff;
+      color: #0f172a;
     }
 
     .modal-body {
@@ -791,6 +1182,7 @@
       flex-direction: column;
       gap: 16px;
       overflow-y: auto;
+      color: var(--text-main);
     }
 
     .form-group {
@@ -802,52 +1194,42 @@
     .form-label {
       font-size: 12px;
       font-weight: 700;
-      color: #94a3b8;
+      color: var(--text-muted);
       text-transform: uppercase;
       letter-spacing: 0.5px;
     }
 
     .form-input {
-      background: #0f172a;
-      border: 1px solid #334155;
-      color: #f8fafc;
+      background: #ffffff;
+      border: 1px solid var(--border-color);
+      color: #0f172a;
       border-radius: 8px;
-      padding: 9px 14px;
-      font-size: 14px;
+      padding: 10px 14px;
+      font-size: 13.5px;
       outline: none;
-      transition: border-color 0.2s ease;
+      transition: all 0.2s ease;
     }
 
     .form-input:focus {
-      border-color: #38bdf8;
-      box-shadow: 0 0 8px rgba(56, 189, 248, 0.3);
-    }
-
-    .form-select {
-      background: #0f172a;
-      border: 1px solid #334155;
-      color: #f8fafc;
-      border-radius: 8px;
-      padding: 9px 14px;
-      font-size: 14px;
-      outline: none;
+      border-color: #0284c7;
+      box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.15);
     }
 
     .modal-footer {
-      background: #0f172a;
+      background: #f8fafc;
       padding: 14px 20px;
       display: flex;
       align-items: center;
       justify-content: flex-end;
       gap: 10px;
-      border-top: 1px solid #334155;
+      border-top: 1px solid var(--border-color);
     }
 
-    /* ---------- Fleet Manager Table ---------- */
+    /* ---------- Fleet Table ---------- */
     .fleet-table-container {
       max-height: 480px;
       overflow-y: auto;
-      border: 1px solid #334155;
+      border: 1px solid var(--border-color);
       border-radius: 8px;
     }
 
@@ -859,11 +1241,11 @@
     }
 
     .fleet-table th {
-      background: #0f172a;
+      background: #f8fafc;
       padding: 10px 14px;
-      color: #94a3b8;
+      color: var(--text-muted);
       font-weight: 700;
-      border-bottom: 1px solid #334155;
+      border-bottom: 1px solid var(--border-color);
       position: sticky;
       top: 0;
       z-index: 1;
@@ -871,18 +1253,18 @@
 
     .fleet-table td {
       padding: 8px 14px;
-      border-bottom: 1px solid #1e293b;
+      border-bottom: 1px solid #f1f5f9;
       vertical-align: middle;
     }
 
     .fleet-table tr:hover td {
-      background: rgba(56, 189, 248, 0.04);
+      background: #f8fafc;
     }
 
     .fleet-table-input {
-      background: #0f172a;
-      border: 1px solid #334155;
-      color: #f8fafc;
+      background: #ffffff;
+      border: 1px solid var(--border-color);
+      color: #0f172a;
       border-radius: 6px;
       padding: 6px 10px;
       font-size: 12.5px;
@@ -891,7 +1273,132 @@
     }
 
     .fleet-table-input:focus {
-      border-color: #38bdf8;
+      border-color: #0284c7;
+      box-shadow: 0 0 0 2px rgba(2, 132, 199, 0.15);
+    }
+
+    /* ---------- Full View Modal & Controls ---------- */
+    .full-view-modal {
+      position: fixed;
+      inset: 0;
+      z-index: 10000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .full-view-backdrop {
+      position: absolute;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.85);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+    }
+
+    .full-view-content {
+      position: relative;
+      z-index: 10;
+      width: 100%;
+      max-width: 1380px;
+      height: 90vh;
+      background: #080d16;
+      border-radius: 14px;
+      border: 1px solid #334155;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.6);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .full-view-header {
+      background: #0f172a;
+      padding: 12px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid #1e293b;
+      flex-shrink: 0;
+    }
+
+    .full-view-title-group {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .full-view-badge {
+      background: #0284c7;
+      color: #fff;
+      font-size: 10px;
+      font-weight: 800;
+      padding: 3px 8px;
+      border-radius: 9999px;
+      letter-spacing: 0.05em;
+    }
+
+    .full-view-title {
+      color: #f8fafc;
+      font-size: 16px;
+      font-weight: 700;
+      margin: 0;
+    }
+
+    .full-view-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .full-view-btn {
+      background: #0284c7;
+      color: #fff;
+      border: none;
+      padding: 6px 14px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: background 0.2s ease;
+    }
+
+    .full-view-btn:hover {
+      background: #0369a1;
+    }
+
+    .full-view-close-btn {
+      background: #334155;
+      color: #fff;
+      border: none;
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      font-size: 16px;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.2s ease;
+    }
+
+    .full-view-close-btn:hover {
+      background: #e11d48;
+    }
+
+    .full-view-body {
+      flex: 1;
+      position: relative;
+      width: 100%;
+      height: 100%;
+      background: #000;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
     }
 
     /* ---------- Toast Notifications ---------- */
@@ -904,72 +1411,301 @@
       flex-direction: column;
       gap: 10px;
       pointer-events: none;
+      max-width: 420px;
+      width: calc(100vw - 48px);
     }
 
     .toast {
-      background: #1e293b;
-      color: #f8fafc;
-      border: 1px solid #38bdf8;
+      background: #ffffff;
+      color: #0f172a;
+      border-left: 5px solid #0284c7;
       border-radius: 8px;
       padding: 12px 18px;
       font-size: 13px;
       font-weight: 700;
-      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
       display: flex;
       align-items: center;
       gap: 10px;
       pointer-events: auto;
-      animation: toast-in 0.2s ease-out;
+      animation: slideInRight 0.3s cubic-bezier(0.16, 1, 0.3, 1);
     }
 
-    @keyframes toast-in {
-      from { opacity: 0; transform: translateY(10px); }
-      to { opacity: 1; transform: translateY(0); }
+    .toast.error {
+      border-left-color: #e11d48;
+    }
+
+    #notif-toast-container {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      z-index: 9999;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      max-width: 420px;
+      width: calc(100vw - 32px);
+      pointer-events: none;
+    }
+
+    @keyframes slideInRight {
+      from {
+        transform: translateX(100%);
+        opacity: 0;
+      }
+      to {
+        transform: translateX(0);
+        opacity: 1;
+      }
+    }
+
+    .empty-state {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 60px 24px;
+      color: var(--text-muted);
+      text-align: center;
+      grid-column: 1 / -1;
+    }
+
+    .empty-icon {
+      width: 48px;
+      height: 48px;
+      margin-bottom: 16px;
+      color: var(--border-hover);
     }
 
     .hidden {
       display: none !important;
     }
+
+    /* Responsive Media Queries */
+    @media (max-width: 1024px) {
+      .header {
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+        padding: 14px 16px;
+        gap: 16px;
+      }
+
+      .header__brand {
+        justify-content: center;
+        width: 100%;
+      }
+
+      .dignitaries-group {
+        width: 100%;
+        justify-content: center;
+        gap: 16px;
+      }
+    }
+
+    @media (max-width: 768px) {
+      .nav-control-bar {
+        padding: 10px 12px;
+        flex-direction: column;
+        justify-content: center;
+        gap: 10px;
+      }
+
+      .filter-group {
+        justify-content: center;
+        width: 100%;
+        gap: 8px;
+      }
+
+      .nav-right-group {
+        justify-content: center;
+        width: 100%;
+        gap: 8px;
+      }
+
+      .pill {
+        padding: 7px 14px;
+        font-size: 12px;
+      }
+
+      .search-input-box {
+        width: 100%;
+      }
+
+      .notif-btn {
+        padding: 6px 12px;
+        font-size: 11px;
+      }
+
+      .csv-btn {
+        padding: 6px 12px;
+        font-size: 11px;
+      }
+
+      .mode-pill {
+        padding: 6px 12px;
+        font-size: 11px;
+      }
+
+      #notif-toast-container {
+        bottom: 12px;
+        left: 12px;
+        right: 12px;
+        width: auto;
+      }
+
+      #notif-drawer {
+        width: 100% !important;
+      }
+    }
+
+    @media (max-width: 640px) {
+      .header {
+        padding: 10px 8px;
+        gap: 10px;
+      }
+
+      .header__brand {
+        gap: 10px;
+      }
+
+      .brand-logo {
+        height: 48px;
+      }
+
+      .brand-title {
+        font-size: 15px;
+        letter-spacing: 0;
+      }
+
+      .brand-subtitle {
+        font-size: 12px;
+        margin-top: 2px;
+      }
+
+      .dignitaries-group {
+        gap: 8px;
+        justify-content: center;
+      }
+
+      .dignitary-card {
+        width: calc(33.33% - 6px);
+        min-width: 95px;
+        max-width: 130px;
+        gap: 3px;
+      }
+
+      .dignitary-img {
+        height: 48px;
+        width: auto;
+        max-width: 100%;
+        object-fit: contain;
+      }
+
+      .dignitary-name {
+        font-size: 9px;
+        white-space: normal;
+        word-break: break-word;
+      }
+
+      .dignitary-desig {
+        font-size: 7.5px;
+        white-space: normal;
+        word-break: break-word;
+      }
+
+      .grid-container {
+        padding: 10px 6px;
+      }
+
+      .grid {
+        gap: 12px;
+      }
+
+      .tile {
+        border-radius: 10px;
+      }
+
+      .tile__header {
+        padding: 6px 10px;
+      }
+
+      .tile__name {
+        font-size: 11px;
+      }
+
+      .tile__hud {
+        padding: 6px 8px;
+      }
+
+      .tile__hud-stats-grid {
+        gap: 4px;
+      }
+
+      .zone-grid-cells {
+        gap: 3px;
+      }
+
+      .zone-cell {
+        padding: 3px 2px;
+      }
+
+      .zone-cell-count {
+        font-size: 12px;
+      }
+
+      .tile__footer {
+        padding: 8px 10px;
+        flex-direction: column;
+        gap: 6px;
+      }
+    }
   </style>
 </head>
 
 <body>
-  <!-- Top Sticky Navigation Wrapper -->
+
+  <!-- Sticky Nav Wrapper (Compact Header + Control Bar) -->
   <div class="sticky-nav-wrapper">
     <!-- Admin Security Banner -->
     <div class="admin-banner">
       <div class="admin-banner-left">
         <span class="admin-banner-badge">ADMIN CONSOLE</span>
-        <span>EAST GODAVARI DRONE MONITORING SYSTEM — FLEET RENAMING & MANAGEMENT</span>
+        <span>EAST GODAVARI DRONE MONITORING SYSTEM — FLEET RENAMING & STREAM CONTROLS</span>
       </div>
       <div style="display: flex; align-items: center; gap: 14px;">
         <span style="display: inline-flex; align-items: center; gap: 6px;">
           <span style="width: 8px; height: 8px; border-radius: 9999px; background: #22c55e; box-shadow: 0 0 8px #22c55e;"></span>
-          <span id="fleet-count-display">FLEET CAPACITY: 60 DRONES CONFIGURED</span>
+          <span id="fleet-count-display">FLEET CAPACITY: 60 CONFIGURED</span>
         </span>
       </div>
     </div>
 
-    <!-- Official Header with Emblems & Dignitaries -->
+    <!-- Premium Responsive Header with Emblems & Dignitaries -->
     <header class="header">
       <div class="header__brand">
         <a href="/admin" class="logo-group">
-          <img src="/static/monitor/img/appolice.png?v=4" alt="AP Police Logo" class="brand-logo">
-          <img src="/static/monitor/img/egpolice.png?v=4" alt="East Godavari District Police" class="brand-logo">
-          <div>
-            <h1 class="brand-title">AP POLICE — EGDMS ADMIN</h1>
-            <div class="brand-subtitle">
-              <span>Pushkaralu Drone Operations Center</span>
-              <span class="brand-admin-tag">FLEET CONTROLLER</span>
-            </div>
-          </div>
+          <img src="/static/monitor/img/ap_police_logo.png" alt="AP Police Logo" class="brand-logo">
         </a>
+        <div>
+          <h1 class="brand-title">Andhra Pradesh Police Department</h1>
+          <div class="brand-subtitle">
+            <span>East Godavari Drone Monitoring System</span>
+            <span class="brand-admin-tag">ADMIN CONTROLLER</span>
+          </div>
+        </div>
       </div>
 
+      <!-- Portrait Dignitaries aligned horizontally -->
       <div class="dignitaries-group">
         <div class="dignitary-card">
-          <img src="/static/monitor/img/dgp.png?v=4" alt="DGP Ch. Dwaraka Tirumala Rao, IPS" class="dignitary-img">
-          <div class="dignitary-name">Ch. Dwaraka Tirumala Rao, IPS</div>
+          <img src="/static/monitor/img/cm.png?v=4" alt="Hon'ble CM Sri N. Chandrababu Naidu" class="dignitary-img">
+          <div class="dignitary-name">Sri N. Chandrababu Naidu</div>
+          <div class="dignitary-desig">Hon'ble Chief Minister</div>
+        </div>
+        <div class="dignitary-card">
+          <img src="/static/monitor/img/dgp.png?v=4" alt="DGP Sri Harish Kumar Gupta, IPS" class="dignitary-img">
+          <div class="dignitary-name">Sri Harish Kumar Gupta, IPS</div>
           <div class="dignitary-desig">DGP, Andhra Pradesh</div>
         </div>
         <div class="dignitary-card">
@@ -980,24 +1716,24 @@
       </div>
     </header>
 
-    <!-- Controls & Filter Toolbar -->
+    <!-- Navigation & Filter Control Bar -->
     <div class="nav-control-bar">
       <div class="filter-group">
-        <button class="pill active" data-filter="All">All Streams (60)</button>
+        <button class="pill active" data-filter="All">All Streams</button>
         <button class="pill" data-filter="Active">Active Feeds</button>
         <button class="pill" data-filter="Pushkaralu">Pushkaralu</button>
         <button class="pill" data-filter="Rjy">Rjy</button>
         <button class="pill" data-filter="Custom">Custom Renamed</button>
-        <input type="text" id="tile-search-input" class="search-input-box" placeholder="🔍 Quick Filter Drones..." oninput="onSearchInput(this.value)">
+        <input type="text" id="tile-search-input" class="search-input-box" placeholder="🔍 Quick Filter Feeds..." oninput="onSearchInput(this.value)">
       </div>
 
       <div class="nav-right-group">
         <!-- Fleet Name Manager Modal Button -->
-        <button onclick="openFleetManagerModal()" class="btn-action btn-action-primary">
+        <button onclick="openFleetManagerModal()" class="btn-action btn-action-primary" title="Batch Custom Rename 60 Drones">
           <svg style="width: 15px; height: 15px;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
           </svg>
-          <span>🚀 Fleet Name Manager</span>
+          <span>Fleet Name Manager</span>
         </button>
 
         <!-- Switch to Normal Dashboard -->
@@ -1006,24 +1742,24 @@
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
           </svg>
-          <span>👁️ Normal Dashboard</span>
+          <span>Viewer Mode</span>
         </a>
 
         <!-- Stampede Warning Notification Bell -->
         <button id="notif-bell-btn" onclick="toggleNotifDrawer()" class="notif-btn">
-          <svg style="width: 16px; height: 16px;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <svg style="width: 18px; height: 18px;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"
               d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
           </svg>
-          <span>Warnings</span>
+          <span>Stampede Warnings</span>
           <span id="notif-badge" class="hidden notif-badge">0</span>
         </button>
 
-        <a href="/forecast/history.csv" download class="btn-action">
+        <a href="/forecast/history.csv" download class="csv-btn">
           CSV Report
         </a>
 
-        <!-- Viewing / Counting Mode Toggle -->
+        <!-- Viewing / Counting Mode Toggle for Admin -->
         <div class="mode-toggle-group">
           <button id="btn-mode-viewing" class="mode-pill" onclick="changeGlobalMode('viewing')">
             Viewing
@@ -1033,23 +1769,38 @@
           </button>
         </div>
 
-        <!-- Logout -->
+        <!-- Logout Button -->
         <a href="/logout" class="logout-btn" title="Sign Out">
           <span>Logout</span>
+          <svg style="width: 14px; height: 14px;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+          </svg>
         </a>
       </div>
     </div>
   </div>
 
-  <!-- Main Drone Grid Container -->
-  <main class="grid-container" id="camera-grid"></main>
+  <!-- Main Grid -->
+  <main class="grid-container">
+    <div class="empty-state hidden" id="empty-message">
+      <svg class="empty-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+          d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+      </svg>
+      <p>No camera feeds match the selected filter</p>
+    </div>
+
+    <div class="grid" id="drone-grid">
+      <!-- Grid items injected dynamically -->
+    </div>
+  </main>
 
   <!-- Single Drone Quick-Rename Modal -->
   <div id="rename-modal" class="modal-backdrop hidden">
     <div class="modal-card">
       <div class="modal-header">
         <div class="modal-title">
-          <svg style="width: 18px; height: 18px; color: #38bdf8;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <svg style="width: 18px; height: 18px; color: #0284c7;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
           </svg>
           <span>Rename Drone Feed</span>
@@ -1059,7 +1810,7 @@
       <div class="modal-body">
         <div class="form-group">
           <label class="form-label">Drone Hardware ID</label>
-          <input type="text" id="rename-drone-id" class="form-input" readonly style="color: #64748b; background: #0b1120;">
+          <input type="text" id="rename-drone-id" class="form-input" readonly style="color: #64748b; background: #f1f5f9;">
         </div>
         <div class="form-group">
           <label class="form-label">Custom Display Name</label>
@@ -1085,7 +1836,7 @@
     <div class="modal-card modal-card-lg">
       <div class="modal-header">
         <div class="modal-title">
-          <svg style="width: 20px; height: 20px; color: #38bdf8;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <svg style="width: 20px; height: 20px; color: #0284c7;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
           </svg>
           <span>Drone Fleet Customization Manager (60 Drones)</span>
@@ -1095,7 +1846,7 @@
       <div class="modal-body">
         <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;">
           <input type="text" id="fleet-table-search" class="form-input" style="flex: 1; min-width: 240px;" placeholder="🔍 Filter fleet by ID, Name, or Location..." oninput="filterFleetTable(this.value)">
-          <button onclick="resetAllDroneNames()" class="btn-action" style="color: #fca5a5; border-color: rgba(220, 38, 38, 0.4);">
+          <button onclick="resetAllDroneNames()" class="btn-action" style="color: #be123c; border-color: #fecdd3; background: #fff1f2;">
             🔄 Reset All to Defaults
           </button>
         </div>
@@ -1124,34 +1875,67 @@
     </div>
   </div>
 
-  <!-- Full View Video Modal -->
-  <div id="full-view-modal" class="modal-backdrop hidden" style="padding: 20px;">
-    <div class="modal-card" style="max-width: 1400px; height: 90vh; display: flex; flex-direction: column;">
-      <div class="modal-header">
-        <div class="modal-title" id="full-view-title">Drone Feed Full View</div>
-        <button onclick="closeFullViewModal()" class="modal-close-btn">&times;</button>
+  <!-- Dedicated Full View Modal Overlay -->
+  <div id="full-view-modal" class="full-view-modal hidden">
+    <div class="full-view-backdrop" onclick="closeFullViewModal()"></div>
+    <div class="full-view-content">
+      <div class="full-view-header">
+        <div class="full-view-title-group">
+          <span class="full-view-badge">ADMIN MONITORING</span>
+          <h2 id="full-view-title" class="full-view-title">Drone Feed Full View</h2>
+        </div>
+        <div class="full-view-actions">
+          <button class="full-view-btn" onclick="toggleNativeFullscreen()">
+            <svg style="width: 16px; height: 16px;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-5h-4m4 0v4m0-4l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+            </svg>
+            <span>Native Fullscreen</span>
+          </button>
+          <button class="full-view-close-btn" onclick="closeFullViewModal()">✕</button>
+        </div>
       </div>
-      <div id="full-view-body" style="flex: 1; background: #000; position: relative; overflow: hidden; display: flex; align-items: center; justify-content: center;"></div>
+      <div id="full-view-body" class="full-view-body"></div>
     </div>
   </div>
 
-  <!-- Stampede Warning Notifications Drawer -->
-  <div id="notif-drawer" class="hidden"
-    style="position: fixed; top: 0; right: 0; bottom: 0; width: 440px; max-width: 95vw; z-index: 99995; background: #1e293b; border-left: 1px solid #334155; box-shadow: -4px 0 25px rgba(0,0,0,0.5); display: flex; flex-direction: column; transition: transform 0.3s ease;">
-    <div style="padding: 16px 20px; background: #0f172a; border-bottom: 1px solid #334155; display: flex; justify-content: space-between; align-items: center;">
-      <h3 style="margin: 0; font-size: 15px; font-weight: 800; color: #f8fafc;">🚨 Stampede Warnings</h3>
-      <div style="display: flex; gap: 8px;">
-        <button onclick="clearAllNotifications()" style="background: transparent; border: 1px solid #475569; color: #94a3b8; font-size: 11px; font-weight: 700; padding: 4px 8px; border-radius: 4px; cursor: pointer;">Clear All</button>
-        <button onclick="toggleNotifDrawer()" style="background: transparent; border: none; color: #94a3b8; font-size: 20px; cursor: pointer;">&times;</button>
+  <!-- Stampede Warning Notification Drawer -->
+  <div id="notif-drawer-overlay" class="hidden" onclick="toggleNotifDrawer()"
+    style="position: fixed; inset: 0; z-index: 9990; background: rgba(15, 23, 42, 0.4); backdrop-filter: blur(4px); transition: opacity 0.3s ease;">
+  </div>
+  <aside id="notif-drawer" class="hidden"
+    style="position: fixed; top: 0; right: 0; bottom: 0; width: 440px; max-width: 95vw; z-index: 9995; background: #ffffff; box-shadow: -4px 0 25px rgba(0,0,0,0.15); display: flex; flex-direction: column; transition: transform 0.3s ease;">
+    <!-- Drawer Header -->
+    <div style="padding: 20px; border-bottom: 1px solid #e2e8f0; display: flex; align-items: center; justify-content: space-between; background: #fff1f2;">
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <span style="font-size: 22px;">🚨</span>
+        <div>
+          <h2 style="font-size: 16px; font-weight: 800; color: #9f1239; margin: 0;">Stampede Warning System</h2>
+          <div style="font-size: 11px; font-weight: 600; color: #be123c;">Real-Time Crowd Risk & Buildup Alerts</div>
+        </div>
+      </div>
+      <button onclick="toggleNotifDrawer()" style="background: transparent; border: none; font-size: 20px; color: #881337; cursor: pointer; padding: 4px;">✕</button>
+    </div>
+
+    <!-- Drawer Toolbar -->
+    <div style="padding: 12px 20px; border-bottom: 1px solid #f1f5f9; display: flex; align-items: center; justify-content: space-between; background: #f8fafc; font-size: 12px;">
+      <button onclick="clearAllNotifications()" style="background: transparent; border: 1px solid #cbd5e1; color: #475569; font-size: 11px; font-weight: 700; padding: 4px 8px; border-radius: 4px; cursor: pointer;">Clear Alerts</button>
+      <div style="display: flex; align-items: center; gap: 8px; font-weight: 600; color: #475569;">
+        <input type="checkbox" id="chk-audio-alert" checked style="accent-color: #e11d48; cursor: pointer;">
+        <label for="chk-audio-alert" style="cursor: pointer;">Sound Alarm</label>
       </div>
     </div>
-    <div id="notif-list-container" style="flex: 1; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 10px;">
-      <div style="text-align: center; color: #64748b; padding: 40px 16px; font-size: 13px;">No active warnings recorded.</div>
-    </div>
-  </div>
 
-  <!-- Toast Container -->
+    <!-- Drawer Content / Alert Cards List -->
+    <div id="notif-list" style="flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px;">
+      <div style="text-align: center; color: #64748b; padding: 40px 16px; font-size: 13px;">
+        No active stampede warnings detected. All monitored crowd sectors are safe.
+      </div>
+    </div>
+  </aside>
+
+  <!-- Toast Containers -->
   <div id="toast-container" class="toast-container"></div>
+  <div id="notif-toast-container"></div>
 
   <!-- HLS.js CDN -->
   <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
@@ -1159,14 +1943,15 @@
   <!-- Core Dashboard & Admin Scripts -->
   <script>
     let cameras = [];
-    let globalMode = "counting";
     let activeFilter = "All";
     let searchQuery = "";
-    let cameraPollInFlight = false;
-    let activeFullViewCamId = null;
+    let globalMode = "counting";
     const hlsPlayers = {};
     const CAMERA_POLL_INTERVAL_MS = 1000;
+    let cameraPollInFlight = false;
+    let activeFullViewCamId = null;
 
+    // Verify Admin Authentication on load
     async function verifyAdminAuth() {
       try {
         const res = await fetch("/api/auth/check");
@@ -1189,15 +1974,11 @@
     }
     verifyAdminAuth();
 
-    // --- Toast Notifications Helper ---
     function showToast(message, type = "success") {
       const container = document.getElementById("toast-container");
       if (!container) return;
       const toast = document.createElement("div");
-      toast.className = "toast";
-      if (type === "error") {
-        toast.style.borderColor = "#ef4444";
-      }
+      toast.className = `toast ${type === "error" ? "error" : ""}`;
       toast.innerHTML = `
         <span style="font-size: 16px;">${type === "error" ? "❌" : "✅"}</span>
         <span>${escapeHtml(message)}</span>
@@ -1211,23 +1992,117 @@
       }, 3500);
     }
 
-    function escapeHtml(str) {
-      if (!str) return "";
-      return String(str).replace(/[&<>"']/g, m => ({
-        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
-      }[m]));
-    }
-
     function isCameraPlayable(cam) {
-      return Boolean(cam.output_online || cam.source_online || cam.status === "online");
+      if (cam.enabled === false) return false;
+      return cam.status === "online" ||
+        (globalMode === "viewing" && cam.source_online === true) ||
+        Boolean(cam.output_online || cam.source_online);
     }
 
     function cameraPlaybackPath(cam) {
-      return cam.stream_path || cam.playback_stream_path || cam.source_stream_path || `live/${cam.id.replace('-', '')}`;
+      if (cam.playback_stream_path) return cam.playback_stream_path;
+      if (cam.source_online && cam.source_stream_path &&
+          (globalMode === "viewing" || !cam.output_online)) {
+        return cam.source_stream_path;
+      }
+      return cam.stream_path || `live/${cam.id.replace('-', '')}`;
     }
 
-    // --- Load Cameras & Render ---
-    async function loadCameras() {
+    function getConnectionMessage(cam) {
+      const backendMessage = cam.connection_message || cam.status_message || cam.message;
+      if (backendMessage && backendMessage !== "Video feed disconnected") return backendMessage;
+      return "Waiting for drone camera stream...";
+    }
+
+    function shouldShowPublishUrl(cam) {
+      return !isCameraPlayable(cam) && Boolean(cam.publish_url);
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? "").replace(/[&<>'"]/g, character => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;"
+      })[character]);
+    }
+
+    function forecastItemsMarkup(forecast) {
+      if (!forecast || forecast.status !== "ready") return "";
+      return (forecast.predictions || []).map(item => `
+        <div class="tile__forecast-item ${item.trusted ? "tile__forecast-item--trusted" : "tile__forecast-item--validating"}" title="${escapeHtml(item.trusted ? `Verified ${Number(item.accuracy_percent).toFixed(1)}% on ${item.validation_samples} past forecasts` : item.accuracy_percent == null ? "Validating" : `Below ${item.target_accuracy_percent || forecast.target_accuracy_percent || 90}% target: ${Number(item.accuracy_percent).toFixed(1)}%`)}">
+          <span class="tile__forecast-time">+${item.label || (item.minutes >= 60 ? `${item.minutes / 60}h` : `${item.minutes}m`)}</span>
+          <span class="tile__forecast-count">${Math.round(item.people_count || 0)}</span>
+          <span class="tile__forecast-range">${Math.round(item.lower_count ?? item.people_count ?? 0)}–${Math.round(item.upper_count ?? item.people_count ?? 0)}</span>
+        </div>
+      `).join("");
+    }
+
+    function forecastAccuracyText(forecast) {
+      if (forecast?.status === "ready") {
+        const lstm = forecast.lstm_status === "active"
+          ? " · LSTM"
+          : forecast.lstm_status === "shadow validation" ? " · LSTM shadow" : "";
+        return `${forecast.trusted_predictions || 0}/${(forecast.predictions || []).length} >=${forecast.target_accuracy_percent || 90}% verified${lstm}`;
+      }
+      return forecast && forecast.accuracy_percent != null
+        ? `${Number(forecast.accuracy_percent).toFixed(1)}% measured`
+        : "validating…";
+    }
+
+    function forecastStatusText(forecast) {
+      const message = forecast?.message || "Waiting for crowd samples";
+      if (forecast?.raw_count == null || forecast?.stabilized_count == null) return message;
+      return `${message} Stabilized input: ${forecast.stabilized_count} (raw: ${forecast.raw_count}).`;
+    }
+
+    function playerUsesPath(player, path) {
+      return Boolean(player) && (player.egdmsPath === path || player._egdmsPath === path);
+    }
+
+    // Full View Modal system
+    window.openFullViewModal = function(camId) {
+      const cam = cameras.find(c => c.id === camId);
+      if (!cam) return;
+
+      const container = document.getElementById(`player-container-${camId}`);
+      const fullViewBody = document.getElementById("full-view-body");
+      const fullViewModal = document.getElementById("full-view-modal");
+      const fullViewTitle = document.getElementById("full-view-title");
+
+      if (container && fullViewBody && fullViewModal) {
+        fullViewTitle.textContent = `${cam.name} — ${cam.location || 'Pushkaralu'}`;
+        fullViewBody.appendChild(container);
+        fullViewModal.classList.remove("hidden");
+        activeFullViewCamId = camId;
+      }
+    };
+
+    window.closeFullViewModal = function() {
+      if (!activeFullViewCamId) return;
+      const camId = activeFullViewCamId;
+      const container = document.getElementById(`player-container-${camId}`);
+      const cardBody = document.querySelector(`.tile[data-id="${camId}"] .tile__body`);
+      const fullViewModal = document.getElementById("full-view-modal");
+
+      if (container && cardBody) {
+        cardBody.insertBefore(container, cardBody.firstChild);
+      }
+      if (fullViewModal) {
+        fullViewModal.classList.add("hidden");
+      }
+      activeFullViewCamId = null;
+    };
+
+    window.toggleNativeFullscreen = function() {
+      const body = document.getElementById("full-view-body");
+      if (!body) return;
+      if (!document.fullscreenElement) {
+        body.requestFullscreen().catch(err => console.error(err));
+      } else {
+        document.exitFullscreen().catch(err => console.error(err));
+      }
+    };
+
+    // Load cameras from backend
+    async function loadCamerasFromBackend() {
       try {
         const res = await fetch("/cameras");
         if (res.status === 401) {
@@ -1239,53 +2114,30 @@
           return;
         }
         cameras = await res.json();
+        const countDisplay = document.getElementById("fleet-count-display");
+        if (countDisplay) {
+          countDisplay.textContent = `FLEET CAPACITY: ${cameras.length} CONFIGURED`;
+        }
         renderGrid();
       } catch (e) {
-        console.error("Error loading cameras:", e);
+        console.error("[EGDMS Admin] Failed to load cameras from backend:", e);
       }
     }
 
-    function renderGrid() {
-      const grid = document.getElementById("camera-grid");
-      if (!grid) return;
-      grid.innerHTML = "";
-
-      const filtered = cameras.filter(cam => {
-        // Text Search
-        if (searchQuery) {
-          const q = searchQuery.toLowerCase();
-          const matches = cam.id.toLowerCase().includes(q) ||
-            cam.name.toLowerCase().includes(q) ||
-            (cam.location && cam.location.toLowerCase().includes(q));
-          if (!matches) return false;
-        }
-
-        // Filter Pills
-        if (activeFilter === "All") return true;
-        if (activeFilter === "Active") return isCameraPlayable(cam);
-        if (activeFilter === "Pushkaralu") return cam.location === "Pushkaralu";
-        if (activeFilter === "Rjy") return cam.location === "Rjy";
-        if (activeFilter === "Custom") {
-          const defName = cam.id.startsWith("drone-") ? `DRONE ${cam.id.split('-')[1]}` : `CCTV CAMERA ${cam.id.split('-')[1]}`;
-          return cam.name !== defName;
-        }
-        return true;
-      });
-
-      filtered.forEach(cam => {
-        grid.appendChild(createTile(cam));
-      });
-    }
-
-    function createTile(cam) {
+    function createTileCard(cam) {
       const isOnline = isCameraPlayable(cam);
-      const analyticsReady = isOnline && globalMode === "counting" && cam.analytics_status === "active";
-      const countDisplay = analyticsReady ? `${cam.people_count || 0} pax` : "Analysis starting…";
+      const analyticsReady = isOnline && globalMode === 'counting' && cam.analytics_status === 'active';
+      const analyticsStarting = isOnline && globalMode === 'counting' && !analyticsReady;
+      const analyticsMessage = cam.analytics_status === 'stale'
+        ? 'Waiting for new count…'
+        : (cam.analytics_status === 'error' ? 'Counting unavailable' : 'Analysis starting…');
 
       const card = document.createElement("div");
-      card.className = "tile";
+      card.className = `tile ${isOnline && globalMode === 'counting' ? 'tile--counting' : ''}`;
       card.setAttribute("data-id", cam.id);
-      card.setAttribute("data-status", isOnline ? "online" : "connecting");
+      card.setAttribute("data-location", cam.location);
+      card.setAttribute("data-category", cam.category || "");
+      card.setAttribute("data-status", isOnline ? "online" : cam.status);
 
       card.innerHTML = `
         <header class="tile__header">
@@ -1294,13 +2146,17 @@
             <button class="tile__rename-btn" onclick="openRenameModal('${cam.id}')" title="Rename Drone">
               ✏️ Rename
             </button>
-            <button class="tile__expand-btn" onclick="openFullViewModal('${cam.id}')" title="Expand View">
-              ⤢
+            <button class="tile__expand-btn" onclick="openFullViewModal('${cam.id}')" title="Full View Modal">
+              ⤢ Full View
             </button>
           </div>
           <div class="tile__meta">
-            <span class="tile__count ${globalMode === 'counting' ? '' : 'hidden'}" id="count-${cam.id}">${countDisplay}</span>
-            <span class="tile__zone-badge ${(cam.comp_zone || 'SAFE').toLowerCase()}" id="zone-${cam.id}">${cam.comp_zone || 'SAFE'}</span>
+            <span class="tile__count ${isOnline && globalMode === 'counting' ? '' : 'hidden'}" id="count-${cam.id}" title="${escapeHtml(cam.connection_message || '')}">
+              ${analyticsStarting ? analyticsMessage : `${cam.people_count || 0} pax`}
+            </span>
+            <span class="tile__zone-badge ${(cam.comp_zone || 'SAFE').toLowerCase()} ${analyticsReady ? '' : 'hidden'}" id="zone-${cam.id}">
+              ${cam.comp_zone || 'SAFE'}
+            </span>
             <span class="tile__location" id="loc-${cam.id}">${escapeHtml(cam.location || 'Pushkaralu')}</span>
             <span class="tile__status-dot"></span>
           </div>
@@ -1308,102 +2164,255 @@
 
         <div class="tile__body">
           <div class="tile__player-container ${isOnline ? '' : 'hidden'}" id="player-container-${cam.id}"></div>
-
+          
           <div class="tile__live-badge ${isOnline ? '' : 'hidden'}" id="live-${cam.id}">
             <span class="tile__live-dot"></span>
-            <span>LIVE</span>
+            <span class="tile__live-text">LIVE</span>
           </div>
 
           <div class="tile__hud ${analyticsReady ? '' : 'hidden'}" id="hud-${cam.id}">
             <div class="tile__hud-row">
               <div class="tile__hud-metric">
                 <div class="tile__hud-value-container">
-                  <span>Pressure</span>
-                  <span class="tile__hud-value" id="hud-pressure-${cam.id}">${Math.round((cam.pressure || 0) * 100)}%</span>
+                  <span class="tile__hud-label">Pressure</span>
+                  <span class="tile__hud-value" id="hud-pressure-${cam.id}">0%</span>
                 </div>
                 <div class="tile__hud-bar-bg">
-                  <div class="tile__hud-bar-fill" id="hud-pressure-bar-${cam.id}" style="width: ${Math.min(100, Math.round((cam.pressure || 0) * 100))}%;"></div>
+                  <div class="tile__hud-bar-fill" id="hud-pressure-bar-${cam.id}"></div>
                 </div>
               </div>
               <div class="tile__hud-metric">
                 <div class="tile__hud-value-container">
-                  <span>Crowd Risk Index</span>
-                  <span class="tile__hud-value" id="hud-risk-${cam.id}">${(cam.risk_index || 0).toFixed(1)}/100</span>
+                  <span class="tile__hud-label">Crowd Risk Index</span>
+                  <span class="tile__hud-value" id="hud-stampede-${cam.id}">0/100</span>
                 </div>
                 <div class="tile__hud-bar-bg">
-                  <div class="tile__hud-bar-fill" id="hud-risk-bar-${cam.id}" style="width: ${Math.min(100, (cam.risk_index || 0))}%;"></div>
+                  <div class="tile__hud-bar-fill" id="hud-stampede-bar-${cam.id}"></div>
                 </div>
               </div>
             </div>
+
             <div class="tile__hud-stats-grid">
               <div class="tile__hud-stat">
-                <span>Speed</span>
-                <span class="tile__hud-stat-val" id="hud-speed-${cam.id}">${(cam.motion_speed || 0).toFixed(2)} m/s</span>
+                <span class="tile__hud-stat-name">Speed</span>
+                <span class="tile__hud-stat-val" id="hud-flow-${cam.id}">0.00 m/s</span>
               </div>
               <div class="tile__hud-stat">
-                <span>Turbulence</span>
-                <span class="tile__hud-stat-val" id="hud-turb-${cam.id}">${(cam.turbulence || 0).toFixed(2)}</span>
+                <span class="tile__hud-stat-name">Turbulence</span>
+                <span class="tile__hud-stat-val" id="hud-turb-${cam.id}">0.00</span>
               </div>
               <div class="tile__hud-stat">
-                <span>Confidence</span>
-                <span class="tile__hud-stat-val" id="hud-conf-${cam.id}">${Math.round((cam.confidence || 1.0) * 100)}%</span>
+                <span class="tile__hud-stat-name">Confidence</span>
+                <span class="tile__hud-stat-val" id="hud-conf-${cam.id}">100%</span>
               </div>
+            </div>
+
+            <div class="tile__forecast" id="forecast-${cam.id}">
+              <div class="tile__forecast-header">
+                <span>Crowd forecast</span>
+                <span class="tile__forecast-accuracy" id="forecast-accuracy-${cam.id}">${forecastAccuracyText(cam.forecast)}</span>
+              </div>
+              <div class="tile__forecast-grid" id="forecast-values-${cam.id}">${forecastItemsMarkup(cam.forecast)}</div>
+              <div class="tile__forecast-status" id="forecast-status-${cam.id}">${escapeHtml(forecastStatusText(cam.forecast))}</div>
+            </div>
+
+            <div class="tile__zone-grid" id="zone-grid-${cam.id}">
+              <div class="zone-grid-header">ZONE COUNTS</div>
+              <div class="zone-grid-cells" id="zone-cells-${cam.id}"></div>
             </div>
           </div>
 
-          <div class="tile__offline-state ${isOnline ? 'hidden' : ''}" id="offline-${cam.id}">
-            <svg style="width: 28px; height: 28px; color: #475569;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-            </svg>
-            <span style="font-size: 11.5px; font-weight: 700;">Stream Connecting / Standby</span>
+          <div class="tile__warning-overlay hidden" id="warning-overlay-${cam.id}">
+            <span id="warning-text-${cam.id}">WARNING: HIGH RISK</span>
+          </div>
+          
+          <div class="tile__placeholder ${isOnline ? 'hidden' : ''}" id="placeholder-${cam.id}">
+            <p class="tile__error-text" id="placeholder-text-${cam.id}">
+              ${escapeHtml(getConnectionMessage(cam))}
+            </p>
+            <code class="tile__publish-url ${shouldShowPublishUrl(cam) ? '' : 'hidden'}" id="publish-url-${cam.id}">${escapeHtml(cam.publish_url || '')}</code>
+            <div class="bouncing-loader ${isOnline ? 'hidden' : ''}" id="loader-${cam.id}">
+              <div></div>
+              <div></div>
+              <div></div>
+            </div>
           </div>
         </div>
 
-        <div class="tile__footer" style="display: flex; justify-content: space-between; align-items: center; gap: 6px;">
+        <footer class="tile__footer">
           <span class="tile__id-tag">${cam.id}</span>
-          <div style="display: flex; gap: 4px;">
-            <button class="tile__rename-btn" onclick="openRenameModal('${cam.id}')" style="padding: 2px 7px;">
+          <div class="tile__footer-actions">
+            <button class="btn-tile btn-tile-rename" onclick="openRenameModal('${cam.id}')" title="Rename Drone">
               ✏️ Rename
             </button>
             ${isOnline
-              ? `<button class="tile__rename-btn" onclick="stopStream('${cam.id}')" style="padding: 2px 7px; background: rgba(220, 38, 38, 0.2); color: #f87171; border-color: rgba(220, 38, 38, 0.4);" title="Stop Stream">⏹ Stop</button>`
-              : `<button class="tile__rename-btn" onclick="startStream('${cam.id}')" style="padding: 2px 7px; background: rgba(16, 185, 129, 0.2); color: #34d399; border-color: rgba(16, 185, 129, 0.4);" title="Start Feed">▶ Start</button>`
+              ? `<button class="btn-tile btn-tile-stop" onclick="stopStream('${cam.id}')" title="Stop Stream Feed">⏹ Stop Feed</button>`
+              : `<button class="btn-tile btn-tile-start" onclick="startStream('${cam.id}')" title="Start Live Stream">▶ Start Feed</button>`
             }
           </div>
-        </div>
+        </footer>
       `;
-
-      if (isOnline) {
-        attachStreamPlayer(cam, card.querySelector(`#player-container-${cam.id}`));
-      }
-
       return card;
     }
 
-    function teardownVideoFeed(camId) {
-      if (hlsPlayers[camId]) {
-        try {
-          hlsPlayers[camId].destroy();
-        } catch (e) {}
-        delete hlsPlayers[camId];
+    // Render Grid with search & filter pills
+    function renderGrid() {
+      const grid = document.getElementById("drone-grid");
+      const existingCards = new Map();
+      grid.querySelectorAll(".tile").forEach(card => {
+        existingCards.set(card.getAttribute("data-id"), card);
+      });
+
+      const currentCamMap = new Map(cameras.map(c => [c.id, c]));
+      let visibleCount = 0;
+
+      // 1. Remove obsolete cards
+      existingCards.forEach((card, id) => {
+        if (!currentCamMap.has(id)) {
+          if (activeFullViewCamId === id) closeFullViewModal();
+          card.remove();
+          teardownVideoFeed(id);
+        }
+      });
+
+      // 2. Render / update cards
+      cameras.forEach(cam => {
+        // Text Search
+        let matchesSearch = true;
+        if (searchQuery) {
+          const q = searchQuery.toLowerCase();
+          matchesSearch = cam.id.toLowerCase().includes(q) ||
+            cam.name.toLowerCase().includes(q) ||
+            (cam.location && cam.location.toLowerCase().includes(q));
+        }
+
+        // Filter Pills
+        let matchesFilter = true;
+        if (activeFilter === "Active") matchesFilter = isCameraPlayable(cam);
+        else if (activeFilter === "Pushkaralu") matchesFilter = cam.location === "Pushkaralu";
+        else if (activeFilter === "Rjy") matchesFilter = cam.location === "Rjy";
+        else if (activeFilter === "Custom") {
+          const defName = cam.id.startsWith("drone-") ? `DRONE ${cam.id.split('-')[1]}` : `CCTV CAMERA ${cam.id.split('-')[1]}`;
+          matchesFilter = cam.name !== defName;
+        }
+
+        const isVisible = matchesSearch && matchesFilter;
+        let card = existingCards.get(cam.id);
+        const isOnline = isCameraPlayable(cam);
+
+        if (!isVisible) {
+          if (card) card.classList.add("hidden");
+          return;
+        }
+
+        visibleCount++;
+
+        if (!card) {
+          card = createTileCard(cam);
+          grid.appendChild(card);
+          if (isOnline) {
+            setupVideoFeed(cam);
+            updateLiveStats(cam);
+          }
+        } else {
+          card.classList.remove("hidden");
+          updateCameraConnectionState(cam);
+        }
+      });
+
+      const emptyMsg = document.getElementById("empty-message");
+      if (visibleCount === 0) {
+        emptyMsg.classList.remove("hidden");
+      } else {
+        emptyMsg.classList.add("hidden");
       }
     }
 
-    function attachStreamPlayer(cam, container) {
+    function updateCameraConnectionState(cam) {
+      const card = document.querySelector(`.tile[data-id="${cam.id}"]`);
+      if (!card) return false;
+
+      const isOnline = isCameraPlayable(cam);
+      card.setAttribute("data-status", isOnline ? "online" : cam.status);
+      card.classList.toggle("tile--counting", isOnline && globalMode === "counting");
+
+      const container = document.getElementById(`player-container-${cam.id}`);
+      const placeholder = document.getElementById(`placeholder-${cam.id}`);
+      const placeholderText = document.getElementById(`placeholder-text-${cam.id}`);
+      const publishUrl = document.getElementById(`publish-url-${cam.id}`);
+      const loader = document.getElementById(`loader-${cam.id}`);
+      const liveBadge = document.getElementById(`live-${cam.id}`);
+
+      container?.classList.toggle("hidden", !isOnline);
+      placeholder?.classList.toggle("hidden", isOnline);
+      liveBadge?.classList.toggle("hidden", !isOnline);
+      loader?.classList.toggle("hidden", isOnline);
+
+      if (placeholderText) {
+        placeholderText.textContent = getConnectionMessage(cam);
+      }
+      if (publishUrl) {
+        publishUrl.textContent = cam.publish_url || "";
+        publishUrl.classList.toggle("hidden", !shouldShowPublishUrl(cam));
+      }
+
+      // Update start/stop buttons in footer
+      const footerActions = card.querySelector(".tile__footer-actions");
+      if (footerActions) {
+        footerActions.innerHTML = `
+          <button class="btn-tile btn-tile-rename" onclick="openRenameModal('${cam.id}')" title="Rename Drone">
+            ✏️ Rename
+          </button>
+          ${isOnline
+            ? `<button class="btn-tile btn-tile-stop" onclick="stopStream('${cam.id}')" title="Stop Stream Feed">⏹ Stop Feed</button>`
+            : `<button class="btn-tile btn-tile-start" onclick="startStream('${cam.id}')" title="Start Live Stream">▶ Start Feed</button>`
+          }
+        `;
+      }
+
+      if (isOnline) {
+        const playbackPath = cameraPlaybackPath(cam);
+        if (!playerUsesPath(hlsPlayers[cam.id], playbackPath)) setupVideoFeed(cam);
+        updateLiveStats(cam);
+      } else if (hlsPlayers[cam.id]) {
+        teardownVideoFeed(cam.id);
+      }
+      return true;
+    }
+
+    function teardownVideoFeed(id, showSwitchingState = false) {
+      if (hlsPlayers[id]) {
+        try {
+          hlsPlayers[id].destroy();
+        } catch (e) {}
+        delete hlsPlayers[id];
+      }
+
+      const container = document.getElementById(`player-container-${id}`);
+      if (container) {
+        container.innerHTML = showSwitchingState
+          ? '<div class="tile__stream-switching">Switching video mode...</div>'
+          : '';
+      }
+    }
+
+    function setupVideoFeed(cam) {
+      const container = document.getElementById(`player-container-${cam.id}`);
       if (!container) return;
       teardownVideoFeed(cam.id);
-      container.innerHTML = "";
+      container.classList.remove("hidden");
+      const playbackPath = cameraPlaybackPath(cam);
+      if (!playbackPath) return;
+
       const video = document.createElement("video");
+      video.className = "tile__video";
       video.autoplay = true;
       video.muted = true;
       video.playsInline = true;
       video.controls = true;
-      video.style.width = "100%";
-      video.style.height = "100%";
-      video.style.objectFit = "cover";
+      container.appendChild(video);
 
-      const streamPath = cameraPlaybackPath(cam);
-      const streamUrl = `${window.location.origin}/hls/${streamPath}/index.m3u8`;
+      const streamUrl = `${window.location.origin}/hls/${playbackPath}/index.m3u8`;
 
       if (typeof Hls !== "undefined" && Hls.isSupported()) {
         const hls = new Hls({
@@ -1411,16 +2420,26 @@
           maxBufferLength: 8,
           maxMaxBufferLength: 16,
           backBufferLength: 4,
+          liveSyncDurationCount: 3,
+          liveMaxLatencyDurationCount: 6,
+          maxLiveSyncPlaybackRate: 1.25,
+          startPosition: -1,
           enableWorker: true,
           manifestLoadingMaxRetry: 10,
           manifestLoadingRetryDelay: 1000,
+          levelLoadingMaxRetry: 10,
+          levelLoadingRetryDelay: 1000,
+          fragLoadingMaxRetry: 10,
+          fragLoadingRetryDelay: 1000,
           xhrSetup: function (xhr) {
             xhr.withCredentials = true;
           }
         });
+        hls._egdmsPath = playbackPath;
+        hlsPlayers[cam.id] = hls;
         hls.loadSource(streamUrl);
         hls.attachMedia(video);
-        hls.on(Hls.Events.MANIFEST_PARSED, function () {
+        hls.on(Hls.Events.MANIFEST_PARSED, () => {
           video.play().catch(() => {});
         });
         hls.on(Hls.Events.ERROR, function (event, data) {
@@ -1438,14 +2457,219 @@
             }
           }
         });
-        hlsPlayers[cam.id] = hls;
-      } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+      } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
         video.src = streamUrl;
-        video.play().catch(() => {});
+        hlsPlayers[cam.id] = {
+          egdmsPath: playbackPath,
+          destroy() {
+            video.pause();
+            video.removeAttribute("src");
+            video.load();
+            video.remove();
+          }
+        };
       }
-      container.appendChild(video);
     }
 
+    // Polling Cameras
+    async function pollCameras() {
+      if (cameraPollInFlight) return;
+      cameraPollInFlight = true;
+      try {
+        const res = await fetch("/cameras", { cache: "no-store" });
+        if (res.status === 401) {
+          window.location.href = "/login?role=admin&redirect=/admin";
+          return;
+        }
+        if (res.status === 403) {
+          window.location.href = "/login?error=admin_required&redirect=/admin";
+          return;
+        }
+        const newCameras = await res.json();
+
+        let needsRerender = false;
+        const oldById = new Map(cameras.map(camera => [camera.id, camera]));
+        newCameras.forEach(newCam => {
+          const oldCam = oldById.get(newCam.id);
+
+          if (!oldCam) {
+            needsRerender = true;
+          } else {
+            // Live-sync customized name & location without video teardown
+            if (oldCam.name !== newCam.name || oldCam.location !== newCam.location) {
+              const card = document.querySelector(`.tile[data-id="${newCam.id}"]`);
+              if (card) {
+                const nameEl = document.getElementById(`name-${newCam.id}`);
+                if (nameEl && nameEl.textContent !== newCam.name) nameEl.textContent = newCam.name;
+                const locEl = document.getElementById(`loc-${newCam.id}`);
+                if (locEl && locEl.textContent !== newCam.location) locEl.textContent = newCam.location;
+                card.setAttribute("data-location", newCam.location);
+              }
+              if (activeFullViewCamId === newCam.id) {
+                const fullTitle = document.getElementById("full-view-title");
+                if (fullTitle) {
+                  fullTitle.textContent = `${newCam.name} — ${newCam.location || 'Pushkaralu'}`;
+                }
+              }
+            }
+
+            if (
+              oldCam.status !== newCam.status ||
+              oldCam.source_online !== newCam.source_online ||
+              oldCam.output_online !== newCam.output_online ||
+              oldCam.connection_message !== newCam.connection_message ||
+              cameraPlaybackPath(oldCam) !== cameraPlaybackPath(newCam)
+            ) {
+              if (activeFilter === "Active") {
+                needsRerender = true;
+              } else {
+                updateCameraConnectionState(newCam);
+              }
+            } else if (isCameraPlayable(newCam)) {
+              updateLiveStats(newCam);
+            }
+          }
+        });
+
+        cameras = newCameras;
+        if (needsRerender) {
+          renderGrid();
+        }
+      } catch (e) {
+        console.error("[EGDMS Admin] Polling error:", e);
+      } finally {
+        cameraPollInFlight = false;
+      }
+    }
+
+    // Dynamic Live Stats HUD updating
+    function updateLiveStats(cam) {
+      const analyticsReady = globalMode === "counting" && cam.analytics_status === "active";
+
+      // 1. Header count
+      const countEl = document.getElementById(`count-${cam.id}`);
+      if (countEl) {
+        countEl.textContent = analyticsReady
+          ? `${cam.people_count || 0} pax`
+          : (cam.analytics_status === "stale"
+            ? "Waiting for new count…"
+            : (cam.analytics_status === "error" ? "Counting unavailable" : "Analysis starting…"));
+        countEl.title = cam.connection_message || "";
+        if (globalMode === "counting") {
+          countEl.classList.remove("hidden");
+        } else {
+          countEl.classList.add("hidden");
+        }
+      }
+
+      // 2. Header zone badge
+      const zoneEl = document.getElementById(`zone-${cam.id}`);
+      if (zoneEl) {
+        zoneEl.textContent = cam.comp_zone || 'SAFE';
+        zoneEl.className = `tile__zone-badge ${(cam.comp_zone || 'SAFE').toLowerCase()}`;
+        if (analyticsReady) {
+          zoneEl.classList.remove("hidden");
+        } else {
+          zoneEl.classList.add("hidden");
+        }
+      }
+
+      // 3. Pressure
+      const pressureVal = Math.round((cam.pressure || 0) * (cam.pressure <= 1.0 && cam.pressure > 0 ? 100 : 1));
+      const pressureEl = document.getElementById(`hud-pressure-${cam.id}`);
+      if (pressureEl) pressureEl.textContent = `${pressureVal}%`;
+
+      const pressureBar = document.getElementById(`hud-pressure-bar-${cam.id}`);
+      if (pressureBar) {
+        pressureBar.style.width = `${Math.min(100, pressureVal)}%`;
+        let color = "var(--live-green)";
+        if (pressureVal >= 75) color = "var(--badge-critical)";
+        else if (pressureVal >= 50) color = "var(--warning-amber)";
+        else if (pressureVal >= 25) color = "var(--text-blue)";
+        pressureBar.style.backgroundColor = color;
+      }
+
+      // 4. Crowd Risk Index (Stampede)
+      const riskIndex = Math.round(cam.risk_index || 0);
+      const stampedeEl = document.getElementById(`hud-stampede-${cam.id}`);
+      if (stampedeEl) stampedeEl.textContent = `${(cam.risk_index || 0).toFixed(1)}/100`;
+
+      const stampedeBar = document.getElementById(`hud-stampede-bar-${cam.id}`);
+      if (stampedeBar) {
+        stampedeBar.style.width = `${Math.min(100, riskIndex)}%`;
+        let color = "var(--live-green)";
+        if (riskIndex >= 75) color = "var(--badge-critical)";
+        else if (riskIndex >= 45) color = "var(--warning-amber)";
+        else if (riskIndex >= 25) color = "var(--text-blue)";
+        stampedeBar.style.backgroundColor = color;
+      }
+
+      // 5. Flow Speed, Turbulence, Confidence
+      const flowEl = document.getElementById(`hud-flow-${cam.id}`);
+      if (flowEl) flowEl.textContent = `${(cam.motion_speed || 0.0).toFixed(2)} m/s`;
+
+      const turbEl = document.getElementById(`hud-turb-${cam.id}`);
+      if (turbEl) turbEl.textContent = (cam.turbulence || 0.0).toFixed(2);
+
+      const confEl = document.getElementById(`hud-conf-${cam.id}`);
+      if (confEl) confEl.textContent = `${Math.round((cam.confidence || 1.0) * 100)}%`;
+
+      // 6. Forecast
+      const forecast = cam.forecast || {};
+      const forecastValues = document.getElementById(`forecast-values-${cam.id}`);
+      const forecastAccuracy = document.getElementById(`forecast-accuracy-${cam.id}`);
+      const forecastStatus = document.getElementById(`forecast-status-${cam.id}`);
+      if (forecastValues) forecastValues.innerHTML = forecastItemsMarkup(forecast);
+      if (forecastAccuracy) forecastAccuracy.textContent = forecastAccuracyText(forecast);
+      if (forecastStatus) forecastStatus.textContent = forecastStatusText(forecast);
+
+      const hudEl = document.getElementById(`hud-${cam.id}`);
+      if (hudEl) {
+        hudEl.classList.toggle("hidden", !analyticsReady);
+      }
+
+      // 7. Per-Zone Head Count Grid
+      if (cam.zone_scores && cam.zone_scores.length === 3) {
+        if (hudEl) hudEl.classList.toggle("hidden", !analyticsReady);
+        const zoneCellsEl = document.getElementById(`zone-cells-${cam.id}`);
+        if (zoneCellsEl) {
+          zoneCellsEl.innerHTML = cam.zone_scores.map((row, r) => row.map((val, c) => {
+            const label = `ABC`[r] + (c + 1);
+            const count = Math.round(val);
+            const cls = count >= 300 ? 'critical' : (count >= 200 ? 'high' : (count >= 100 ? 'warning' : 'safe'));
+            return `<div class="zone-cell"><div class="zone-cell-label">${label}</div><div class="zone-cell-count ${cls}">${count}</div></div>`;
+          }).join('')).join('');
+        }
+      }
+
+      // 8. Warnings and Alerts
+      const warningOverlay = document.getElementById(`warning-overlay-${cam.id}`);
+      const warningText = document.getElementById(`warning-text-${cam.id}`);
+
+      let alertMsg = "";
+      if (cam.gps_alerts && cam.gps_alerts.length > 0) {
+        alertMsg = cam.gps_alerts[0].message || "CRITICAL RISK DETECTED";
+      } else if (cam.opposing_alert) {
+        alertMsg = cam.opposing_alert;
+      } else if (cam.hotspot_alert) {
+        alertMsg = cam.hotspot_alert;
+      }
+
+      if (!alertMsg && cam.primary_causes && cam.primary_causes.length > 0 && (cam.comp_zone === "HIGH" || cam.comp_zone === "CRITICAL")) {
+        alertMsg = `CROWD RISK ${cam.comp_zone}: due to ${cam.primary_causes.join(", ")}`;
+      } else if (alertMsg && cam.primary_causes && cam.primary_causes.length > 0) {
+        alertMsg += ` (Causes: ${cam.primary_causes.join(", ")})`;
+      }
+
+      if (alertMsg && (cam.comp_zone === "HIGH" || cam.comp_zone === "CRITICAL") && globalMode === "counting") {
+        if (warningText) warningText.textContent = alertMsg;
+        if (warningOverlay) warningOverlay.classList.remove("hidden");
+      } else {
+        if (warningOverlay) warningOverlay.classList.add("hidden");
+      }
+    }
+
+    // --- Stream Start / Stop Operations ---
     async function startStream(camId) {
       try {
         showToast(`Starting stream ${camId}...`);
@@ -1456,7 +2680,7 @@
         });
         if (res.ok) {
           showToast(`Stream ${camId} started successfully.`);
-          await loadCameras();
+          await loadCamerasFromBackend();
         } else {
           const err = await res.json().catch(() => ({}));
           showToast(err.detail || `Failed to start ${camId}`, "error");
@@ -1473,7 +2697,7 @@
         if (res.ok) {
           showToast(`Stream ${camId} stopped.`);
           teardownVideoFeed(camId);
-          await loadCameras();
+          await loadCamerasFromBackend();
         } else {
           const err = await res.json().catch(() => ({}));
           showToast(err.detail || `Failed to stop ${camId}`, "error");
@@ -1483,99 +2707,63 @@
       }
     }
 
-    // --- Polling Cameras ---
-    async function pollCameras() {
-      if (cameraPollInFlight) return;
-      cameraPollInFlight = true;
+    // --- Mode Change Logic ---
+    async function changeGlobalMode(mode) {
       try {
-        const res = await fetch("/cameras", { cache: "no-store" });
-        if (res.status === 401) {
-          window.location.href = "/login?role=admin&redirect=/admin";
-          return;
-        }
-        if (res.status === 403) {
-          window.location.href = "/login?error=admin_required&redirect=/admin";
-          return;
-        }
-        const newCameras = await res.json();
-        const oldById = new Map(cameras.map(c => [c.id, c]));
+        const res = await fetch("/set_mode", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mode: mode })
+        });
+        if (res.ok) {
+          globalMode = mode;
+          document.getElementById("btn-mode-viewing").classList.toggle("active", mode === "viewing");
+          document.getElementById("btn-mode-counting").classList.toggle("active", mode === "counting");
+          showToast(`System switched to ${mode.toUpperCase()} MODE`);
+          
+          cameras.forEach(cam => {
+            const isOnline = isCameraPlayable(cam);
+            const countEl = document.getElementById(`count-${cam.id}`);
+            const zoneEl = document.getElementById(`zone-${cam.id}`);
+            const hudEl = document.getElementById(`hud-${cam.id}`);
+            const warningOverlay = document.getElementById(`warning-overlay-${cam.id}`);
+            const tileEl = document.querySelector(`.tile[data-id="${cam.id}"]`);
 
-        let needsRerender = false;
-        newCameras.forEach(newCam => {
-          const oldCam = oldById.get(newCam.id);
-          if (!oldCam) {
-            needsRerender = true;
-          } else {
-            // Update name / location live
-            if (oldCam.name !== newCam.name || oldCam.location !== newCam.location) {
-              const nameEl = document.getElementById(`name-${newCam.id}`);
-              if (nameEl) nameEl.textContent = newCam.name;
-              const locEl = document.getElementById(`loc-${newCam.id}`);
-              if (locEl) locEl.textContent = newCam.location;
-              if (activeFullViewCamId === newCam.id) {
-                const titleEl = document.getElementById("full-view-title");
-                if (titleEl) titleEl.textContent = `${newCam.name} — ${newCam.location}`;
+            if (mode === "viewing") {
+              if (tileEl) tileEl.classList.remove("tile--counting");
+              if (countEl) countEl.classList.add("hidden");
+              if (zoneEl) zoneEl.classList.add("hidden");
+              if (hudEl) hudEl.classList.add("hidden");
+              if (warningOverlay) warningOverlay.classList.add("hidden");
+            } else {
+              if (isOnline) {
+                if (tileEl) tileEl.classList.add("tile--counting");
+                if (countEl) countEl.classList.remove("hidden");
+                if (zoneEl) zoneEl.classList.remove("hidden");
+                if (hudEl) hudEl.classList.remove("hidden");
+                updateLiveStats(cam);
               }
             }
-
-            // Update stats live
-            if (isCameraPlayable(newCam)) {
-              updateHud(newCam);
-            }
-          }
-        });
-
-        cameras = newCameras;
-        if (needsRerender) {
-          renderGrid();
+            updateCameraConnectionState(cam);
+          });
         }
       } catch (e) {
-        console.error("Polling error:", e);
-      } finally {
-        cameraPollInFlight = false;
+        console.error("Error setting mode:", e);
       }
     }
 
-    function updateHud(cam) {
-      const analyticsReady = globalMode === "counting" && cam.analytics_status === "active";
-      const countEl = document.getElementById(`count-${cam.id}`);
-      if (countEl) {
-        countEl.textContent = analyticsReady ? `${cam.people_count || 0} pax` : "Analysis starting…";
+    async function syncModeFromServer() {
+      try {
+        const res = await fetch("/get_mode");
+        if (!res.ok) return;
+        const data = await res.json();
+        const mode = data.counting_mode ? "counting" : "viewing";
+        globalMode = mode;
+        document.getElementById("btn-mode-viewing")?.classList.toggle("active", mode === "viewing");
+        document.getElementById("btn-mode-counting")?.classList.toggle("active", mode === "counting");
+      } catch (e) {
+        console.error("Failed to sync mode:", e);
       }
-
-      const zoneEl = document.getElementById(`zone-${cam.id}`);
-      if (zoneEl) {
-        zoneEl.textContent = cam.comp_zone || "SAFE";
-        zoneEl.className = `tile__zone-badge ${(cam.comp_zone || 'SAFE').toLowerCase()}`;
-      }
-
-      const hud = document.getElementById(`hud-${cam.id}`);
-      if (hud) {
-        if (analyticsReady) hud.classList.remove("hidden");
-        else hud.classList.add("hidden");
-      }
-
-      const pressVal = document.getElementById(`hud-pressure-${cam.id}`);
-      const pressBar = document.getElementById(`hud-pressure-bar-${cam.id}`);
-      if (pressVal && pressBar) {
-        const p = Math.round((cam.pressure || 0) * 100);
-        pressVal.textContent = `${p}%`;
-        pressBar.style.width = `${Math.min(100, p)}%`;
-      }
-
-      const riskVal = document.getElementById(`hud-risk-${cam.id}`);
-      const riskBar = document.getElementById(`hud-risk-bar-${cam.id}`);
-      if (riskVal && riskBar) {
-        const r = cam.risk_index || 0;
-        riskVal.textContent = `${r.toFixed(1)}/100`;
-        riskBar.style.width = `${Math.min(100, r)}%`;
-      }
-
-      const spd = document.getElementById(`hud-speed-${cam.id}`);
-      if (spd) spd.textContent = `${(cam.motion_speed || 0).toFixed(2)} m/s`;
-
-      const turb = document.getElementById(`hud-turb-${cam.id}`);
-      if (turb) turb.textContent = `${(cam.turbulence || 0).toFixed(2)}`;
     }
 
     // --- Single Drone Rename Logic ---
@@ -1615,14 +2803,11 @@
         });
 
         if (res.ok) {
-          const data = await res.json();
-          // Update in-memory camera object
           const cam = cameras.find(c => c.id === camId);
           if (cam) {
             cam.name = newName;
             cam.location = newLoc;
           }
-          // Update DOM directly
           const nameEl = document.getElementById(`name-${camId}`);
           if (nameEl) nameEl.textContent = newName;
           const locEl = document.getElementById(`loc-${camId}`);
@@ -1670,7 +2855,7 @@
         const tr = document.createElement("tr");
         tr.setAttribute("data-row-id", cam.id);
         tr.innerHTML = `
-          <td style="font-family: monospace; font-weight: 700; color: #38bdf8;">${cam.id}</td>
+          <td style="font-family: monospace; font-weight: 700; color: #0284c7;">${cam.id}</td>
           <td>
             <input type="text" class="fleet-table-input fleet-input-name" data-id="${cam.id}" value="${escapeHtml(cam.name)}">
           </td>
@@ -1678,12 +2863,12 @@
             <input type="text" class="fleet-table-input fleet-input-loc" data-id="${cam.id}" value="${escapeHtml(cam.location || 'Pushkaralu')}">
           </td>
           <td>
-            <span style="font-size: 11px; font-weight: 800; color: ${isOnline ? '#4ade80' : '#94a3b8'};">
+            <span style="font-size: 11px; font-weight: 800; color: ${isOnline ? '#059669' : '#94a3b8'};">
               ${isOnline ? '● Online' : '○ Standby'}
             </span>
           </td>
           <td style="text-align: center;">
-            <button onclick="saveFleetTableRow('${cam.id}')" class="btn-action" style="padding: 4px 8px; font-size: 11px;">Save</button>
+            <button onclick="saveFleetTableRow('${cam.id}')" class="btn-action" style="padding: 4px 10px; font-size: 11px;">Save</button>
           </td>
         `;
         tbody.appendChild(tr);
@@ -1755,7 +2940,7 @@
         if (res.ok) {
           showToast(`Successfully updated ${updates.length} camera configurations!`);
           closeFleetManagerModal();
-          await loadCameras();
+          await loadCamerasFromBackend();
         } else {
           showToast("Bulk update failed", "error");
         }
@@ -1776,7 +2961,7 @@
         if (res.ok) {
           showToast("All drone names reset to default.");
           closeFleetManagerModal();
-          await loadCameras();
+          await loadCamerasFromBackend();
         } else {
           showToast("Failed to reset names", "error");
         }
@@ -1785,52 +2970,7 @@
       }
     }
 
-    // --- Mode Change Logic ---
-    async function changeGlobalMode(mode) {
-      try {
-        const res = await fetch("/set_mode", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ mode: mode })
-        });
-        if (res.ok) {
-          globalMode = mode;
-          document.getElementById("btn-mode-viewing").classList.toggle("active", mode === "viewing");
-          document.getElementById("btn-mode-counting").classList.toggle("active", mode === "counting");
-          showToast(`System switched to ${mode.toUpperCase()} MODE`);
-        }
-      } catch (e) {
-        console.error("Error setting mode:", e);
-      }
-    }
-
-    // --- Full View Modal ---
-    function openFullViewModal(camId) {
-      const cam = cameras.find(c => c.id === camId);
-      if (!cam) return;
-      activeFullViewCamId = camId;
-      document.getElementById("full-view-title").textContent = `${cam.name} — ${cam.location || 'Pushkaralu'}`;
-      const container = document.getElementById(`player-container-${camId}`);
-      const modalBody = document.getElementById("full-view-body");
-      if (container && modalBody) {
-        modalBody.appendChild(container);
-      }
-      document.getElementById("full-view-modal").classList.remove("hidden");
-    }
-
-    function closeFullViewModal() {
-      if (!activeFullViewCamId) return;
-      const camId = activeFullViewCamId;
-      const container = document.getElementById(`player-container-${camId}`);
-      const cardBody = document.querySelector(`.tile[data-id="${camId}"] .tile__body`);
-      if (container && cardBody) {
-        cardBody.insertBefore(container, cardBody.firstChild);
-      }
-      document.getElementById("full-view-modal").classList.add("hidden");
-      activeFullViewCamId = null;
-    }
-
-    // --- Filter & Search Event Handlers ---
+    // --- Search & Filter Setup ---
     document.querySelectorAll(".pill").forEach(pill => {
       pill.addEventListener("click", () => {
         document.querySelectorAll(".pill").forEach(p => p.classList.remove("active"));
@@ -1845,63 +2985,195 @@
       renderGrid();
     }
 
-    // --- Stampede Warning Drawer ---
-    function toggleNotifDrawer() {
+    // --- Notification Drawer & Toast System ---
+    let notifDrawerOpen = false;
+    let knownNotifIds = new Set();
+    const NOTIF_POLL_INTERVAL_MS = 2500;
+
+    window.toggleNotifDrawer = function() {
+      notifDrawerOpen = !notifDrawerOpen;
+      const overlay = document.getElementById("notif-drawer-overlay");
       const drawer = document.getElementById("notif-drawer");
-      drawer.classList.toggle("hidden");
+      if (overlay && drawer) {
+        if (notifDrawerOpen) {
+          overlay.classList.remove("hidden");
+          drawer.classList.remove("hidden");
+        } else {
+          overlay.classList.add("hidden");
+          drawer.classList.add("hidden");
+        }
+      }
+    };
+
+    function updateNotifBadge(count) {
+      const badge = document.getElementById("notif-badge");
+      if (badge) {
+        if (count > 0) {
+          badge.textContent = count;
+          badge.classList.remove("hidden");
+        } else {
+          badge.classList.add("hidden");
+        }
+      }
+    }
+
+    function playAlarmSound() {
+      const audioChk = document.getElementById("chk-audio-alert");
+      if (audioChk && !audioChk.checked) return;
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "triangle";
+        osc.frequency.setValueAtTime(880, ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(440, ctx.currentTime + 0.3);
+        gain.gain.setValueAtTime(0.3, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.3);
+      } catch (e) {}
+    }
+
+    function showNotifToast(notif) {
+      const container = document.getElementById("notif-toast-container");
+      if (!container) return;
+
+      const toast = document.createElement("div");
+      toast.style.cssText = `
+        background: #ffffff;
+        border-left: 5px solid #e11d48;
+        border-radius: 8px;
+        box-shadow: 0 10px 25px rgba(0,0,0,0.18);
+        padding: 14px 18px;
+        pointer-events: auto;
+        animation: slideInRight 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      `;
+      toast.innerHTML = `
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <span style="font-size: 16px;">🚨</span>
+            <strong style="font-size: 13px; color: #be123c; text-transform: uppercase;">
+              STAMPEDE WARNING
+            </strong>
+          </div>
+          <span style="font-size: 11px; color: #64748b;">${new Date(notif.timestamp * 1000).toLocaleTimeString()}</span>
+        </div>
+        <div style="font-size: 12px; font-weight: 700; color: #0f172a;">${escapeHtml(notif.camera_name)} (${escapeHtml(notif.location)})</div>
+        <div style="font-size: 11px; color: #334155; line-height: 1.4;">${escapeHtml(notif.message)}</div>
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 4px; font-size: 10px; color: #0284c7; font-weight: 700;">
+          <span>Confidence: ${notif.confidence_percent || 100}%</span>
+          ${notif.maps_url ? `<a href="${notif.maps_url}" target="_blank" style="color: #0284c7; text-decoration: underline;">Google Maps Pin ➔</a>` : ''}
+        </div>
+      `;
+      container.appendChild(toast);
+
+      setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transition = 'opacity 0.4s ease';
+        setTimeout(() => toast.remove(), 400);
+      }, 7000);
+    }
+
+    function renderNotificationsList(notifications) {
+      const listEl = document.getElementById("notif-list");
+      if (!listEl) return;
+
+      if (!notifications || notifications.length === 0) {
+        listEl.innerHTML = `
+          <div style="text-align: center; color: #64748b; padding: 50px 16px; font-size: 13px;">
+            <div style="font-size: 32px; margin-bottom: 10px;">✅</div>
+            No active stampede warnings detected.<br>All monitored crowd sectors are safe.
+          </div>
+        `;
+        return;
+      }
+
+      listEl.innerHTML = notifications.map(notif => `
+        <div style="background: #ffffff; border: 1px solid #e2e8f0; border-left: 5px solid #e11d48; border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 8px; box-shadow: 0 2px 6px rgba(0,0,0,0.04);">
+          <div style="display: flex; align-items: center; justify-content: space-between;">
+            <span style="background: #ffe4e6; color: #be123c; font-size: 10px; font-weight: 800; padding: 3px 8px; border-radius: 9999px;">
+              🚨 STAMPEDE WARNING
+            </span>
+            <span style="font-size: 10px; font-weight: 600; color: #64748b;">${new Date(notif.timestamp * 1000).toLocaleTimeString()}</span>
+          </div>
+          <div style="font-size: 13px; font-weight: 800; color: #0f172a;">${escapeHtml(notif.camera_name)} — ${escapeHtml(notif.location)}</div>
+          <div style="font-size: 12px; color: #334155; line-height: 1.4;">${escapeHtml(notif.message)}</div>
+          ${notif.forecast ? `
+            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 8px; font-size: 11px; display: flex; flex-direction: column; gap: 4px;">
+              <div style="font-weight: 700; color: #0369a1;">Forecast Horizon: +${notif.forecast.horizon}</div>
+              <div>Count Growth: ${notif.forecast.current_count} ➔ <strong>${notif.forecast.predicted_count} pax</strong> (+${notif.forecast.growth_percent}%)</div>
+              <div>Prediction Confidence: <strong>${notif.confidence_percent}%</strong></div>
+            </div>
+          ` : `
+            <div style="font-size: 11px; color: #64748b;">Risk Index: <strong>${(notif.risk_index || 0).toFixed(1)}/100</strong> | Confidence: <strong>${notif.confidence_percent || 100}%</strong></div>
+          `}
+          ${notif.primary_causes && notif.primary_causes.length ? `
+            <div style="font-size: 10px; color: #b45309; font-weight: 600;">Drivers: ${escapeHtml(notif.primary_causes.join(', '))}</div>
+          ` : ''}
+          ${notif.maps_url ? `
+            <div style="margin-top: 4px;">
+              <a href="${notif.maps_url}" target="_blank" style="display: inline-block; background: #e0f2fe; color: #0369a1; border: 1px solid #bae6fd; padding: 5px 12px; border-radius: 6px; font-size: 11px; font-weight: 700; text-decoration: none;">
+                📍 Open Google Maps Pin
+              </a>
+            </div>
+          ` : ''}
+        </div>
+      `).join("");
     }
 
     async function pollNotifications() {
       try {
         const res = await fetch("/api/notifications");
-        if (res.ok) {
-          const data = await res.json();
-          const badge = document.getElementById("notif-badge");
-          if (badge) {
-            badge.textContent = data.unread_count || 0;
-            badge.classList.toggle("hidden", (data.unread_count || 0) === 0);
-          }
-          renderNotificationList(data.notifications || []);
-        }
-      } catch (e) {}
-    }
+        if (!res.ok) return;
+        const data = await res.json();
+        const notifications = data.notifications || [];
+        updateNotifBadge(notifications.length);
 
-    function renderNotificationList(notifs) {
-      const container = document.getElementById("notif-list-container");
-      if (!container) return;
-      if (!notifs.length) {
-        container.innerHTML = `<div style="text-align: center; color: #64748b; padding: 40px 16px; font-size: 13px;">No active warnings recorded.</div>`;
-        return;
+        let hasNew = false;
+        notifications.forEach(n => {
+          if (!knownNotifIds.has(n.id)) {
+            knownNotifIds.add(n.id);
+            hasNew = true;
+            showNotifToast(n);
+          }
+        });
+
+        if (hasNew) {
+          playAlarmSound();
+        }
+
+        renderNotificationsList(notifications);
+      } catch (e) {
+        console.error("Failed polling notifications:", e);
       }
-      container.innerHTML = notifs.map(n => `
-        <div style="background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 6px;">
-          <div style="display: flex; justify-content: space-between; align-items: center;">
-            <span style="font-weight: 800; font-size: 12.5px; color: #f87171;">${escapeHtml(n.camera_name || n.camera_id)}</span>
-            <span style="font-size: 10px; color: #94a3b8;">${new Date(n.timestamp * 1000).toLocaleTimeString()}</span>
-          </div>
-          <div style="font-size: 12px; color: #f8fafc;">${escapeHtml(n.message || '')}</div>
-          <div style="display: flex; justify-content: space-between; font-size: 10.5px; color: #94a3b8; border-top: 1px solid #1e293b; padding-top: 4px;">
-            <span>Pax: <b>${n.people_count || 0}</b></span>
-            <span>Risk Index: <b>${(n.risk_index || 0).toFixed(1)}/100</b></span>
-          </div>
-        </div>
-      `).join("");
     }
 
     async function clearAllNotifications() {
       try {
         await fetch("/api/notifications/clear", { method: "POST" });
+        knownNotifIds.clear();
         pollNotifications();
-      } catch (e) {}
+        showToast("All active warnings cleared.");
+      } catch (e) {
+        showToast("Failed to clear notifications", "error");
+      }
     }
 
-    // --- Init ---
-    window.addEventListener("DOMContentLoaded", async () => {
-      await loadCameras();
+    // Initialize Page
+    async function init() {
+      await syncModeFromServer();
+      await loadCamerasFromBackend();
       setInterval(pollCameras, CAMERA_POLL_INTERVAL_MS);
-      setInterval(pollNotifications, 3000);
       pollNotifications();
-    });
+      setInterval(pollNotifications, NOTIF_POLL_INTERVAL_MS);
+    }
+
+    init();
   </script>
 </body>
 
