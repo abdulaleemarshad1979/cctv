@@ -187,6 +187,31 @@ footage. Online tiles display **REAL** or **SAMPLE**, so sample counts cannot be
 mistaken for field data. If a new inference result does not arrive within 20
 seconds, the portal clears the old values and shows **Waiting for new count**.
 
+### Admin mission control and automatic survey mapping
+
+The protected `/admin` dashboard includes a separate operations layer for a
+250-aircraft Air 3/Air 3S inventory while preserving the existing 60 concurrent
+video slots and AI limits. Use **Mission Control** to:
+
+* track battery, availability, pilot assignment and live-feed readiness;
+* automatically select an available aircraft for an inspection or crowd task;
+* dispatch missions through planned → pilot acknowledged → in progress →
+  completed states;
+* send explicit pilot acknowledgement requests for HOLD and Return-to-Home;
+* draw a survey polygon, generate a clipped lawnmower route, estimate distance
+  and duration, and export the approved plan as GeoJSON; and
+* review the append-only mission audit trail.
+
+Mission data is saved to `outputs/mission_control.json` and audit events to
+`outputs/mission_audit.jsonl`. The existing Docker Compose outputs mount keeps
+both files persistent across application rebuilds. Set `MISSION_FLEET_SIZE` to
+change the inventory independently from `MAX_DRONE_SLOTS`.
+
+> **Air 3/Air 3S control boundary:** this feature coordinates field pilots and
+> produces DJI Fly route plans. It does not transmit take-off, stick, gimbal,
+> HOLD, landing, or RTH commands to the aircraft. Every dispatched action
+> requires pilot acknowledgement on the supported DJI controller workflow.
+
 #### When a real camera stays on "Connecting"
 
 1. Put the camera/drone phone and this computer on the same network.

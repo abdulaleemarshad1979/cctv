@@ -21,6 +21,11 @@ import config
 import numpy as np
 from src.crowd_forecast import CrowdForecaster
 from src import geo_alert
+from src.mission_control import (
+    MissionControlError,
+    MissionControlStore,
+    generate_survey_route,
+)
 from src.stream_state_monitor import MediaMTXStateMonitor
 
 def _sanitize_for_json(obj):
@@ -47,6 +52,7 @@ stampede_notifications = []
 _notifications_lock = threading.Lock()
 _last_notification_time = {}
 _stream_state_monitor = None
+mission_control_store = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -262,6 +268,52 @@ class StateRequest(BaseModel):
 class CameraRenameRequest(BaseModel):
     name: Optional[str] = None
     location: Optional[str] = None
+
+
+class SurveyPoint(BaseModel):
+    lat: float
+    lng: float
+
+
+class SurveyPreviewRequest(BaseModel):
+    boundary: list[SurveyPoint]
+    spacing_m: float = 25.0
+    angle_deg: float = 0.0
+    altitude_m: float = 60.0
+    speed_mps: float = 5.0
+
+
+class MissionCreateRequest(BaseModel):
+    title: str
+    mission_type: str = "inspection"
+    priority: str = "normal"
+    drone_id: str = "auto"
+    location_name: str = ""
+    instructions: str = ""
+    minimum_battery_percent: int = 30
+    dispatch_now: bool = True
+    target: Optional[dict] = None
+    survey: Optional[dict] = None
+
+
+class MissionTransitionRequest(BaseModel):
+    status: str
+    note: str = ""
+
+
+class FleetOperationalUpdate(BaseModel):
+    availability: Optional[str] = None
+    battery_percent: Optional[int] = None
+    pilot_name: Optional[str] = None
+    last_known_lat: Optional[float] = None
+    last_known_lng: Optional[float] = None
+    notes: Optional[str] = None
+
+
+class EmergencyRequest(BaseModel):
+    action: str
+    location_name: str = ""
+    instructions: str = ""
 
 
 def build_stream_state_monitor():
@@ -786,6 +838,21 @@ def load_env_file(filepath: str = ".env"):
 
 load_env_file()
 
+MISSION_FLEET_SIZE = int(os.getenv("MISSION_FLEET_SIZE", "250"))
+MISSION_CONTROL_DATA_FILE = os.getenv(
+    "MISSION_CONTROL_DATA_FILE",
+    os.path.join(config.BASE_DIR, "outputs", "mission_control.json"),
+)
+MISSION_CONTROL_AUDIT_FILE = os.getenv(
+    "MISSION_CONTROL_AUDIT_FILE",
+    os.path.join(config.BASE_DIR, "outputs", "mission_audit.jsonl"),
+)
+mission_control_store = MissionControlStore(
+    MISSION_CONTROL_DATA_FILE,
+    MISSION_CONTROL_AUDIT_FILE,
+    fleet_size=MISSION_FLEET_SIZE,
+)
+
 ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
 VIEWER_USERNAME = os.getenv("VIEWER_USERNAME", "viewer")
 
@@ -958,6 +1025,8 @@ async def auth_middleware(request: Request, call_next):
         is_admin_route = True
     elif path.startswith("/api/cameras/"):
         is_admin_route = True
+    elif path.startswith("/api/mission-control"):
+        is_admin_route = True
     elif path.startswith("/cameras/") and (path.endswith("/start") or path.endswith("/stop")):
         is_admin_route = True
     elif path in ("/set_mode", "/api/notifications/clear"):
@@ -1060,6 +1129,156 @@ def admin_dashboard():
     if os.path.exists(admin_path):
         return FileResponse(admin_path)
     return FileResponse(os.path.join(config.BASE_DIR, "lite_dashboard.html"))
+
+
+def _request_actor(request: Request) -> str:
+    user = get_current_user(request) or {}
+    return str(user.get("username") or "admin")
+
+
+def _model_data(model: BaseModel, **kwargs) -> dict:
+    """Support both the Pydantic v1 production floor and v2 test/runtime."""
+    if hasattr(model, "model_dump"):
+        return model.model_dump(**kwargs)
+    return model.dict(**kwargs)
+
+
+@app.get("/api/mission-control/overview")
+def mission_control_overview():
+    """Return the 250-aircraft coordination view without touching video state."""
+    return _sanitize_for_json(mission_control_store.overview(cameras_db))
+
+
+@app.get("/api/mission-control/audit")
+def mission_control_audit(limit: int = 100):
+    return {"events": mission_control_store.audit_events(limit=limit)}
+
+
+@app.post("/api/mission-control/surveys/preview")
+def preview_survey_route(req: SurveyPreviewRequest):
+    try:
+        route = generate_survey_route(
+            boundary=[_model_data(point) for point in req.boundary],
+            spacing_m=req.spacing_m,
+            angle_deg=req.angle_deg,
+            altitude_m=req.altitude_m,
+            speed_mps=req.speed_mps,
+        )
+        return _sanitize_for_json(route)
+    except MissionControlError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/mission-control/missions")
+def create_mission(req: MissionCreateRequest, request: Request):
+    payload = _model_data(req)
+    survey = payload.get("survey")
+    if survey and not payload.get("target"):
+        payload["target"] = survey.get("center")
+    try:
+        mission = mission_control_store.create_mission(
+            payload,
+            cameras=cameras_db,
+            actor=_request_actor(request),
+        )
+        return _sanitize_for_json(mission)
+    except MissionControlError as exc:
+        status_code = 409 if "available aircraft" in str(exc).lower() else 400
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+
+@app.post("/api/mission-control/missions/{mission_id}/transition")
+def transition_mission(mission_id: str, req: MissionTransitionRequest, request: Request):
+    try:
+        mission = mission_control_store.transition_mission(
+            mission_id,
+            req.status,
+            actor=_request_actor(request),
+            note=req.note,
+        )
+        return _sanitize_for_json(mission)
+    except MissionControlError as exc:
+        status_code = 404 if "not found" in str(exc).lower() else 409
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+
+@app.get("/api/mission-control/missions/{mission_id}/route.geojson")
+def mission_route_geojson(mission_id: str):
+    overview = mission_control_store.overview(cameras_db)
+    mission = next(
+        (item for item in overview["missions"] if item.get("id") == mission_id),
+        None,
+    )
+    if mission is None:
+        raise HTTPException(status_code=404, detail="Mission not found")
+    survey = mission.get("survey") or {}
+    geojson = survey.get("geojson")
+    if not geojson:
+        raise HTTPException(status_code=404, detail="Mission does not contain a survey route")
+    return JSONResponse(
+        content=_sanitize_for_json(geojson),
+        media_type="application/geo+json",
+        headers={"Content-Disposition": f'attachment; filename="{mission_id}.geojson"'},
+    )
+
+
+@app.post("/api/mission-control/fleet/{drone_id}")
+def update_fleet_operational_state(
+    drone_id: str,
+    req: FleetOperationalUpdate,
+    request: Request,
+):
+    normalized_id = normalize_camera_id(drone_id)
+    try:
+        record = mission_control_store.update_fleet(
+            normalized_id,
+            _model_data(req, exclude_unset=True),
+            actor=_request_actor(request),
+        )
+        return _sanitize_for_json(record)
+    except MissionControlError as exc:
+        status_code = 404 if "unknown fleet aircraft" in str(exc).lower() else 400
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+
+@app.post("/api/mission-control/fleet/{drone_id}/request")
+def create_fleet_action_request(
+    drone_id: str,
+    req: EmergencyRequest,
+    request: Request,
+):
+    normalized_id = normalize_camera_id(drone_id)
+    action = req.action.strip().lower().replace("-", "_")
+    mission_type_by_action = {
+        "hold": "hold_request",
+        "return_home": "return_home_request",
+        "rth": "return_home_request",
+    }
+    mission_type = mission_type_by_action.get(action)
+    if mission_type is None:
+        raise HTTPException(status_code=400, detail="Action must be HOLD or RETURN_HOME")
+    label = "Hold position" if mission_type == "hold_request" else "Return to home"
+    try:
+        mission = mission_control_store.create_mission(
+            {
+                "title": f"{label} request — {normalized_id}",
+                "mission_type": mission_type,
+                "priority": "critical",
+                "drone_id": normalized_id,
+                "location_name": req.location_name,
+                "instructions": req.instructions or (
+                    f"Pilot acknowledgement required. Use DJI Fly to {label.lower()} when safe."
+                ),
+                "minimum_battery_percent": 0,
+                "dispatch_now": True,
+            },
+            cameras=cameras_db,
+            actor=_request_actor(request),
+        )
+        return _sanitize_for_json(mission)
+    except MissionControlError as exc:
+        status_code = 404 if "unknown fleet aircraft" in str(exc).lower() else 409
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
 
 @app.post("/api/cameras/{drone_id}/rename")
 @app.post("/api/cameras/{drone_id}/update")

@@ -6,6 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Admin Drone Feed Manager - East Godavari Police EGDMS</title>
   <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
   <style>
     :root {
       --bg-main: #f8fafc;
@@ -1277,6 +1278,312 @@
       box-shadow: 0 0 0 2px rgba(2, 132, 199, 0.15);
     }
 
+    /* ---------- Mission Control & Survey Planner ---------- */
+    .mission-modal-card {
+      width: min(1500px, calc(100vw - 28px));
+      max-width: 1500px;
+      height: min(900px, calc(100vh - 28px));
+      max-height: 900px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .mission-modal-body {
+      padding: 0;
+      overflow: hidden;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+
+    .mission-safety-banner {
+      margin: 14px 16px 0;
+      padding: 10px 14px;
+      border: 1px solid #fbbf24;
+      background: #fffbeb;
+      color: #92400e;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 700;
+      line-height: 1.45;
+    }
+
+    .mission-tabs {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 12px 16px 0;
+      border-bottom: 1px solid #e2e8f0;
+      background: #fff;
+      overflow-x: auto;
+    }
+
+    .mission-tab-button {
+      appearance: none;
+      border: none;
+      border-bottom: 3px solid transparent;
+      background: transparent;
+      color: #475569;
+      padding: 9px 14px;
+      font-size: 12px;
+      font-weight: 800;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .mission-tab-button.active {
+      color: #0369a1;
+      border-bottom-color: #0284c7;
+    }
+
+    .mission-tab-panel {
+      display: none;
+      overflow: auto;
+      padding: 16px;
+      flex: 1;
+      min-height: 0;
+      background: #f8fafc;
+    }
+
+    .mission-tab-panel.active {
+      display: block;
+    }
+
+    .mission-kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(135px, 1fr));
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+
+    .mission-kpi {
+      border: 1px solid #dbeafe;
+      background: #fff;
+      border-radius: 10px;
+      padding: 12px;
+      box-shadow: 0 2px 6px rgba(15, 23, 42, 0.04);
+    }
+
+    .mission-kpi-label {
+      color: #64748b;
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: .05em;
+      text-transform: uppercase;
+    }
+
+    .mission-kpi-value {
+      color: #0f172a;
+      font-size: 24px;
+      font-weight: 900;
+      margin-top: 4px;
+    }
+
+    .mission-section-card {
+      background: #fff;
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      overflow: hidden;
+      box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+      margin-bottom: 14px;
+    }
+
+    .mission-section-header {
+      padding: 11px 14px;
+      border-bottom: 1px solid #e2e8f0;
+      background: #f8fafc;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .mission-section-title {
+      font-size: 13px;
+      font-weight: 900;
+      color: #0f172a;
+    }
+
+    .mission-form-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(150px, 1fr));
+      gap: 12px;
+      padding: 14px;
+    }
+
+    .mission-form-grid .wide {
+      grid-column: span 2;
+    }
+
+    .mission-form-grid .full {
+      grid-column: 1 / -1;
+    }
+
+    .mission-table-wrap {
+      overflow: auto;
+      max-height: 390px;
+    }
+
+    .mission-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+
+    .mission-table th {
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      background: #f1f5f9;
+      color: #475569;
+      text-align: left;
+      padding: 9px 10px;
+      border-bottom: 1px solid #cbd5e1;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+    }
+
+    .mission-table td {
+      padding: 9px 10px;
+      border-bottom: 1px solid #eef2f7;
+      vertical-align: middle;
+      color: #334155;
+    }
+
+    .mission-table tr:hover td {
+      background: #f8fafc;
+    }
+
+    .mission-status {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 9999px;
+      padding: 3px 8px;
+      background: #e2e8f0;
+      color: #334155;
+      font-size: 10px;
+      font-weight: 900;
+      text-transform: uppercase;
+    }
+
+    .mission-status.dispatched { background: #fef3c7; color: #92400e; }
+    .mission-status.accepted, .mission-status.in_progress { background: #dbeafe; color: #1d4ed8; }
+    .mission-status.completed, .mission-status.available { background: #dcfce7; color: #166534; }
+    .mission-status.cancelled, .mission-status.declined, .mission-status.offline { background: #fee2e2; color: #991b1b; }
+    .mission-status.assigned, .mission-status.charging, .mission-status.maintenance { background: #fef3c7; color: #92400e; }
+
+    .mission-small-btn {
+      border: 1px solid #cbd5e1;
+      background: #fff;
+      color: #334155;
+      border-radius: 5px;
+      padding: 4px 7px;
+      font-size: 10px;
+      font-weight: 800;
+      cursor: pointer;
+      margin: 1px;
+      white-space: nowrap;
+    }
+
+    .mission-small-btn:hover { border-color: #0284c7; color: #0369a1; }
+    .mission-small-btn.danger { border-color: #fecaca; color: #b91c1c; background: #fff7f7; }
+
+    .survey-layout {
+      display: grid;
+      grid-template-columns: minmax(300px, 380px) minmax(460px, 1fr);
+      gap: 14px;
+      align-items: stretch;
+    }
+
+    .survey-form {
+      background: #fff;
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      padding: 14px;
+      overflow-y: auto;
+      max-height: 630px;
+    }
+
+    .survey-field-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(110px, 1fr));
+      gap: 10px;
+    }
+
+    .survey-map-card {
+      min-height: 630px;
+      background: #fff;
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    #survey-map {
+      flex: 1;
+      min-height: 500px;
+      background: #dbeafe;
+    }
+
+    .survey-map-help {
+      padding: 9px 12px;
+      border-bottom: 1px solid #e2e8f0;
+      color: #475569;
+      font-size: 11px;
+      font-weight: 700;
+      background: #f8fafc;
+    }
+
+    .survey-summary {
+      padding: 10px 12px;
+      border-top: 1px solid #e2e8f0;
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+      font-size: 11px;
+      background: #fff;
+    }
+
+    .survey-summary strong {
+      display: block;
+      color: #0f172a;
+      font-size: 13px;
+    }
+
+    .mission-audit-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .mission-audit-event {
+      background: #fff;
+      border: 1px solid #e2e8f0;
+      border-left: 4px solid #0284c7;
+      border-radius: 7px;
+      padding: 10px 12px;
+      font-size: 11px;
+      color: #475569;
+    }
+
+    @media (max-width: 1100px) {
+      .mission-kpi-grid { grid-template-columns: repeat(3, 1fr); }
+      .mission-form-grid { grid-template-columns: repeat(2, 1fr); }
+      .survey-layout { grid-template-columns: 1fr; }
+      .survey-map-card { min-height: 520px; }
+    }
+
+    @media (max-width: 700px) {
+      .mission-modal-card { width: 100vw; height: 100vh; max-height: none; border-radius: 0; }
+      .mission-kpi-grid { grid-template-columns: repeat(2, 1fr); }
+      .mission-form-grid { grid-template-columns: 1fr; }
+      .mission-form-grid .wide, .mission-form-grid .full { grid-column: 1; }
+      .survey-summary { grid-template-columns: repeat(2, 1fr); }
+    }
+
     /* ---------- Full View Modal & Controls ---------- */
     .full-view-modal {
       position: fixed;
@@ -1728,6 +2035,16 @@
       </div>
 
       <div class="nav-right-group">
+        <button onclick="openMissionControlModal('overview')" class="btn-action btn-action-primary" title="Coordinate the 250-aircraft operations fleet">
+          <span>🛰️</span>
+          <span>Mission Control</span>
+        </button>
+
+        <button onclick="openMissionControlModal('survey')" class="btn-action" title="Draw an area and generate a survey route">
+          <span>🗺️</span>
+          <span>Survey Planner</span>
+        </button>
+
         <!-- Fleet Name Manager Modal Button -->
         <button onclick="openFleetManagerModal()" class="btn-action btn-action-primary" title="Batch Custom Rename 60 Drones">
           <svg style="width: 15px; height: 15px;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1875,6 +2192,207 @@
     </div>
   </div>
 
+  <!-- Mission Control & Automatic Survey Planning -->
+  <div id="mission-control-modal" class="modal-backdrop hidden">
+    <div class="modal-card mission-modal-card">
+      <div class="modal-header">
+        <div class="modal-title">
+          <span style="font-size: 20px;">🛰️</span>
+          <div>
+            <div>Operations Mission Control</div>
+            <div style="font-size: 10px; color: #64748b; font-weight: 700; margin-top: 2px;">250-aircraft coordination · 60 live-feed slots · survey route planning</div>
+          </div>
+        </div>
+        <button onclick="closeMissionControlModal()" class="modal-close-btn">&times;</button>
+      </div>
+
+      <div class="mission-modal-body">
+        <div class="mission-safety-banner">
+          OPERATIONAL BOUNDARY: These are pilot-dispatch and DJI Fly route-planning tools. They do not transmit flight-control commands to Air 3/Air 3S aircraft. Every HOLD, RTH and mission request requires field-pilot acknowledgement.
+        </div>
+
+        <div class="mission-tabs" role="tablist" aria-label="Mission control sections">
+          <button class="mission-tab-button active" data-mission-tab="overview" onclick="switchMissionTab('overview')">Operations Overview</button>
+          <button class="mission-tab-button" data-mission-tab="missions" onclick="switchMissionTab('missions')">Mission Queue</button>
+          <button class="mission-tab-button" data-mission-tab="survey" onclick="switchMissionTab('survey')">Automatic Survey Mapping</button>
+          <button class="mission-tab-button" data-mission-tab="audit" onclick="switchMissionTab('audit')">Audit Trail</button>
+        </div>
+
+        <section id="mission-tab-overview" class="mission-tab-panel active">
+          <div class="mission-kpi-grid" id="mission-kpi-grid">
+            <div class="mission-kpi"><div class="mission-kpi-label">Fleet Total</div><div class="mission-kpi-value" id="kpi-fleet-total">250</div></div>
+            <div class="mission-kpi"><div class="mission-kpi-label">Feed Slots</div><div class="mission-kpi-value" id="kpi-feed-slots">60</div></div>
+            <div class="mission-kpi"><div class="mission-kpi-label">Feeds Online</div><div class="mission-kpi-value" id="kpi-feeds-online">0</div></div>
+            <div class="mission-kpi"><div class="mission-kpi-label">Available</div><div class="mission-kpi-value" id="kpi-available">0</div></div>
+            <div class="mission-kpi"><div class="mission-kpi-label">Active Missions</div><div class="mission-kpi-value" id="kpi-active">0</div></div>
+            <div class="mission-kpi"><div class="mission-kpi-label">Awaiting Pilot ACK</div><div class="mission-kpi-value" id="kpi-awaiting">0</div></div>
+          </div>
+
+          <div class="mission-section-card">
+            <div class="mission-section-header">
+              <span class="mission-section-title">Quick Mission Dispatch</span>
+              <span style="font-size: 10px; color: #64748b; font-weight: 700;">Automatic assignment prefers an online, available, sufficiently charged aircraft.</span>
+            </div>
+            <div class="mission-form-grid">
+              <div class="form-group">
+                <label class="form-label" for="quick-mission-title">Mission title</label>
+                <input id="quick-mission-title" class="form-input" placeholder="Inspect north entrance">
+              </div>
+              <div class="form-group">
+                <label class="form-label" for="quick-mission-type">Mission type</label>
+                <select id="quick-mission-type" class="form-input">
+                  <option value="inspection">Inspection</option>
+                  <option value="crowd_monitoring">Crowd monitoring</option>
+                  <option value="incident_response">Incident response</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label" for="quick-mission-priority">Priority</label>
+                <select id="quick-mission-priority" class="form-input">
+                  <option value="normal">Normal</option>
+                  <option value="high">High</option>
+                  <option value="critical">Critical</option>
+                  <option value="low">Low</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label" for="quick-mission-drone">Aircraft assignment</label>
+                <select id="quick-mission-drone" class="form-input mission-drone-select"><option value="auto">Auto assign</option></select>
+              </div>
+              <div class="form-group wide">
+                <label class="form-label" for="quick-mission-location">Location / zone</label>
+                <input id="quick-mission-location" class="form-input" placeholder="Kotilingala Ghat north gate">
+              </div>
+              <div class="form-group wide">
+                <label class="form-label" for="quick-mission-instructions">Pilot instructions</label>
+                <input id="quick-mission-instructions" class="form-input" placeholder="Maintain safe offset and report crowd flow direction">
+              </div>
+              <div class="form-group">
+                <label class="form-label" for="quick-mission-battery">Minimum battery %</label>
+                <input id="quick-mission-battery" class="form-input" type="number" min="0" max="100" value="40">
+              </div>
+              <div class="form-group" style="justify-content: flex-end;">
+                <label class="form-label">Dispatch</label>
+                <button class="btn-action btn-action-primary" onclick="createQuickMission()">Dispatch for Pilot ACK</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="mission-section-card">
+            <div class="mission-section-header">
+              <span class="mission-section-title">Fleet Readiness</span>
+              <input id="mission-fleet-search" class="form-input" style="max-width: 280px;" placeholder="Filter aircraft, pilot or location" oninput="renderMissionFleet()">
+            </div>
+            <div class="mission-table-wrap">
+              <table class="mission-table">
+                <thead><tr><th>Aircraft</th><th>Feed</th><th>Battery</th><th>Availability</th><th>Pilot</th><th>Current mission</th><th>Actions</th></tr></thead>
+                <tbody id="mission-fleet-body"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <section id="mission-tab-missions" class="mission-tab-panel">
+          <div class="mission-section-card">
+            <div class="mission-section-header">
+              <span class="mission-section-title">Mission Queue & Pilot Acknowledgements</span>
+              <button class="btn-action" onclick="loadMissionControlOverview()">Refresh</button>
+            </div>
+            <div class="mission-table-wrap" style="max-height: 600px;">
+              <table class="mission-table">
+                <thead><tr><th>Status</th><th>Priority</th><th>Mission</th><th>Aircraft</th><th>Type / Location</th><th>Updated</th><th>Workflow actions</th></tr></thead>
+                <tbody id="mission-queue-body"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <section id="mission-tab-survey" class="mission-tab-panel">
+          <div class="survey-layout">
+            <div class="survey-form">
+              <h3 style="font-size: 14px; margin-bottom: 5px;">Polygon Survey Generator</h3>
+              <p style="font-size: 11px; color: #64748b; line-height: 1.45; margin-bottom: 12px;">Click at least three map points. The server clips an alternating lawnmower route to the selected boundary and estimates distance and duration.</p>
+
+              <div class="form-group">
+                <label class="form-label" for="survey-title">Mission title</label>
+                <input id="survey-title" class="form-input" value="Pushkaralu area survey">
+              </div>
+              <div class="form-group">
+                <label class="form-label" for="survey-location">Survey location</label>
+                <input id="survey-location" class="form-input" value="Rajahmundry Ghat Sector">
+              </div>
+              <div class="survey-field-grid">
+                <div class="form-group">
+                  <label class="form-label" for="survey-spacing">Line spacing (m)</label>
+                  <input id="survey-spacing" class="form-input" type="number" min="5" max="500" value="30">
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="survey-angle">Route angle (°)</label>
+                  <input id="survey-angle" class="form-input" type="number" min="0" max="359" value="0">
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="survey-altitude">Altitude (m)</label>
+                  <input id="survey-altitude" class="form-input" type="number" min="5" max="120" value="60">
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="survey-speed">Speed (m/s)</label>
+                  <input id="survey-speed" class="form-input" type="number" min="1" max="15" step="0.5" value="5">
+                </div>
+              </div>
+              <div class="survey-field-grid">
+                <div class="form-group">
+                  <label class="form-label" for="survey-priority">Priority</label>
+                  <select id="survey-priority" class="form-input"><option value="normal">Normal</option><option value="high">High</option><option value="critical">Critical</option><option value="low">Low</option></select>
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="survey-drone">Aircraft</label>
+                  <select id="survey-drone" class="form-input mission-drone-select"><option value="auto">Auto assign</option></select>
+                </div>
+              </div>
+              <div class="form-group">
+                <label class="form-label" for="survey-instructions">Pilot notes</label>
+                <textarea id="survey-instructions" class="form-input" rows="3">Review the generated path in the command centre, reproduce or load the approved route in DJI Fly, and maintain safe visual supervision.</textarea>
+              </div>
+              <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px;">
+                <button class="btn-action" onclick="clearSurveyMap()">Clear Boundary</button>
+                <button class="btn-action btn-action-primary" onclick="previewSurveyRoute()">Generate Route</button>
+                <button id="survey-create-btn" class="btn-action btn-action-primary" onclick="createSurveyMission()" disabled>Create & Dispatch</button>
+                <button id="survey-export-btn" class="btn-action" onclick="exportSurveyGeoJSON()" disabled>Export GeoJSON</button>
+              </div>
+            </div>
+
+            <div class="survey-map-card">
+              <div id="survey-map-status" class="survey-map-help">Map loading… Click points around the survey boundary when ready.</div>
+              <div id="survey-map" aria-label="Survey boundary map"></div>
+              <div class="survey-summary">
+                <div><span>Coverage</span><strong id="survey-summary-area">—</strong></div>
+                <div><span>Route distance</span><strong id="survey-summary-distance">—</strong></div>
+                <div><span>Estimated time</span><strong id="survey-summary-duration">—</strong></div>
+                <div><span>Waypoints</span><strong id="survey-summary-waypoints">—</strong></div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="mission-tab-audit" class="mission-tab-panel">
+          <div class="mission-section-card">
+            <div class="mission-section-header">
+              <span class="mission-section-title">Append-only Operational Audit Trail</span>
+              <button class="btn-action" onclick="loadMissionAudit()">Refresh Audit</button>
+            </div>
+            <div id="mission-audit-list" class="mission-audit-list" style="padding: 14px;"></div>
+          </div>
+        </section>
+      </div>
+
+      <div class="modal-footer">
+        <span id="mission-control-updated" style="margin-right: auto; color: #64748b; font-size: 11px; font-weight: 700;">Not loaded</span>
+        <button class="btn-action" onclick="loadMissionControlOverview()">Refresh Operations</button>
+        <button class="btn-action btn-action-primary" onclick="closeMissionControlModal()">Close</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Dedicated Full View Modal Overlay -->
   <div id="full-view-modal" class="full-view-modal hidden">
     <div class="full-view-backdrop" onclick="closeFullViewModal()"></div>
@@ -1939,6 +2457,7 @@
 
   <!-- HLS.js CDN -->
   <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
 
   <!-- Core Dashboard & Admin Scripts -->
   <script>
@@ -1950,6 +2469,13 @@
     const CAMERA_POLL_INTERVAL_MS = 1000;
     let cameraPollInFlight = false;
     let activeFullViewCamId = null;
+    let missionOverview = { summary: {}, fleet: [], missions: [] };
+    let missionPollTimer = null;
+    let surveyMap = null;
+    let surveyBoundaryPoints = [];
+    let surveyBoundaryLayer = null;
+    let surveyRouteLayer = null;
+    let currentSurveyPlan = null;
 
     // Verify Admin Authentication on load
     async function verifyAdminAuth() {
@@ -2969,6 +3495,441 @@
         showToast("Error resetting names", "error");
       }
     }
+
+    // --- Mission Control, Fleet Dispatch & Pilot Workflow ---
+    async function responseErrorMessage(response, fallback) {
+      try {
+        const data = await response.json();
+        return data.detail || data.message || fallback;
+      } catch (e) {
+        return fallback;
+      }
+    }
+
+    window.openMissionControlModal = async function(initialTab = "overview") {
+      const modal = document.getElementById("mission-control-modal");
+      if (!modal) return;
+      modal.classList.remove("hidden");
+      switchMissionTab(initialTab);
+      await loadMissionControlOverview();
+      clearInterval(missionPollTimer);
+      missionPollTimer = setInterval(loadMissionControlOverview, 8000);
+    };
+
+    window.closeMissionControlModal = function() {
+      const modal = document.getElementById("mission-control-modal");
+      if (modal) modal.classList.add("hidden");
+      clearInterval(missionPollTimer);
+      missionPollTimer = null;
+    };
+
+    window.switchMissionTab = function(tabName) {
+      document.querySelectorAll(".mission-tab-button").forEach(button => {
+        button.classList.toggle("active", button.dataset.missionTab === tabName);
+      });
+      document.querySelectorAll(".mission-tab-panel").forEach(panel => {
+        panel.classList.toggle("active", panel.id === `mission-tab-${tabName}`);
+      });
+      if (tabName === "survey") {
+        setTimeout(initializeSurveyMap, 80);
+      } else if (tabName === "audit") {
+        loadMissionAudit();
+      } else if (tabName === "missions") {
+        renderMissionQueue();
+      }
+    };
+
+    window.loadMissionControlOverview = async function() {
+      try {
+        const response = await fetch("/api/mission-control/overview", { cache: "no-store" });
+        if (response.status === 401 || response.status === 403) {
+          window.location.href = "/login?role=admin&redirect=/admin";
+          return;
+        }
+        if (!response.ok) throw new Error(await responseErrorMessage(response, "Unable to load mission control"));
+        missionOverview = await response.json();
+        renderMissionKPIs();
+        populateMissionDroneSelectors();
+        renderMissionFleet();
+        renderMissionQueue();
+        const updated = document.getElementById("mission-control-updated");
+        if (updated) updated.textContent = `Updated ${new Date(missionOverview.generated_at).toLocaleTimeString()}`;
+      } catch (error) {
+        console.error("Mission control load failed:", error);
+        const updated = document.getElementById("mission-control-updated");
+        if (updated) updated.textContent = "Mission control unavailable";
+      }
+    };
+
+    function renderMissionKPIs() {
+      const summary = missionOverview.summary || {};
+      const values = {
+        "kpi-fleet-total": summary.fleet_total || 0,
+        "kpi-feed-slots": summary.feed_slots || 0,
+        "kpi-feeds-online": summary.feeds_online || 0,
+        "kpi-available": summary.available || 0,
+        "kpi-active": summary.active_missions || 0,
+        "kpi-awaiting": summary.awaiting_acknowledgement || 0,
+      };
+      Object.entries(values).forEach(([id, value]) => {
+        const element = document.getElementById(id);
+        if (element) element.textContent = value;
+      });
+    }
+
+    function populateMissionDroneSelectors() {
+      const fleet = missionOverview.fleet || [];
+      document.querySelectorAll(".mission-drone-select").forEach(select => {
+        const previous = select.value || "auto";
+        const options = ['<option value="auto">Auto assign best available</option>'];
+        fleet.forEach(drone => {
+          const online = drone.feed_online ? "LIVE" : "no feed";
+          const label = `${drone.id} · ${drone.battery_percent}% · ${drone.availability} · ${online}`;
+          options.push(`<option value="${escapeHtml(drone.id)}">${escapeHtml(label)}</option>`);
+        });
+        select.innerHTML = options.join("");
+        select.value = fleet.some(drone => drone.id === previous) ? previous : "auto";
+      });
+    }
+
+    window.renderMissionFleet = function() {
+      const body = document.getElementById("mission-fleet-body");
+      if (!body) return;
+      const query = (document.getElementById("mission-fleet-search")?.value || "").trim().toLowerCase();
+      const fleet = (missionOverview.fleet || []).filter(drone => {
+        if (!query) return true;
+        return [drone.id, drone.camera_name, drone.location, drone.pilot_name, drone.availability]
+          .some(value => String(value || "").toLowerCase().includes(query));
+      });
+      if (!fleet.length) {
+        body.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:28px;color:#64748b;">No fleet records match this filter.</td></tr>';
+        return;
+      }
+      body.innerHTML = fleet.map(drone => {
+        const mission = drone.active_mission;
+        const availabilityOptions = ["available", "assigned", "charging", "maintenance", "offline"]
+          .map(value => `<option value="${value}" ${drone.availability === value ? "selected" : ""}>${value.replace('_', ' ')}</option>`)
+          .join("");
+        return `
+          <tr data-mission-fleet-id="${escapeHtml(drone.id)}">
+            <td><strong>${escapeHtml(drone.id)}</strong><div style="font-size:10px;color:#64748b;">${escapeHtml(drone.camera_name || '')}</div></td>
+            <td><span class="mission-status ${drone.feed_online ? 'available' : 'offline'}">${drone.feed_online ? 'live' : (drone.feed_configured ? 'offline' : 'no slot')}</span></td>
+            <td><input class="fleet-table-input mission-battery-input" type="number" min="0" max="100" value="${Number(drone.battery_percent || 0)}" style="width:74px;">%</td>
+            <td><select class="fleet-table-input mission-availability-input" style="min-width:110px;">${availabilityOptions}</select></td>
+            <td><input class="fleet-table-input mission-pilot-input" value="${escapeHtml(drone.pilot_name || '')}" placeholder="Assign pilot" style="min-width:120px;"></td>
+            <td>${mission ? `<strong>${escapeHtml(mission.title)}</strong><div><span class="mission-status ${escapeHtml(mission.status)}">${escapeHtml(mission.status)}</span></div>` : '<span style="color:#94a3b8;">No active mission</span>'}</td>
+            <td style="min-width:210px;">
+              <button class="mission-small-btn" onclick="saveMissionFleetRow('${drone.id}')">Save</button>
+              <button class="mission-small-btn danger" onclick="requestPilotAction('${drone.id}','HOLD')">HOLD request</button>
+              <button class="mission-small-btn danger" onclick="requestPilotAction('${drone.id}','RETURN_HOME')">RTH request</button>
+            </td>
+          </tr>
+        `;
+      }).join("");
+    };
+
+    window.saveMissionFleetRow = async function(droneId) {
+      const row = document.querySelector(`tr[data-mission-fleet-id="${droneId}"]`);
+      if (!row) return;
+      const payload = {
+        battery_percent: Number(row.querySelector(".mission-battery-input")?.value || 0),
+        availability: row.querySelector(".mission-availability-input")?.value || "available",
+        pilot_name: row.querySelector(".mission-pilot-input")?.value || "",
+      };
+      try {
+        const response = await fetch(`/api/mission-control/fleet/${encodeURIComponent(droneId)}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!response.ok) throw new Error(await responseErrorMessage(response, "Fleet update failed"));
+        showToast(`${droneId} readiness updated.`);
+        await loadMissionControlOverview();
+      } catch (error) {
+        showToast(error.message, "error");
+      }
+    };
+
+    window.requestPilotAction = async function(droneId, action) {
+      const label = action === "RETURN_HOME" ? "RETURN TO HOME" : "HOLD POSITION";
+      if (!confirm(`Send a ${label} request to the field pilot for ${droneId}? This is an acknowledgement request, not a direct flight command.`)) return;
+      try {
+        const response = await fetch(`/api/mission-control/fleet/${encodeURIComponent(droneId)}/request`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action, instructions: `Pilot: verify local conditions, acknowledge, then ${label.toLowerCase()} using DJI Fly when safe.` }),
+        });
+        if (!response.ok) throw new Error(await responseErrorMessage(response, "Pilot request failed"));
+        showToast(`${label} request dispatched for ${droneId}.`);
+        await loadMissionControlOverview();
+        switchMissionTab("missions");
+      } catch (error) {
+        showToast(error.message, "error");
+      }
+    };
+
+    window.createQuickMission = async function() {
+      const title = document.getElementById("quick-mission-title")?.value.trim();
+      if (!title) {
+        showToast("Enter a mission title.", "error");
+        return;
+      }
+      const payload = {
+        title,
+        mission_type: document.getElementById("quick-mission-type")?.value || "inspection",
+        priority: document.getElementById("quick-mission-priority")?.value || "normal",
+        drone_id: document.getElementById("quick-mission-drone")?.value || "auto",
+        location_name: document.getElementById("quick-mission-location")?.value.trim() || "",
+        instructions: document.getElementById("quick-mission-instructions")?.value.trim() || "",
+        minimum_battery_percent: Number(document.getElementById("quick-mission-battery")?.value || 40),
+        dispatch_now: true,
+      };
+      try {
+        const response = await fetch("/api/mission-control/missions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!response.ok) throw new Error(await responseErrorMessage(response, "Mission dispatch failed"));
+        const mission = await response.json();
+        showToast(`Mission dispatched to ${mission.assigned_drone_id}; awaiting pilot acknowledgement.`);
+        document.getElementById("quick-mission-title").value = "";
+        await loadMissionControlOverview();
+        switchMissionTab("missions");
+      } catch (error) {
+        showToast(error.message, "error");
+      }
+    };
+
+    function missionWorkflowButtons(mission) {
+      const buttons = [];
+      const add = (status, label, danger = false) => buttons.push(
+        `<button class="mission-small-btn ${danger ? 'danger' : ''}" onclick="transitionMission('${mission.id}','${status}')">${label}</button>`
+      );
+      if (mission.status === "planned") {
+        add("dispatched", "Dispatch"); add("cancelled", "Cancel", true);
+      } else if (mission.status === "dispatched") {
+        add("accepted", "Pilot ACK"); add("declined", "Decline", true); add("cancelled", "Cancel", true);
+      } else if (mission.status === "accepted") {
+        add("in_progress", "Start"); add("cancelled", "Cancel", true);
+      } else if (mission.status === "in_progress") {
+        add("completed", "Complete"); add("cancelled", "Cancel", true);
+      }
+      if (mission.survey?.geojson) {
+        buttons.push(`<a class="mission-small-btn" style="text-decoration:none;display:inline-block;" href="/api/mission-control/missions/${encodeURIComponent(mission.id)}/route.geojson" download>GeoJSON</a>`);
+      }
+      return buttons.join("") || '<span style="color:#94a3b8;">Workflow closed</span>';
+    }
+
+    function renderMissionQueue() {
+      const body = document.getElementById("mission-queue-body");
+      if (!body) return;
+      const missions = missionOverview.missions || [];
+      if (!missions.length) {
+        body.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:40px;color:#64748b;">No missions have been created.</td></tr>';
+        return;
+      }
+      body.innerHTML = missions.map(mission => `
+        <tr>
+          <td><span class="mission-status ${escapeHtml(mission.status)}">${escapeHtml(mission.status)}</span></td>
+          <td><strong style="color:${mission.priority === 'critical' ? '#b91c1c' : mission.priority === 'high' ? '#b45309' : '#334155'};">${escapeHtml(mission.priority)}</strong></td>
+          <td><strong>${escapeHtml(mission.title)}</strong><div style="font-size:10px;color:#64748b;">${escapeHtml(mission.id)}</div></td>
+          <td>${escapeHtml(mission.assigned_drone_id || 'unassigned')}<div style="font-size:10px;color:#64748b;">${escapeHtml(mission.assignment_mode || '')}</div></td>
+          <td>${escapeHtml((mission.mission_type || '').replaceAll('_', ' '))}<div style="font-size:10px;color:#64748b;">${escapeHtml(mission.location_name || '')}</div></td>
+          <td>${new Date(mission.updated_at || mission.created_at).toLocaleString()}</td>
+          <td style="min-width:220px;">${missionWorkflowButtons(mission)}</td>
+        </tr>
+      `).join("");
+    }
+
+    window.transitionMission = async function(missionId, status) {
+      const humanStatus = status.replaceAll("_", " ").toUpperCase();
+      if (["cancelled", "declined"].includes(status) && !confirm(`Mark ${missionId} as ${humanStatus}?`)) return;
+      try {
+        const response = await fetch(`/api/mission-control/missions/${encodeURIComponent(missionId)}/transition`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status, note: `Admin console transition to ${status}` }),
+        });
+        if (!response.ok) throw new Error(await responseErrorMessage(response, "Mission workflow update failed"));
+        showToast(`${missionId} moved to ${humanStatus}.`);
+        await loadMissionControlOverview();
+      } catch (error) {
+        showToast(error.message, "error");
+      }
+    };
+
+    // --- Automatic Polygon Survey Mapping ---
+    function initializeSurveyMap() {
+      const status = document.getElementById("survey-map-status");
+      if (typeof L === "undefined") {
+        if (status) status.textContent = "The mapping library could not load. Monitoring remains available; reconnect this admin browser to use the survey map.";
+        return;
+      }
+      if (surveyMap) {
+        surveyMap.invalidateSize();
+        return;
+      }
+      surveyMap = L.map("survey-map", { zoomControl: true }).setView([17.0005, 81.8040], 14);
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 20,
+        attribution: "&copy; OpenStreetMap contributors",
+      }).addTo(surveyMap);
+      surveyMap.on("click", event => {
+        surveyBoundaryPoints.push({
+          lat: Number(event.latlng.lat.toFixed(7)),
+          lng: Number(event.latlng.lng.toFixed(7)),
+        });
+        currentSurveyPlan = null;
+        document.getElementById("survey-create-btn").disabled = true;
+        document.getElementById("survey-export-btn").disabled = true;
+        redrawSurveyBoundary();
+      });
+      if (status) status.textContent = "Click around the survey boundary. Use Clear Boundary to restart.";
+      setTimeout(() => surveyMap.invalidateSize(), 100);
+    }
+
+    function redrawSurveyBoundary() {
+      if (!surveyMap || typeof L === "undefined") return;
+      if (surveyBoundaryLayer) surveyBoundaryLayer.remove();
+      if (surveyRouteLayer) {
+        surveyRouteLayer.remove();
+        surveyRouteLayer = null;
+      }
+      if (!surveyBoundaryPoints.length) return;
+      surveyBoundaryLayer = L.polygon(
+        surveyBoundaryPoints.map(point => [point.lat, point.lng]),
+        { color: "#0284c7", fillColor: "#38bdf8", fillOpacity: 0.16, weight: 3 }
+      ).addTo(surveyMap);
+      document.getElementById("survey-map-status").textContent = `${surveyBoundaryPoints.length} boundary point${surveyBoundaryPoints.length === 1 ? '' : 's'} selected. ${surveyBoundaryPoints.length < 3 ? 'Add more points.' : 'Generate the survey route when ready.'}`;
+    }
+
+    window.clearSurveyMap = function() {
+      surveyBoundaryPoints = [];
+      currentSurveyPlan = null;
+      if (surveyBoundaryLayer) surveyBoundaryLayer.remove();
+      if (surveyRouteLayer) surveyRouteLayer.remove();
+      surveyBoundaryLayer = null;
+      surveyRouteLayer = null;
+      ["survey-summary-area", "survey-summary-distance", "survey-summary-duration", "survey-summary-waypoints"].forEach(id => {
+        const element = document.getElementById(id);
+        if (element) element.textContent = "—";
+      });
+      document.getElementById("survey-create-btn").disabled = true;
+      document.getElementById("survey-export-btn").disabled = true;
+      const status = document.getElementById("survey-map-status");
+      if (status) status.textContent = "Boundary cleared. Click at least three points to begin.";
+    };
+
+    window.previewSurveyRoute = async function() {
+      if (surveyBoundaryPoints.length < 3) {
+        showToast("Select at least three boundary points on the map.", "error");
+        return;
+      }
+      const payload = {
+        boundary: surveyBoundaryPoints,
+        spacing_m: Number(document.getElementById("survey-spacing")?.value || 30),
+        angle_deg: Number(document.getElementById("survey-angle")?.value || 0),
+        altitude_m: Number(document.getElementById("survey-altitude")?.value || 60),
+        speed_mps: Number(document.getElementById("survey-speed")?.value || 5),
+      };
+      try {
+        const response = await fetch("/api/mission-control/surveys/preview", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!response.ok) throw new Error(await responseErrorMessage(response, "Survey route generation failed"));
+        currentSurveyPlan = await response.json();
+        if (surveyRouteLayer) surveyRouteLayer.remove();
+        surveyRouteLayer = L.polyline(
+          currentSurveyPlan.waypoints.map(point => [point.lat, point.lng]),
+          { color: "#e11d48", weight: 4, opacity: 0.9 }
+        ).addTo(surveyMap);
+        surveyMap.fitBounds(L.featureGroup([surveyBoundaryLayer, surveyRouteLayer]).getBounds(), { padding: [24, 24] });
+        document.getElementById("survey-summary-area").textContent = `${(currentSurveyPlan.area_m2 / 10000).toFixed(2)} ha`;
+        document.getElementById("survey-summary-distance").textContent = `${(currentSurveyPlan.route_distance_m / 1000).toFixed(2)} km`;
+        document.getElementById("survey-summary-duration").textContent = `${Math.max(1, Math.ceil(currentSurveyPlan.estimated_duration_seconds / 60))} min`;
+        document.getElementById("survey-summary-waypoints").textContent = currentSurveyPlan.waypoints.length;
+        document.getElementById("survey-create-btn").disabled = false;
+        document.getElementById("survey-export-btn").disabled = false;
+        document.getElementById("survey-map-status").textContent = "Route generated. Review the passes before dispatching it for pilot acknowledgement.";
+        showToast("Survey route generated successfully.");
+      } catch (error) {
+        currentSurveyPlan = null;
+        showToast(error.message, "error");
+      }
+    };
+
+    window.createSurveyMission = async function() {
+      if (!currentSurveyPlan) {
+        showToast("Generate and review a survey route first.", "error");
+        return;
+      }
+      const payload = {
+        title: document.getElementById("survey-title")?.value.trim() || "Area survey",
+        mission_type: "survey",
+        priority: document.getElementById("survey-priority")?.value || "normal",
+        drone_id: document.getElementById("survey-drone")?.value || "auto",
+        location_name: document.getElementById("survey-location")?.value.trim() || "",
+        instructions: document.getElementById("survey-instructions")?.value.trim() || "",
+        minimum_battery_percent: 40,
+        dispatch_now: true,
+        survey: currentSurveyPlan,
+      };
+      try {
+        const response = await fetch("/api/mission-control/missions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!response.ok) throw new Error(await responseErrorMessage(response, "Survey dispatch failed"));
+        const mission = await response.json();
+        showToast(`Survey assigned to ${mission.assigned_drone_id}; pilot acknowledgement required.`);
+        await loadMissionControlOverview();
+        switchMissionTab("missions");
+      } catch (error) {
+        showToast(error.message, "error");
+      }
+    };
+
+    window.exportSurveyGeoJSON = function() {
+      if (!currentSurveyPlan?.geojson) return;
+      const blob = new Blob([JSON.stringify(currentSurveyPlan.geojson, null, 2)], { type: "application/geo+json" });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `${currentSurveyPlan.route_id || 'survey-route'}.geojson`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    };
+
+    window.loadMissionAudit = async function() {
+      const container = document.getElementById("mission-audit-list");
+      if (!container) return;
+      try {
+        const response = await fetch("/api/mission-control/audit?limit=150", { cache: "no-store" });
+        if (!response.ok) throw new Error(await responseErrorMessage(response, "Audit trail unavailable"));
+        const events = (await response.json()).events || [];
+        if (!events.length) {
+          container.innerHTML = '<div style="text-align:center;padding:40px;color:#64748b;">No mission-control events recorded yet.</div>';
+          return;
+        }
+        container.innerHTML = events.map(event => `
+          <div class="mission-audit-event">
+            <div style="display:flex;justify-content:space-between;gap:12px;margin-bottom:4px;">
+              <strong style="color:#0f172a;">${escapeHtml(event.action)}</strong>
+              <span>${new Date(event.timestamp).toLocaleString()}</span>
+            </div>
+            <div>${escapeHtml(JSON.stringify(event.details || {}))}</div>
+          </div>
+        `).join("");
+      } catch (error) {
+        container.innerHTML = `<div style="color:#b91c1c;padding:20px;">${escapeHtml(error.message)}</div>`;
+      }
+    };
 
     // --- Search & Filter Setup ---
     document.querySelectorAll(".pill").forEach(pill => {
