@@ -40,3 +40,28 @@ mediamtx.zip
 *.backup
 
 certificate/
+
+# Production/server-only files
+.env
+.env.*
+!.env.example
+data/
+backups/
+deployment-backups/
+config/certificates/
+*.bak
+*.backup*
+*.before-*
+*.broken-*
+*.patch
+/FETCH_HEAD
+/=
+/CACHED
+/[[]internal]
+/exporting
+/naming
+/reading
+/resolve
+/resolving
+/transferring
+/unpacking
