@@ -34,6 +34,8 @@ def test_dashboards_have_low_latency_hls_configuration():
 
     required_hls_settings = [
         "lowLatencyMode: true",
+        "liveSyncDuration: 1.5",
+        "liveMaxLatencyDuration: 3.5",
         "liveSyncDurationCount: 3",
         "liveMaxLatencyDurationCount: 5",
         "maxLiveSyncPlaybackRate: 1.1",

@@ -31,13 +31,19 @@ def main():
     try:
         for i, target in enumerate(TARGETS):
             print(f"[SIMULATOR] Launching Drone {i+1} simulator stream to: {target}")
-            # Loop the video file infinitely, copy codec (extremely low CPU usage)
+            # Loop the video file infinitely with 1s GOP for low-latency streaming
             cmd = [
                 "ffmpeg",
                 "-re",
                 "-stream_loop", "-1",
                 "-i", VIDEO_FILE,
-                "-c", "copy",
+                "-c:v", "libx264",
+                "-preset", "ultrafast",
+                "-tune", "zerolatency",
+                "-g", "30",
+                "-keyint_min", "30",
+                "-sc_threshold", "0",
+                "-an",
                 "-f", "flv",
                 target
             ]

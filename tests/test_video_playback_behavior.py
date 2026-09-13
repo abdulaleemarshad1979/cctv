@@ -127,3 +127,40 @@ def test_fastapi_hls_proxy_supports_get_and_head():
     head_res = client.head("/hls/live/drone1/index.m3u8", follow_redirects=False)
     assert head_res.status_code == 307
     assert "/live/drone1/index.m3u8" in head_res.headers["location"]
+
+
+def test_dashboards_default_to_webrtc_and_have_latency_catchup():
+    """Verify that WebRTC is the default transport and latency catch-up is enforced."""
+    for name in ["admin_dashboard.html", "lite_dashboard.html"]:
+        content = _read(name)
+        assert 'let useWebRtc = urlParams.get("transport") !== "hls";' in content, (
+            f"WebRTC must be active by default (unless transport=hls) in {name}"
+        )
+        assert "liveSyncDuration: 1.5" in content, f"liveSyncDuration missing in {name}"
+        assert "liveMaxLatencyDuration: 3.5" in content, f"liveMaxLatencyDuration missing in {name}"
+        assert "player.liveSyncPosition - video.currentTime > 4.0" in content, (
+            f"Watchdog live-sync catchup missing in {name}"
+        )
+        assert "player.liveSyncPosition - video.currentTime > 3.0" in content, (
+            f"Visibilitychange live-sync catchup missing in {name}"
+        )
+
+
+def test_webrtc_additional_hosts_includes_localhost_and_loopback():
+    """Verify that MediaMTX configs include 127.0.0.1 and localhost for low-latency local WebRTC."""
+    for path in ["mediamtx.yml", "deployment/mediamtx.yml"]:
+        content = _read(path)
+        assert "- 127.0.0.1" in content, f"127.0.0.1 missing in {path}"
+        assert "- localhost" in content, f"localhost missing in {path}"
+
+    server_code = _read("lite_server.py")
+    assert "- 127.0.0.1" in server_code
+    assert "- localhost" in server_code
+
+
+def test_gen_rtmp_scripts_enforce_short_gop_for_low_latency():
+    """Verify that RTMP stream generator enforces 1s keyframes rather than copying long GOP."""
+    content = _read("tools/gen_rtmp.py")
+    assert "-g" in content and "30" in content, "gen_rtmp.py must enforce short keyframe interval"
+    assert "ultrafast" in content and "zerolatency" in content
+

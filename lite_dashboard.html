@@ -1430,7 +1430,7 @@
     const CAMERA_POLL_INTERVAL_MS = 1000;
     let cameraPollInFlight = false;
     const urlParams = new URLSearchParams(window.location.search);
-    let useWebRtc = urlParams.get("transport") === "webrtc" || urlParams.get("webrtc") === "1";
+    let useWebRtc = urlParams.get("transport") !== "hls";
 
     function isCameraPlayable(cam) {
       if (cam.enabled === false) return false;
@@ -1995,6 +1995,8 @@
         const hls = new Hls({
           enableWorker: true,
           lowLatencyMode: true,
+          liveSyncDuration: 1.5,
+          liveMaxLatencyDuration: 3.5,
           backBufferLength: 4,
           maxBufferLength: 5,
           maxMaxBufferLength: 10,
@@ -2173,6 +2175,12 @@
         if (!video.seeking && video.readyState >= 2 && video.currentTime > egdmsLastTime) {
           egdmsLastTime = video.currentTime;
           egdmsLastProgressAt = now;
+          const player = hlsPlayers[cam.id];
+          if (player && typeof player.liveSyncPosition === "number" && player.liveSyncPosition > 0) {
+            if (player.liveSyncPosition - video.currentTime > 4.0) {
+              video.currentTime = player.liveSyncPosition;
+            }
+          }
           return;
         }
 
@@ -2212,7 +2220,13 @@
         Object.keys(hlsPlayers).forEach(id => {
           const container = document.getElementById(`player-container-${id}`);
           const video = container?.querySelector("video");
+          const player = hlsPlayers[id];
           if (video && !video._userPaused) {
+            if (player && typeof player.liveSyncPosition === "number" && player.liveSyncPosition > 0) {
+              if (player.liveSyncPosition - video.currentTime > 3.0) {
+                video.currentTime = player.liveSyncPosition;
+              }
+            }
             safePlay(video);
           }
         });

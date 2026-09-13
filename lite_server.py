@@ -641,6 +641,8 @@ webrtc: yes
 webrtcAddress: :{MEDIAMTX_WEBRTC_PORT}
 webrtcLocalUDPAddress: :8189
 webrtcAdditionalHosts:
+  - 127.0.0.1
+  - localhost
   - 192.168.1.7
   - 117.216.215.157
   - stream.dmsegpolice.in

@@ -527,7 +527,10 @@ def _producer():
             if not sh.is_live:
                 nft += 1.0 / src_fps
                 s = nft - time.monotonic()
-                if s > 0: time.sleep(s)
+                if s > 0:
+                    time.sleep(s)
+                elif s < -0.5:
+                    nft = time.monotonic()
 
         sh.release()
         with _lock:

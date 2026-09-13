@@ -195,13 +195,20 @@ def main():
     # -stream_loop -1 (loop infinitely)
     # -i <video> (input video)
     # -c:v h264/copy -c:a copy -f flv rtmp://localhost:1935/live
-    # Using -c copy is fast and consumes zero GPU/CPU.
+    # Enforce low-latency 1-second keyframes (GOP 30) so MediaMTX can
+    # generate 1s HLS segments and WebRTC receives frequent keyframes immediately
     cmd = [
         ffmpeg_path,
         "-re",
         "-stream_loop", "-1",
         "-i", video_path,
-        "-c", "copy",
+        "-c:v", "libx264",
+        "-preset", "ultrafast",
+        "-tune", "zerolatency",
+        "-g", "30",
+        "-keyint_min", "30",
+        "-sc_threshold", "0",
+        "-an",
         "-f", "flv",
         "rtmp://localhost:1935/live"
     ]
