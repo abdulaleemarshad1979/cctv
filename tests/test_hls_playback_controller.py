@@ -63,3 +63,32 @@ def test_dashboards_have_immediate_autoplay_without_stalling():
         assert "getForwardBuffer" not in content, f"getForwardBuffer should not exist in {name}"
         assert "handleBufferStall" not in content, f"handleBufferStall should not exist in {name}"
         assert "BUFFER_STALLED_ERROR" not in content, f"BUFFER_STALLED_ERROR manual pause should not exist in {name}"
+
+
+def test_hls_cdn_script_is_version_pinned_not_latest():
+    for name in ["admin_dashboard.html", "lite_dashboard.html"]:
+        content = _read(name)
+        assert "hls.js@latest" not in content, (
+            f"{name} must not load hls.js@latest — an upstream CDN release can silently "
+            "break playback with no code change on our side; pin an exact version instead"
+        )
+        assert "cdn.jsdelivr.net/npm/hls.js@1." in content, f"Pinned hls.js version missing in {name}"
+
+
+def test_dashboards_have_live_stall_reconnect_watchdog():
+    # A genuinely live drone feed should never sit frozen: hls.js only self-heals
+    # on *fatal* errors, so a silent stall (buffer starvation, decoder hiccup, or
+    # the server finalizing the playlist on an encoder reconnect) needs its own
+    # recovery path that reconnects cleanly without ever pausing playback on purpose.
+    for name in ["admin_dashboard.html", "lite_dashboard.html"]:
+        content = _read(name)
+        assert "playerWatchdogTimers" in content, f"Stall watchdog registry missing in {name}"
+        assert "egdmsReconnect" in content, f"Stall watchdog reconnect handler missing in {name}"
+        assert 'addEventListener("ended", egdmsReconnect)' in content, (
+            f"'ended' event must trigger a reconnect (a live feed never legitimately ends) in {name}"
+        )
+        # The watchdog must clean itself up on teardown, or repeated reconnects would leak intervals
+        assert "clearInterval(playerWatchdogTimers[id])" in content, (
+            f"Watchdog interval must be cleared in teardownVideoFeed in {name}"
+        )
+

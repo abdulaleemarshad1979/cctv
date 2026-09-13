@@ -1414,7 +1414,7 @@
     </div>
   </main>
 
-  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@1.7.1"></script>
 
   <script>
     let cameras = [];
@@ -1422,6 +1422,7 @@
     let globalMode = "counting"; // ponytail: dynamic global mode state
     const hlsPlayers = {};
     const playerRetryTimers = {};
+    const playerWatchdogTimers = {};
     const probesInFlight = {};
     const CAMERA_POLL_INTERVAL_MS = 1000;
     let cameraPollInFlight = false;
@@ -1776,6 +1777,10 @@
         clearTimeout(playerRetryTimers[id]);
         delete playerRetryTimers[id];
       }
+      if (playerWatchdogTimers[id]) {
+        clearInterval(playerWatchdogTimers[id]);
+        delete playerWatchdogTimers[id];
+      }
       const player = hlsPlayers[id];
       if (player) {
         try {
@@ -1859,6 +1864,32 @@
       video.playsInline = true;
       video.controls = true;
       container.appendChild(video);
+
+      // Live-stall watchdog: a genuinely live drone feed should never stop
+      // advancing. hls.js only self-heals on *fatal* errors, so a buffer
+      // starvation, decoder hiccup, or the server briefly finalizing the
+      // playlist (encoder reconnect) can leave the tile silently frozen with
+      // nothing telling it to recover. This never pauses playback on purpose
+      // (that caused the earlier 10s-freeze regression) — it only detects a
+      // genuine stall and forces one clean reconnect.
+      let egdmsLastTime = -1;
+      let egdmsLastProgressAt = Date.now();
+      const egdmsReconnect = () => {
+        const currentCam = (cameras || []).find(c => c.id === cam.id) || cam;
+        teardownVideoFeed(cam.id);
+        if (isCameraPlayable(currentCam)) setupVideoFeed(currentCam);
+      };
+      video.addEventListener("ended", egdmsReconnect); // a live feed never legitimately "ends"
+      playerWatchdogTimers[cam.id] = setInterval(() => {
+        const currentCam = (cameras || []).find(c => c.id === cam.id) || cam;
+        if (!isCameraPlayable(currentCam)) return; // camera is actually offline, not a player bug
+        if (video.currentTime > egdmsLastTime) {
+          egdmsLastTime = video.currentTime;
+          egdmsLastProgressAt = Date.now();
+          return;
+        }
+        if (Date.now() - egdmsLastProgressAt > 6000) egdmsReconnect();
+      }, 2000);
 
       const streamUrl = `${window.location.origin}/hls/${playbackPath}/index.m3u8`;
 
