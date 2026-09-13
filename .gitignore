@@ -33,8 +33,10 @@ output/
 
 
 # MediaMTX binaries
+mediamtx
 mediamtx.exe
 mediamtx.zip
+mediamtx*.tar.gz
 
 certificate/
 *.cert
