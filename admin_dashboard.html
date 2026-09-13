@@ -2469,9 +2469,14 @@
     const playerRetryTimers = {};
     const playerWatchdogTimers = {};
     const probesInFlight = {};
+    const probeTokens = {};
+    const probeRetryTimestamps = {};
+    const webrtcUnavailable = {};
     const CAMERA_POLL_INTERVAL_MS = 1000;
     let cameraPollInFlight = false;
     let activeFullViewCamId = null;
+    const urlParams = new URLSearchParams(window.location.search);
+    let useWebRtc = urlParams.get("transport") === "webrtc" || urlParams.get("webrtc") === "1";
     let missionOverview = { summary: {}, fleet: [], missions: [] };
     let missionPollTimer = null;
     let surveyMap = null;
@@ -2601,6 +2606,8 @@
         fullViewBody.appendChild(container);
         fullViewModal.classList.remove("hidden");
         activeFullViewCamId = camId;
+        const video = container.querySelector("video");
+        if (video && !video._userPaused) safePlay(video);
       }
     };
 
@@ -2618,6 +2625,8 @@
         fullViewModal.classList.add("hidden");
       }
       activeFullViewCamId = null;
+      const video = container?.querySelector("video");
+      if (video && !video._userPaused) safePlay(video);
     };
 
     window.toggleNativeFullscreen = function() {
@@ -2903,19 +2912,7 @@
         const playbackPath = cameraPlaybackPath(cam);
         if (!playerUsesPath(hlsPlayers[cam.id], playbackPath)) {
           if (hlsPlayers[cam.id]) {
-            // Seamless handoff: probe the new stream first before tearing down the active feed
-            if (!probesInFlight[cam.id]) {
-              probesInFlight[cam.id] = true;
-              fetch(`/hls/${playbackPath}/index.m3u8`, { method: "HEAD", cache: "no-store" })
-                .then(res => {
-                  delete probesInFlight[cam.id];
-                  const currentCam = (cameras || []).find(c => c.id === cam.id) || cam;
-                  if (res.ok && isCameraPlayable(currentCam)) setupVideoFeed(currentCam);
-                })
-                .catch(() => {
-                  delete probesInFlight[cam.id];
-                });
-            }
+            triggerSeamlessStreamSwitch(cam, playbackPath);
           } else {
             setupVideoFeed(cam);
           }
@@ -2925,6 +2922,98 @@
         teardownVideoFeed(cam.id);
       }
       return true;
+    }
+
+    function safePlay(video) {
+      if (!video || video._userPaused) return Promise.resolve(false);
+      const playPromise = video.play();
+      if (playPromise !== undefined && typeof playPromise.catch === "function") {
+        return playPromise.then(() => true).catch(err => {
+          if (err.name === "NotAllowedError") {
+            showPlayOverlay(video);
+          } else if (err.name === "AbortError") {
+            // Harmless play interrupt
+          } else {
+            console.warn("[Player] Play error:", err);
+          }
+          return false;
+        });
+      }
+      return Promise.resolve(true);
+    }
+
+    function showPlayOverlay(video) {
+      const container = video.parentElement;
+      if (!container || container.querySelector(".tile__play-overlay")) return;
+      const overlay = document.createElement("button");
+      overlay.className = "tile__play-overlay";
+      overlay.setAttribute("aria-label", "Play live video");
+      overlay.innerHTML = `<span>▶ Click to Play</span>`;
+      overlay.style.cssText = "position:absolute;inset:0;margin:auto;width:140px;height:44px;z-index:20;background:rgba(0,0,0,0.75);color:#fff;border:1px solid rgba(255,255,255,0.4);border-radius:6px;cursor:pointer;font-weight:600;display:flex;align-items:center;justify-content:center;gap:6px;backdrop-filter:blur(4px);";
+      overlay.onclick = (e) => {
+        e.stopPropagation();
+        video._userPaused = false;
+        overlay.remove();
+        safePlay(video);
+      };
+      container.appendChild(overlay);
+    }
+
+    async function probeStreamReadiness(playbackPath, signal) {
+      try {
+        const res = await fetch(`/hls/${playbackPath}/index.m3u8`, {
+          method: "GET",
+          cache: "no-store",
+          credentials: "same-origin",
+          signal: signal
+        });
+        if (!res.ok) return false;
+        const text = await res.text();
+        return text.includes("#EXTM3U") && (
+          text.includes("#EXT-X-STREAM-INF") ||
+          text.includes("#EXTINF") ||
+          text.includes("#EXT-X-PART")
+        );
+      } catch (e) {
+        return false;
+      }
+    }
+
+    function triggerSeamlessStreamSwitch(cam, desiredPath) {
+      if (!cam || !desiredPath) return;
+      if (probesInFlight[cam.id]) {
+        if (probesInFlight[cam.id].targetPath === desiredPath) {
+          return;
+        }
+        try { probesInFlight[cam.id].controller.abort(); } catch (e) {}
+        delete probesInFlight[cam.id];
+      }
+
+      const now = Date.now();
+      if (probeRetryTimestamps[cam.id] && (now - probeRetryTimestamps[cam.id] < 1500)) {
+        return;
+      }
+      probeRetryTimestamps[cam.id] = now;
+
+      const controller = new AbortController();
+      const token = (probeTokens[cam.id] = (probeTokens[cam.id] || 0) + 1);
+      const timeoutId = setTimeout(() => controller.abort(), 3000);
+      probesInFlight[cam.id] = { controller, targetPath: desiredPath, token };
+
+      probeStreamReadiness(desiredPath, controller.signal).then(isReady => {
+        clearTimeout(timeoutId);
+        if (probeTokens[cam.id] !== token) return;
+        delete probesInFlight[cam.id];
+        if (isReady) {
+          const currentCam = (cameras || []).find(c => c.id === cam.id) || cam;
+          if (isCameraPlayable(currentCam)) {
+            setupVideoFeed(currentCam);
+          }
+        }
+      }).catch(() => {
+        clearTimeout(timeoutId);
+        if (probeTokens[cam.id] === token) delete probesInFlight[cam.id];
+      });
     }
 
     // Setup Video playback source (HLS live stream with overlays, or fallback direct MP4)
@@ -2937,23 +3026,32 @@
         clearInterval(playerWatchdogTimers[id]);
         delete playerWatchdogTimers[id];
       }
+      if (probesInFlight[id]) {
+        try { probesInFlight[id].controller.abort(); } catch (e) {}
+        delete probesInFlight[id];
+      }
       const player = hlsPlayers[id];
       if (player) {
         try {
           player._destroyed = true;
-          player.destroy();
+          if (typeof player.destroy === "function") player.destroy();
+          if (player.pc) { try { player.pc.close(); } catch (e) {} }
         } catch (e) {}
         delete hlsPlayers[id];
       }
 
       const container = document.getElementById(`player-container-${id}`);
       if (container) {
+        const playOverlay = container.querySelector(".tile__play-overlay");
+        if (playOverlay) playOverlay.remove();
         const existingVideo = container.querySelector("video");
         if (existingVideo) {
           try {
             existingVideo.pause();
             existingVideo.removeAttribute("src");
+            existingVideo.srcObject = null;
             existingVideo.load();
+            existingVideo.remove();
           } catch (e) {}
         }
         container.innerHTML = showSwitchingState
@@ -2977,64 +3075,89 @@
       }, delay);
     }
 
-    function setupVideoFeed(cam) {
-      const container = document.getElementById(`player-container-${cam.id}`);
-      if (!container) return;
-      teardownVideoFeed(cam.id);
-      if (playerRetryTimers[cam.id]) {
-        clearTimeout(playerRetryTimers[cam.id]);
-        delete playerRetryTimers[cam.id];
+    function setupWebRtcPlayback(cam, video, playbackPath, fallbackToHls) {
+      let webrtcEstablished = false;
+      let pc;
+      try {
+        pc = new RTCPeerConnection({
+          iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+        });
+      } catch (e) {
+        webrtcUnavailable[cam.id] = true;
+        fallbackToHls();
+        return;
       }
-      container.classList.remove("hidden");
-      const playbackPath = cameraPlaybackPath(cam);
-      if (!playbackPath) return;
 
-      const video = document.createElement("video");
-      video.className = "tile__video";
-      video.autoplay = true;
-      video.muted = true;
-      video.playsInline = true;
-      video.controls = true;
-      container.appendChild(video);
+      pc.addTransceiver("video", { direction: "recvonly" });
+      pc.addTransceiver("audio", { direction: "recvonly" });
 
-      // Live-stall watchdog: a genuinely live drone feed should never stop
-      // advancing. hls.js only self-heals on *fatal* errors, so a buffer
-      // starvation, decoder hiccup, or the server briefly finalizing the
-      // playlist (encoder reconnect) can leave the tile silently frozen with
-      // nothing telling it to recover. This never pauses playback on purpose
-      // (that caused the earlier 10s-freeze regression) — it only detects a
-      // genuine stall and forces one clean reconnect.
-      let egdmsLastTime = -1;
-      let egdmsLastProgressAt = Date.now();
-      const egdmsReconnect = () => {
-        const currentCam = (cameras || []).find(c => c.id === cam.id) || cam;
-        teardownVideoFeed(cam.id);
-        if (isCameraPlayable(currentCam)) setupVideoFeed(currentCam);
-      };
-      video.addEventListener("ended", egdmsReconnect); // a live feed never legitimately "ends"
-      playerWatchdogTimers[cam.id] = setInterval(() => {
-        const currentCam = (cameras || []).find(c => c.id === cam.id) || cam;
-        if (!isCameraPlayable(currentCam)) return; // camera is actually offline, not a player bug
-        if (video.currentTime > egdmsLastTime) {
-          egdmsLastTime = video.currentTime;
-          egdmsLastProgressAt = Date.now();
-          return;
+      pc.ontrack = (event) => {
+        if (event.streams && event.streams[0]) {
+          video.srcObject = event.streams[0];
+          safePlay(video);
+          webrtcEstablished = true;
         }
-        if (Date.now() - egdmsLastProgressAt > 6000) egdmsReconnect();
-      }, 2000);
+      };
 
+      const webrtcPlayer = {
+        _egdmsPath: playbackPath,
+        egdmsPath: playbackPath,
+        _isWebRtc: true,
+        _destroyed: false,
+        pc: pc,
+        destroy() {
+          this._destroyed = true;
+          try { pc.close(); } catch (e) {}
+        }
+      };
+      hlsPlayers[cam.id] = webrtcPlayer;
+
+      const fallbackTimeout = setTimeout(() => {
+        if (!webrtcEstablished && !webrtcPlayer._destroyed) {
+          console.warn(`[WebRTC] Camera ${cam.id} media timeout, falling back to HLS`);
+          webrtcUnavailable[cam.id] = true;
+          webrtcPlayer.destroy();
+          fallbackToHls();
+        }
+      }, 4000);
+
+      pc.createOffer().then(offer => {
+        return pc.setLocalDescription(offer).then(() => offer);
+      }).then(offer => {
+        return fetch(`/webrtc/${playbackPath}/whep`, {
+          method: "POST",
+          headers: { "Content-Type": "application/sdp" },
+          body: offer.sdp
+        });
+      }).then(async res => {
+        if (!res.ok) throw new Error("WHEP error: " + res.status);
+        const answerSdp = await res.text();
+        if (webrtcPlayer._destroyed) return;
+        await pc.setRemoteDescription({ type: "answer", sdp: answerSdp });
+      }).catch(err => {
+        clearTimeout(fallbackTimeout);
+        if (!webrtcPlayer._destroyed) {
+          console.warn(`[WebRTC] Camera ${cam.id} WHEP negotiation failed, falling back to HLS:`, err);
+          webrtcUnavailable[cam.id] = true;
+          webrtcPlayer.destroy();
+          fallbackToHls();
+        }
+      });
+    }
+
+    function setupHlsPlayback(cam, video, playbackPath, getMediaRecoveries) {
       const streamUrl = `${window.location.origin}/hls/${playbackPath}/index.m3u8`;
 
       if (typeof Hls !== "undefined" && Hls.isSupported()) {
         const hls = new Hls({
           enableWorker: true,
           lowLatencyMode: true,
-          backBufferLength: 0,
-          maxBufferLength: 2,
-          maxMaxBufferLength: 4,
-          liveSyncDurationCount: 2,
-          liveMaxLatencyDurationCount: 3,
-          maxLiveSyncPlaybackRate: 1.5,
+          backBufferLength: 4,
+          maxBufferLength: 5,
+          maxMaxBufferLength: 10,
+          liveSyncDurationCount: 3,
+          liveMaxLatencyDurationCount: 5,
+          maxLiveSyncPlaybackRate: 1.1,
           liveDurationInfinity: true,
           startPosition: -1,
           manifestLoadingMaxRetry: 20,
@@ -3043,7 +3166,7 @@
           levelLoadingRetryDelay: 500,
           fragLoadingMaxRetry: 10,
           fragLoadingRetryDelay: 500,
-          highBufferWatchdogPeriod: 1,
+          highBufferWatchdogPeriod: 2,
           xhrSetup: function (xhr) {
             xhr.withCredentials = true;
           }
@@ -3056,8 +3179,12 @@
         hls.loadSource(streamUrl);
         hls.attachMedia(video);
 
+        hls.on(Hls.Events.MEDIA_ATTACHED, () => {
+          safePlay(video);
+        });
+
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
-          video.play().catch(() => {});
+          safePlay(video);
         });
 
         hls.on(Hls.Events.ERROR, function (event, data) {
@@ -3070,7 +3197,19 @@
                 schedulePlayerRetry(cam, 1000);
                 break;
               case Hls.ErrorTypes.MEDIA_ERROR:
-                hls.recoverMediaError();
+                const recoveries = typeof getMediaRecoveries === "function" ? getMediaRecoveries() : 0;
+                if (recoveries < 2) {
+                  video._recovering = true;
+                  try {
+                    hls.recoverMediaError();
+                    safePlay(video);
+                  } finally {
+                    setTimeout(() => { video._recovering = false; }, 500);
+                  }
+                } else {
+                  teardownVideoFeed(cam.id);
+                  schedulePlayerRetry(cam, 1000);
+                }
                 break;
               default:
                 teardownVideoFeed(cam.id);
@@ -3098,10 +3237,150 @@
           teardownVideoFeed(cam.id);
           schedulePlayerRetry(cam, 1000);
         };
-        video.play().catch(() => {});
+        safePlay(video);
         hlsPlayers[cam.id] = fallbackPlayer;
       }
     }
+
+    function setupVideoFeed(cam) {
+      const container = document.getElementById(`player-container-${cam.id}`);
+      if (!container) return;
+      teardownVideoFeed(cam.id);
+      if (playerRetryTimers[cam.id]) {
+        clearTimeout(playerRetryTimers[cam.id]);
+        delete playerRetryTimers[cam.id];
+      }
+      container.classList.remove("hidden");
+      const playbackPath = cameraPlaybackPath(cam);
+      if (!playbackPath) return;
+
+      const video = document.createElement("video");
+      video.className = "tile__video";
+      video.autoplay = true;
+      video.muted = true;
+      video.playsInline = true;
+      video.controls = true;
+      video._userPaused = false;
+      video._recovering = false;
+
+      video.addEventListener("play", () => {
+        video._userPaused = false;
+        const playOverlay = container.querySelector(".tile__play-overlay");
+        if (playOverlay) playOverlay.remove();
+      });
+
+      video.addEventListener("pause", () => {
+        if (!document.hidden && !video._recovering && !video.ended) {
+          video._userPaused = true;
+        }
+      });
+
+      container.appendChild(video);
+
+      let egdmsLastTime = -1;
+      let egdmsLastProgressAt = Date.now();
+      let startupGraceUntil = Date.now() + 8000;
+      let egdmsReconnecting = false;
+      let mediaRecoveries = 0;
+
+      const egdmsReconnect = () => {
+        if (egdmsReconnecting) return;
+        egdmsReconnecting = true;
+        const currentCam = (cameras || []).find(c => c.id === cam.id) || cam;
+        teardownVideoFeed(cam.id);
+        if (isCameraPlayable(currentCam)) setupVideoFeed(currentCam);
+      };
+
+      video.addEventListener("ended", egdmsReconnect);
+
+      if ("requestVideoFrameCallback" in HTMLVideoElement.prototype) {
+        const onFrame = () => {
+          if (video.parentElement && !video.paused) {
+            egdmsLastProgressAt = Date.now();
+            video.requestVideoFrameCallback(onFrame);
+          }
+        };
+        video.requestVideoFrameCallback(onFrame);
+      }
+
+      playerWatchdogTimers[cam.id] = setInterval(() => {
+        const currentCam = (cameras || []).find(c => c.id === cam.id) || cam;
+        if (!isCameraPlayable(currentCam)) return;
+
+        if (document.hidden) {
+          egdmsLastProgressAt = Date.now();
+          return;
+        }
+
+        if (video._userPaused) {
+          egdmsLastProgressAt = Date.now();
+          return;
+        }
+
+        const now = Date.now();
+
+        if (video.paused) {
+          safePlay(video);
+          if (now > startupGraceUntil && now - egdmsLastProgressAt > 7000) {
+            egdmsReconnect();
+          }
+          return;
+        }
+
+        if (!video.seeking && video.readyState >= 2 && video.currentTime > egdmsLastTime) {
+          egdmsLastTime = video.currentTime;
+          egdmsLastProgressAt = now;
+          return;
+        }
+
+        if (now > startupGraceUntil && now - egdmsLastProgressAt > 7000) {
+          const player = hlsPlayers[cam.id];
+          if (player && typeof player.recoverMediaError === "function" && mediaRecoveries < 2) {
+            mediaRecoveries++;
+            video._recovering = true;
+            try {
+              player.recoverMediaError();
+              safePlay(video);
+            } finally {
+              setTimeout(() => { video._recovering = false; }, 500);
+            }
+            egdmsLastProgressAt = now - 3000;
+          } else {
+            egdmsReconnect();
+          }
+        }
+      }, 2000);
+
+      const tryWebRtc = useWebRtc && !webrtcUnavailable[cam.id] && typeof RTCPeerConnection !== "undefined";
+
+      const setupHlsFallback = () => {
+        setupHlsPlayback(cam, video, playbackPath, () => mediaRecoveries);
+      };
+
+      if (tryWebRtc) {
+        setupWebRtcPlayback(cam, video, playbackPath, setupHlsFallback);
+      } else {
+        setupHlsPlayback(cam, video, playbackPath, () => mediaRecoveries);
+      }
+    }
+
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) {
+        Object.keys(hlsPlayers).forEach(id => {
+          const container = document.getElementById(`player-container-${id}`);
+          const video = container?.querySelector("video");
+          if (video && !video._userPaused) {
+            safePlay(video);
+          }
+        });
+      }
+    });
+
+    window.setPlaybackTransport = function(transport) {
+      useWebRtc = (transport === "webrtc");
+      Object.keys(hlsPlayers).forEach(id => teardownVideoFeed(id));
+      renderGrid();
+    };
 
     // Polling Cameras
     async function pollCameras() {
@@ -3159,6 +3438,16 @@
               }
             } else if (isCameraPlayable(newCam)) {
               updateLiveStats(newCam);
+
+              // Ponytail: Reconcile desired playback path against active player path:
+              // After a failed probe, metadata became unchanged, so subsequent polls
+              // must retry the switch rather than remaining permanently stuck!
+              const desiredPath = cameraPlaybackPath(newCam);
+              const activePlayer = hlsPlayers[newCam.id];
+              const activePath = activePlayer ? (activePlayer._egdmsPath || activePlayer.egdmsPath) : null;
+              if (activePlayer && (activePath !== desiredPath || !playerUsesPath(activePlayer, desiredPath))) {
+                triggerSeamlessStreamSwitch(newCam, desiredPath);
+              }
             }
           }
         });

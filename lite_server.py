@@ -639,6 +639,7 @@ srtAddress: :8890
 
 webrtc: yes
 webrtcAddress: :{MEDIAMTX_WEBRTC_PORT}
+webrtcLocalUDPAddress: :8189
 webrtcAdditionalHosts:
   - 192.168.1.7
   - 117.216.215.157
@@ -647,7 +648,7 @@ webrtcAdditionalHosts:
 hls: yes
 hlsAddress: :{MEDIAMTX_HLS_PORT}
 hlsVariant: lowLatency
-hlsSegmentCount: 3
+hlsSegmentCount: 6
 hlsSegmentDuration: 1s
 hlsPartDuration: 200ms
 
@@ -1817,7 +1818,7 @@ async def global_exception_handler(request, exc):
     print(f"[FATAL GUARD] Exception caught on {request.url.path}: {exc}")
     return {"status": "error", "message": "Server recovered gracefully.", "detail": str(exc)}
 
-@app.get("/hls/{path:path}")
+@app.api_route("/hls/{path:path}", methods=["GET", "HEAD"])
 async def proxy_hls(path: str, request: Request):
     """Direct low-latency HLS proxy to MediaMTX."""
     host = request.url.hostname or "127.0.0.1"
@@ -1827,15 +1828,49 @@ async def proxy_hls(path: str, request: Request):
         status_code=307,
     )
 
-@app.api_route("/webrtc/{path:path}", methods=["GET", "POST"])
+@app.api_route("/webrtc/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"])
 async def proxy_webrtc(path: str, request: Request):
-    """Direct sub-second WebRTC proxy to MediaMTX."""
-    host = request.url.hostname or "127.0.0.1"
-    query = f"?{request.url.query}" if request.url.query else ""
-    return RedirectResponse(
-        url=f"http://{host}:{MEDIAMTX_WEBRTC_PORT}/{path}{query}",
-        status_code=307,
-    )
+    """Direct sub-second WebRTC (WHEP) proxy to MediaMTX."""
+    try:
+        import httpx
+        body = await request.body()
+        req_headers = dict(request.headers)
+        req_headers.pop("host", None)
+        req_headers.pop("content-length", None)
+        query = f"?{request.url.query}" if request.url.query else ""
+        upstream_url = f"http://127.0.0.1:{MEDIAMTX_WEBRTC_PORT}/{path}{query}"
+
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            upstream_resp = await client.request(
+                method=request.method,
+                url=upstream_url,
+                content=body,
+                headers=req_headers,
+                follow_redirects=False,
+            )
+            resp_headers = dict(upstream_resp.headers)
+            if "location" in resp_headers:
+                loc = resp_headers["location"]
+                prefix = f"http://127.0.0.1:{MEDIAMTX_WEBRTC_PORT}/"
+                if loc.startswith(prefix):
+                    resp_headers["location"] = "/webrtc/" + loc[len(prefix):]
+                elif loc.startswith("/"):
+                    resp_headers["location"] = f"/webrtc{loc}"
+            resp_headers.pop("content-encoding", None)
+            resp_headers.pop("content-length", None)
+            return Response(
+                content=upstream_resp.content,
+                status_code=upstream_resp.status_code,
+                headers=resp_headers,
+                media_type=upstream_resp.headers.get("content-type"),
+            )
+    except Exception:
+        host = request.url.hostname or "127.0.0.1"
+        query = f"?{request.url.query}" if request.url.query else ""
+        return RedirectResponse(
+            url=f"http://{host}:{MEDIAMTX_WEBRTC_PORT}/{path}{query}",
+            status_code=307,
+        )
 
 @app.get("/stream/{path:path}")
 async def proxy_stream(path: str, request: Request):
