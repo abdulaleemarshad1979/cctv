@@ -1058,7 +1058,7 @@ async def auth_middleware(request: Request, call_next):
         is_admin_route = True
     elif path.startswith("/cameras/") and (path.endswith("/start") or path.endswith("/stop")):
         is_admin_route = True
-    elif path in ("/set_mode", "/api/notifications/clear"):
+    elif path == "/api/notifications/clear":
         is_admin_route = True
 
     if is_admin_route and user.get("role") != "admin":

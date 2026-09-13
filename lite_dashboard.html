@@ -1378,10 +1378,14 @@
           Download Forecast CSV
         </a>
 
-        <!-- Read-only Mode Indicator Badge -->
-        <div id="viewer-mode-badge" style="display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 20px; font-size: 12px; font-weight: 700; background: rgba(2, 132, 199, 0.15); border: 1px solid rgba(2, 132, 199, 0.4); color: #38bdf8;">
-          <span style="width: 8px; height: 8px; border-radius: 50%; background: #38bdf8; display: inline-block;"></span>
-          <span id="viewer-mode-text">Counting Mode</span>
+        <!-- Viewing / Counting Mode Toggle -->
+        <div class="mode-toggle-group">
+          <button id="btn-mode-viewing" class="mode-pill" onclick="changeGlobalMode('viewing')">
+            Viewing
+          </button>
+          <button id="btn-mode-counting" class="mode-pill active" onclick="changeGlobalMode('counting')">
+            Counting
+          </button>
         </div>
 
         <!-- Logout Button -->
@@ -2155,7 +2159,53 @@
       }
     }
 
-    // Sync mode status from server (Read-only viewer display)
+    // --- Mode Change & Sync Logic ---
+    function applyGlobalMode(mode) {
+      globalMode = mode;
+      document.getElementById("btn-mode-viewing")?.classList.toggle("active", mode === "viewing");
+      document.getElementById("btn-mode-counting")?.classList.toggle("active", mode === "counting");
+      cameras.forEach(cam => {
+        const isOnline = isCameraPlayable(cam);
+        const countEl = document.getElementById(`count-${cam.id}`);
+        const zoneEl = document.getElementById(`zone-${cam.id}`);
+        const hudEl = document.getElementById(`hud-${cam.id}`);
+        const warningOverlay = document.getElementById(`warning-overlay-${cam.id}`);
+        const tileEl = document.querySelector(`.tile[data-id="${cam.id}"]`);
+
+        if (mode === "viewing") {
+          if (tileEl) tileEl.classList.remove("tile--counting");
+          if (countEl) countEl.classList.add("hidden");
+          if (zoneEl) zoneEl.classList.add("hidden");
+          if (hudEl) hudEl.classList.add("hidden");
+          if (warningOverlay) warningOverlay.classList.add("hidden");
+        } else {
+          if (isOnline) {
+            if (tileEl) tileEl.classList.add("tile--counting");
+            if (countEl) countEl.classList.remove("hidden");
+            if (zoneEl) zoneEl.classList.remove("hidden");
+            if (hudEl) hudEl.classList.remove("hidden");
+            updateLiveStats(cam);
+          }
+        }
+        updateCameraConnectionState(cam);
+      });
+    }
+
+    async function changeGlobalMode(mode) {
+      try {
+        const res = await fetch("/set_mode", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mode: mode })
+        });
+        if (res.ok) {
+          applyGlobalMode(mode);
+        }
+      } catch (e) {
+        console.error("[CDMP] Failed to set mode:", e);
+      }
+    }
+
     async function syncModeFromServer() {
       try {
         const res = await fetch("/get_mode");
@@ -2163,36 +2213,10 @@
         const data = await res.json();
         const mode = data.counting_mode ? "counting" : "viewing";
         if (globalMode !== mode) {
-          globalMode = mode;
-          const badgeText = document.getElementById("viewer-mode-text");
-          if (badgeText) {
-            badgeText.textContent = (mode === "counting" ? "Counting Mode" : "Viewing Mode");
-          }
-          cameras.forEach(cam => {
-            const isOnline = isCameraPlayable(cam);
-            const countEl = document.getElementById(`count-${cam.id}`);
-            const zoneEl = document.getElementById(`zone-${cam.id}`);
-            const hudEl = document.getElementById(`hud-${cam.id}`);
-            const warningOverlay = document.getElementById(`warning-overlay-${cam.id}`);
-            const tileEl = document.querySelector(`.tile[data-id="${cam.id}"]`);
-
-            if (mode === "viewing") {
-              if (tileEl) tileEl.classList.remove("tile--counting");
-              if (countEl) countEl.classList.add("hidden");
-              if (zoneEl) zoneEl.classList.add("hidden");
-              if (hudEl) hudEl.classList.add("hidden");
-              if (warningOverlay) warningOverlay.classList.add("hidden");
-            } else {
-              if (isOnline) {
-                if (tileEl) tileEl.classList.add("tile--counting");
-                if (countEl) countEl.classList.remove("hidden");
-                if (zoneEl) zoneEl.classList.remove("hidden");
-                if (hudEl) hudEl.classList.remove("hidden");
-                updateLiveStats(cam);
-              }
-            }
-            updateCameraConnectionState(cam);
-          });
+          applyGlobalMode(mode);
+        } else {
+          document.getElementById("btn-mode-viewing")?.classList.toggle("active", mode === "viewing");
+          document.getElementById("btn-mode-counting")?.classList.toggle("active", mode === "counting");
         }
       } catch (e) {
         console.error("[CDMP] Failed to sync mode from server:", e);

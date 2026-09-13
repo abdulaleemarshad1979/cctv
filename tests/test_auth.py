@@ -56,6 +56,10 @@ def test_unauthenticated_api_rejection():
     assert response.status_code == 401
     assert response.json()["detail"] == "Unauthenticated. Please log in."
 
+    res_mode = unauth.post("/set_mode", json={"mode": "viewing"})
+    assert res_mode.status_code == 401
+    assert res_mode.json()["detail"] == "Unauthenticated. Please log in."
+
 def test_login_invalid_credentials():
     unauth = TestClient(app)
     response = unauth.post("/login", json={"username": "wrong_user", "password": "wrong_password"})
@@ -89,10 +93,10 @@ def test_viewer_can_access_viewing_dashboard_and_reports():
     res_dash = viewer_client.get("/")
     assert res_dash.status_code == 200
     assert "East Godavari Drone Monitoring System" in res_dash.text
-    # Viewer dashboard must remain read-only.
+    # Viewer dashboard has mode toggle but cannot access admin console
     assert "Admin Console" not in res_dash.text
-    assert "changeGlobalMode" not in res_dash.text
-    assert 'fetch("/set_mode"' not in res_dash.text
+    assert "changeGlobalMode" in res_dash.text
+    assert 'fetch("/set_mode"' in res_dash.text
     assert "Read-only alerts" in res_dash.text
 
     # Can view cameras
@@ -135,10 +139,6 @@ def test_viewer_blocked_from_mutation_apis_403():
     res_reset = viewer_client.post("/api/cameras/reset-names")
     assert res_reset.status_code == 403
 
-    # Mode toggle blocked
-    res_mode = viewer_client.post("/set_mode", json={"mode": "viewing"})
-    assert res_mode.status_code == 403
-
     # Start feed blocked
     res_start = viewer_client.post("/cameras/drone-1/start", json={})
     assert res_start.status_code == 403
@@ -150,6 +150,18 @@ def test_viewer_blocked_from_mutation_apis_403():
     # Clear notifications blocked
     res_clear = viewer_client.post("/api/notifications/clear")
     assert res_clear.status_code == 403
+
+def test_viewer_can_switch_modes():
+    viewer_client = TestClient(app)
+    viewer_user = TEST_VIEWER_USERNAME
+    viewer_pass = TEST_VIEWER_PASSWORD
+    viewer_client.post("/login", json={"username": viewer_user, "password": viewer_pass})
+
+    res_viewing = viewer_client.post("/set_mode", json={"mode": "viewing"})
+    assert res_viewing.status_code == 200
+
+    res_counting = viewer_client.post("/set_mode", json={"mode": "counting"})
+    assert res_counting.status_code == 200
 
 def test_admin_login_success():
     admin_client = TestClient(app)
