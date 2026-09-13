@@ -967,7 +967,7 @@ while not _stop.is_set():
             })
 
     if cap_ts == last_cap_ts:
-        time.sleep(0.002)
+        time.sleep(0.005)
         continue
     last_cap_ts = cap_ts
 
@@ -981,7 +981,6 @@ while not _stop.is_set():
     # Motion and opposing flow run asynchronously on worker thread.
     t_motion_dur = 0.0
     t_opposing_dur = 0.0
-
     # ── draw ────────────────────────────────────────────────────────
     t_overlay_start = time.perf_counter()
     if counting_mode_active and RENDER_VIDEO_OVERLAYS:
@@ -1104,15 +1103,17 @@ while not _stop.is_set():
                 rtmp_target = None
             else:
                 try:
+                    keyframe_interval = max(1, int(round(config.OUTPUT_STREAM_FPS / 2)))
                     stream_encoder = LatestFrameEncoder(
                         ffmpeg_path,
                         rtmp_target,
                         fps=config.OUTPUT_STREAM_FPS,
+                        keyframe_interval=keyframe_interval,
                     )
                     stream_encoder.start(disp.shape)
                     print(
                         f"[STREAM] Pushing {config.OUTPUT_STREAM_FPS:g} FPS "
-                        f"latest-frame output to: {rtmp_target}"
+                        f"(keyint {keyframe_interval}) latest-frame output to: {rtmp_target}"
                     )
                 except Exception as exc:
                     print(f"[STREAM] Failed to start encoder: {exc}")

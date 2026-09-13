@@ -59,6 +59,7 @@ def build_ffmpeg_command(
     width: int,
     height: int,
     fps: float = 30.0,
+    keyframe_interval: Optional[int] = None,
 ) -> list[str]:
     """Build a constant-frame-rate, low-latency RTMP encoder command."""
     if width <= 0 or height <= 0:
@@ -67,7 +68,10 @@ def build_ffmpeg_command(
         raise ValueError("fps must be positive")
 
     fps_text = f"{fps:g}"
-    keyframe_interval = max(1, int(round(fps)))
+    if keyframe_interval is None:
+        keyframe_interval = max(1, int(round(fps)))
+    else:
+        keyframe_interval = max(1, int(keyframe_interval))
     return [
         ffmpeg_path,
         "-hide_banner",
@@ -108,12 +112,14 @@ class LatestFrameEncoder:
         target_url: str,
         fps: float = 30.0,
         process_factory: Callable[..., subprocess.Popen] = subprocess.Popen,
+        keyframe_interval: Optional[int] = None,
     ):
         if fps <= 0:
             raise ValueError("fps must be positive")
         self.ffmpeg_path = ffmpeg_path
         self.target_url = target_url
         self.fps = float(fps)
+        self.keyframe_interval = keyframe_interval
         self._process_factory = process_factory
 
         self._condition = threading.Condition()
@@ -150,6 +156,7 @@ class LatestFrameEncoder:
             width,
             height,
             self.fps,
+            keyframe_interval=self.keyframe_interval,
         )
         self._shape = tuple(frame_shape)
         self._stop_event.clear()

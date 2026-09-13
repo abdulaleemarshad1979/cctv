@@ -2466,6 +2466,8 @@
     let searchQuery = "";
     let globalMode = "counting";
     const hlsPlayers = {};
+    const playerRetryTimers = {};
+    const probesInFlight = {};
     const CAMERA_POLL_INTERVAL_MS = 1000;
     let cameraPollInFlight = false;
     let activeFullViewCamId = null;
@@ -2580,7 +2582,7 @@
     }
 
     function playerUsesPath(player, path) {
-      return Boolean(player) && (player.egdmsPath === path || player._egdmsPath === path);
+      return Boolean(player) && !player._destroyed && (player.egdmsPath === path || player._egdmsPath === path);
     }
 
     // Full View Modal system
@@ -2898,7 +2900,24 @@
 
       if (isOnline) {
         const playbackPath = cameraPlaybackPath(cam);
-        if (!playerUsesPath(hlsPlayers[cam.id], playbackPath)) setupVideoFeed(cam);
+        if (!playerUsesPath(hlsPlayers[cam.id], playbackPath)) {
+          if (hlsPlayers[cam.id]) {
+            // Seamless handoff: probe the new stream first before tearing down the active feed
+            if (!probesInFlight[cam.id]) {
+              probesInFlight[cam.id] = true;
+              fetch(`/hls/${playbackPath}/index.m3u8`, { method: "HEAD", cache: "no-store" })
+                .then(res => {
+                  delete probesInFlight[cam.id];
+                  if (res.ok) setupVideoFeed(cam);
+                })
+                .catch(() => {
+                  delete probesInFlight[cam.id];
+                });
+            }
+          } else {
+            setupVideoFeed(cam);
+          }
+        }
         updateLiveStats(cam);
       } else if (hlsPlayers[cam.id]) {
         teardownVideoFeed(cam.id);
@@ -2907,8 +2926,13 @@
     }
 
     function teardownVideoFeed(id, showSwitchingState = false) {
+      if (playerRetryTimers[id]) {
+        clearTimeout(playerRetryTimers[id]);
+        delete playerRetryTimers[id];
+      }
       if (hlsPlayers[id]) {
         try {
+          hlsPlayers[id]._destroyed = true;
           hlsPlayers[id].destroy();
         } catch (e) {}
         delete hlsPlayers[id];
@@ -2922,10 +2946,29 @@
       }
     }
 
+    function schedulePlayerRetry(cam, delay = 1000) {
+      if (!cam || !cam.id) return;
+      if (playerRetryTimers[cam.id]) {
+        clearTimeout(playerRetryTimers[cam.id]);
+        delete playerRetryTimers[cam.id];
+      }
+      playerRetryTimers[cam.id] = setTimeout(() => {
+        delete playerRetryTimers[cam.id];
+        const currentCam = (cameras || []).find(c => c.id === cam.id) || cam;
+        if (isCameraPlayable(currentCam) && !hlsPlayers[cam.id]) {
+          setupVideoFeed(currentCam);
+        }
+      }, delay);
+    }
+
     function setupVideoFeed(cam) {
       const container = document.getElementById(`player-container-${cam.id}`);
       if (!container) return;
       teardownVideoFeed(cam.id);
+      if (playerRetryTimers[cam.id]) {
+        clearTimeout(playerRetryTimers[cam.id]);
+        delete playerRetryTimers[cam.id];
+      }
       container.classList.remove("hidden");
       const playbackPath = cameraPlaybackPath(cam);
       if (!playbackPath) return;
@@ -2942,21 +2985,23 @@
 
       if (typeof Hls !== "undefined" && Hls.isSupported()) {
         const hls = new Hls({
-          lowLatencyMode: false,
-          maxBufferLength: 8,
-          maxMaxBufferLength: 16,
-          backBufferLength: 4,
-          liveSyncDurationCount: 3,
-          liveMaxLatencyDurationCount: 6,
-          maxLiveSyncPlaybackRate: 1.25,
+          lowLatencyMode: true,
+          backBufferLength: 0,
+          maxBufferLength: 2,
+          maxMaxBufferLength: 4,
+          liveSyncDurationCount: 2,
+          liveMaxLatencyDurationCount: 3,
+          maxLiveSyncPlaybackRate: 1.5,
+          liveDurationInfinity: true,
           startPosition: -1,
           enableWorker: true,
-          manifestLoadingMaxRetry: 10,
-          manifestLoadingRetryDelay: 1000,
+          manifestLoadingMaxRetry: 20,
+          manifestLoadingRetryDelay: 500,
           levelLoadingMaxRetry: 10,
-          levelLoadingRetryDelay: 1000,
+          levelLoadingRetryDelay: 500,
           fragLoadingMaxRetry: 10,
-          fragLoadingRetryDelay: 1000,
+          fragLoadingRetryDelay: 500,
+          highBufferWatchdogPeriod: 1,
           xhrSetup: function (xhr) {
             xhr.withCredentials = true;
           }
@@ -2972,28 +3017,37 @@
           if (data.fatal) {
             switch (data.type) {
               case Hls.ErrorTypes.NETWORK_ERROR:
-                hls.startLoad();
+                teardownVideoFeed(cam.id);
+                schedulePlayerRetry(cam, 1000);
                 break;
               case Hls.ErrorTypes.MEDIA_ERROR:
                 hls.recoverMediaError();
                 break;
               default:
-                hls.destroy();
+                teardownVideoFeed(cam.id);
+                schedulePlayerRetry(cam, 1000);
                 break;
             }
           }
         });
       } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
         video.src = streamUrl;
-        hlsPlayers[cam.id] = {
+        const fallbackPlayer = {
+          _egdmsPath: playbackPath,
           egdmsPath: playbackPath,
           destroy() {
+            this._destroyed = true;
             video.pause();
             video.removeAttribute("src");
             video.load();
             video.remove();
           }
         };
+        video.onerror = () => {
+          teardownVideoFeed(cam.id);
+          schedulePlayerRetry(cam, 1000);
+        };
+        hlsPlayers[cam.id] = fallbackPlayer;
       }
     }
 

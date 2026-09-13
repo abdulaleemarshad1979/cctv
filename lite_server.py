@@ -43,6 +43,32 @@ def _sanitize_for_json(obj):
         return bool(obj)
     return obj
 
+
+def _json_default(obj):
+    if isinstance(obj, np.integer):
+        return int(obj)
+    if isinstance(obj, np.floating):
+        return float(obj)
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    if isinstance(obj, np.bool_):
+        return bool(obj)
+    return str(obj)
+
+
+class FastJSONResponse(Response):
+    media_type = "application/json"
+
+    def render(self, content) -> bytes:
+        return json.dumps(
+            content,
+            ensure_ascii=False,
+            allow_nan=False,
+            indent=None,
+            separators=(",", ":"),
+            default=_json_default,
+        ).encode("utf-8")
+
 # In-memory cameras database and processes
 cameras_db = []
 _cameras_by_id = {}
@@ -596,6 +622,9 @@ def get_lan_ip():
 
 def generate_mediamtx_config(port: int):
     config_content = f"""# MediaMTX Low-Latency Configuration (Auto-generated)
+api: yes
+apiAddress: 127.0.0.1:{MEDIAMTX_API_PORT}
+
 rtsp: yes
 rtspAddress: :{MEDIAMTX_RTSP_PORT}
 protocols: [udp, multicast, tcp]
@@ -1390,7 +1419,7 @@ def get_cameras():
             f"rtmp://{publish_host}:1935/{camera['source_stream_path']}"
         )
         update_camera_playback_path(camera)
-    return _sanitize_for_json(cameras_db)
+    return FastJSONResponse(content=cameras_db)
 
 @app.post("/cameras/state")
 def update_camera_state(req: StateRequest):
@@ -1788,11 +1817,34 @@ async def global_exception_handler(request, exc):
     print(f"[FATAL GUARD] Exception caught on {request.url.path}: {exc}")
     return {"status": "error", "message": "Server recovered gracefully.", "detail": str(exc)}
 
+@app.get("/hls/{path:path}")
+async def proxy_hls(path: str, request: Request):
+    """Direct low-latency HLS proxy to MediaMTX."""
+    host = request.url.hostname or "127.0.0.1"
+    query = f"?{request.url.query}" if request.url.query else ""
+    return RedirectResponse(
+        url=f"http://{host}:{MEDIAMTX_HLS_PORT}/{path}{query}",
+        status_code=307,
+    )
+
+@app.api_route("/webrtc/{path:path}", methods=["GET", "POST"])
+async def proxy_webrtc(path: str, request: Request):
+    """Direct sub-second WebRTC proxy to MediaMTX."""
+    host = request.url.hostname or "127.0.0.1"
+    query = f"?{request.url.query}" if request.url.query else ""
+    return RedirectResponse(
+        url=f"http://{host}:{MEDIAMTX_WEBRTC_PORT}/{path}{query}",
+        status_code=307,
+    )
+
 @app.get("/stream/{path:path}")
-async def proxy_stream(path: str):
-    # Redirect directly to MediaMTX HLS - simpler and more reliable
-    target_url = f"http://127.0.0.1:8088/{path}"
-    return RedirectResponse(url=target_url, status_code=307)
+async def proxy_stream(path: str, request: Request):
+    host = request.url.hostname or "127.0.0.1"
+    query = f"?{request.url.query}" if request.url.query else ""
+    return RedirectResponse(
+        url=f"http://{host}:{MEDIAMTX_HLS_PORT}/{path}{query}",
+        status_code=307,
+    )
 
 if __name__ == "__main__":
     import uvicorn

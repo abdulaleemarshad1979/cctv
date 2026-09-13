@@ -1,4 +1,7 @@
 # MediaMTX Low-Latency Configuration (Auto-generated)
+api: yes
+apiAddress: 127.0.0.1:9997
+
 rtsp: yes
 rtspAddress: :8554
 protocols: [udp, multicast, tcp]
