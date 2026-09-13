@@ -2926,70 +2926,7 @@
       return true;
     }
 
-    // ── HLS Jitter Buffer & Live-Latency Controller Helpers ──────────────────
-    function getForwardBuffer(video, hls) {
-      if (!video) return 0;
-      try {
-        if (hls && hls.mainForwardBufferInfo && typeof hls.mainForwardBufferInfo.len === "number") {
-          const len = hls.mainForwardBufferInfo.len;
-          if (len > 0) return len;
-        }
-      } catch (e) {}
-
-      const b = video.buffered;
-      if (!b || b.length === 0) return 0;
-
-      let ct = video.currentTime;
-      if ((ct === 0 || isNaN(ct)) && hls && typeof hls.startPosition === "number" && hls.startPosition > 0) {
-        ct = hls.startPosition;
-      }
-
-      for (let i = 0; i < b.length; i++) {
-        const s = b.start(i);
-        const e = b.end(i);
-        if (ct >= s && ct <= e) {
-          return e - ct;
-        }
-        if (ct < s && (s - ct) <= 0.5) {
-          return e - s;
-        }
-      }
-
-      const last = b.length - 1;
-      const lastStart = b.start(last);
-      const lastEnd = b.end(last);
-      if (ct < lastStart) {
-        return lastEnd - lastStart;
-      }
-      return 0;
-    }
-
-    function getCurrentLatency(video, hls) {
-      if (!video) return 0;
-      if (hls) {
-        if (typeof hls.latency === "number" && hls.latency > 0) {
-          return hls.latency;
-        }
-        if (hls.latencyController && typeof hls.latencyController.computeLatency === "function") {
-          const lat = hls.latencyController.computeLatency();
-          if (typeof lat === "number" && !isNaN(lat) && lat > 0) {
-            return lat;
-          }
-        }
-      }
-      if (video.seekable && video.seekable.length > 0) {
-        const end = video.seekable.end(video.seekable.length - 1);
-        if (end > video.currentTime) {
-          return end - video.currentTime;
-        }
-      }
-      if (hls && typeof hls.liveSyncPosition === "number" && hls.liveSyncPosition > 0 && typeof video.currentTime === "number") {
-        const lat = (hls.liveSyncPosition - video.currentTime) + 3.0;
-        if (lat > 0) return lat;
-      }
-      return 0;
-    }
-
+    // Setup Video playback source (HLS live stream with overlays, or fallback direct MP4)
     function teardownVideoFeed(id, showSwitchingState = false) {
       if (playerRetryTimers[id]) {
         clearTimeout(playerRetryTimers[id]);
@@ -2999,17 +2936,6 @@
       if (player) {
         try {
           player._destroyed = true;
-          if (player._startupTimer) {
-            clearTimeout(player._startupTimer);
-            player._startupTimer = null;
-          }
-          if (player._stallTimer) {
-            clearTimeout(player._stallTimer);
-            player._stallTimer = null;
-          }
-          if (typeof player._cleanup === "function") {
-            player._cleanup();
-          }
           player.destroy();
         } catch (e) {}
         delete hlsPlayers[id];
@@ -3060,7 +2986,7 @@
 
       const video = document.createElement("video");
       video.className = "tile__video";
-      video.autoplay = false;
+      video.autoplay = true;
       video.muted = true;
       video.playsInline = true;
       video.controls = true;
@@ -3070,17 +2996,16 @@
 
       if (typeof Hls !== "undefined" && Hls.isSupported()) {
         const hls = new Hls({
-          lowLatencyMode: true,
-          liveSyncDuration: 3,
-          liveMaxLatencyDuration: 6,
-          liveSyncOnStallIncrease: 0,
-          maxLiveSyncPlaybackRate: 1.10,
-          maxBufferLength: 6,
-          maxMaxBufferLength: 10,
-          backBufferLength: 0,
-          startPosition: -1,
           enableWorker: true,
+          lowLatencyMode: true,
+          backBufferLength: 0,
+          maxBufferLength: 2,
+          maxMaxBufferLength: 4,
+          liveSyncDurationCount: 2,
+          liveMaxLatencyDurationCount: 3,
+          maxLiveSyncPlaybackRate: 1.5,
           liveDurationInfinity: true,
+          startPosition: -1,
           manifestLoadingMaxRetry: 20,
           manifestLoadingRetryDelay: 500,
           levelLoadingMaxRetry: 10,
@@ -3094,155 +3019,15 @@
         });
 
         hls._egdmsPath = playbackPath;
-        hls._camId = cam.id;
         hls._destroyed = false;
-        hls._hasStarted = false;
-        hls._isStalled = false;
-        hls._lastSeekTime = 0;
-        hls._lastLatencyCheck = 0;
-        hls._startupFallbackWaiting = false;
-        hls._startupTimer = null;
-        hls._stallTimer = null;
-        hls._media = video;
-
         hlsPlayers[cam.id] = hls;
-
-        const startPlayback = () => {
-          if (hls._destroyed || hlsPlayers[cam.id] !== hls || hls._hasStarted) return;
-          hls._hasStarted = true;
-          if (hls._startupTimer) {
-            clearTimeout(hls._startupTimer);
-            hls._startupTimer = null;
-          }
-          video.muted = true;
-          const p = video.play();
-          if (p && typeof p.catch === "function") {
-            p.catch(() => {});
-          }
-        };
-
-        const resumePlaybackFromStall = () => {
-          if (hls._destroyed || hlsPlayers[cam.id] !== hls || !hls._isStalled) return;
-          hls._isStalled = false;
-          if (hls._stallTimer) {
-            clearTimeout(hls._stallTimer);
-            hls._stallTimer = null;
-          }
-          video.muted = true;
-          const p = video.play();
-          if (p && typeof p.catch === "function") {
-            p.catch(() => {});
-          }
-        };
-
-        const handleBufferStall = () => {
-          if (hls._destroyed || hlsPlayers[cam.id] !== hls || !hls._hasStarted || hls._isStalled) return;
-          hls._isStalled = true;
-          video.pause();
-
-          if (hls._stallTimer) clearTimeout(hls._stallTimer);
-          hls._stallTimer = setTimeout(() => {
-            if (hls._destroyed || hlsPlayers[cam.id] !== hls || !hls._isStalled) return;
-            const ahead = getForwardBuffer(video, hls);
-            if (ahead >= 1.0) {
-              resumePlaybackFromStall();
-            } else {
-              resumePlaybackFromStall();
-            }
-          }, 10000);
-        };
-
-        // 10s safe maximum startup wait
-        hls._startupTimer = setTimeout(() => {
-          if (hls._destroyed || hlsPlayers[cam.id] !== hls || hls._hasStarted) return;
-          const ahead = getForwardBuffer(video, hls);
-          if (ahead >= 1.0) {
-            startPlayback();
-          } else if (ahead > 0.2) {
-            startPlayback();
-          } else {
-            hls._startupFallbackWaiting = true;
-          }
-        }, 10000);
-
-        const onBufferProgress = () => {
-          if (hls._destroyed || hlsPlayers[cam.id] !== hls) return;
-
-          if (!hls._hasStarted) {
-            const ahead = getForwardBuffer(video, hls);
-            if (ahead >= 2.8) {
-              startPlayback();
-              return;
-            }
-            if (hls._startupFallbackWaiting && ahead >= 1.0) {
-              startPlayback();
-              return;
-            }
-          }
-
-          if (hls._isStalled) {
-            const ahead = getForwardBuffer(video, hls);
-            if (ahead >= 1.9) {
-              resumePlaybackFromStall();
-            }
-          }
-        };
-
-        hls.on(Hls.Events.FRAG_BUFFERED, onBufferProgress);
-        hls.on(Hls.Events.BUFFER_APPENDED, onBufferProgress);
-
-        const onWaiting = () => handleBufferStall();
-        const onStalled = () => handleBufferStall();
-        const onTimeUpdate = () => {
-          if (hls._destroyed || hlsPlayers[cam.id] !== hls || !hls._hasStarted || hls._isStalled) return;
-          const now = Date.now();
-          if (now - (hls._lastLatencyCheck || 0) < 1000) return;
-          hls._lastLatencyCheck = now;
-
-          const latency = getCurrentLatency(video, hls);
-          if (latency <= 0) return;
-
-          if (latency > 6.0) {
-            const SEEK_COOLDOWN_MS = 6000;
-            if (!hls._lastSeekTime || (now - hls._lastSeekTime > SEEK_COOLDOWN_MS)) {
-              let targetPos = hls.liveSyncPosition;
-              if (typeof targetPos !== "number" || isNaN(targetPos) || targetPos <= 0) {
-                if (video.seekable && video.seekable.length > 0) {
-                  targetPos = Math.max(0, video.seekable.end(video.seekable.length - 1) - 3.0);
-                }
-              }
-              if (typeof targetPos === "number" && targetPos > 0 && Math.abs(video.currentTime - targetPos) > 1.5) {
-                hls._lastSeekTime = now;
-                video.currentTime = targetPos;
-                video.playbackRate = 1.0;
-                return;
-              }
-            }
-          }
-
-          if (latency <= 3.3) {
-            if (video.playbackRate !== 1.0) {
-              video.playbackRate = 1.0;
-            }
-          } else if (latency > 3.8 && latency <= 6.0) {
-            if (video.playbackRate < 1.05) {
-              video.playbackRate = 1.10;
-            }
-          }
-        };
-
-        video.addEventListener("waiting", onWaiting);
-        video.addEventListener("stalled", onStalled);
-        video.addEventListener("timeupdate", onTimeUpdate);
-
-        hls._cleanup = () => {
-          video.removeEventListener("waiting", onWaiting);
-          video.removeEventListener("stalled", onStalled);
-          video.removeEventListener("timeupdate", onTimeUpdate);
-        };
 
         hls.loadSource(streamUrl);
         hls.attachMedia(video);
+
+        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+          video.play().catch(() => {});
+        });
 
         hls.on(Hls.Events.ERROR, function (event, data) {
           if (hls._destroyed || hlsPlayers[cam.id] !== hls) return;
@@ -3261,8 +3046,6 @@
                 schedulePlayerRetry(cam, 1000);
                 break;
             }
-          } else if (data.details === Hls.ErrorDetails.BUFFER_STALLED_ERROR) {
-            handleBufferStall();
           }
         });
       } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
@@ -3271,14 +3054,8 @@
           _egdmsPath: playbackPath,
           egdmsPath: playbackPath,
           _destroyed: false,
-          media: video,
-          _media: video,
           destroy() {
             this._destroyed = true;
-            if (this._startupTimer) {
-              clearTimeout(this._startupTimer);
-              this._startupTimer = null;
-            }
             video.pause();
             video.removeAttribute("src");
             video.load();
@@ -3290,42 +3067,10 @@
           teardownVideoFeed(cam.id);
           schedulePlayerRetry(cam, 1000);
         };
-        video.muted = true;
-        fallbackPlayer._startupTimer = setTimeout(() => {
-          if (fallbackPlayer._destroyed || hlsPlayers[cam.id] !== fallbackPlayer) return;
-          video.play().catch(() => {});
-        }, 3000);
+        video.play().catch(() => {});
         hlsPlayers[cam.id] = fallbackPlayer;
       }
     }
-
-    document.addEventListener("visibilitychange", () => {
-      if (!document.hidden) {
-        const now = Date.now();
-        for (const camId in hlsPlayers) {
-          const player = hlsPlayers[camId];
-          if (player && !player._destroyed) {
-            const v = player.media || player._media;
-            if (v) {
-              const lat = getCurrentLatency(v, player);
-              if (lat > 6.0) {
-                const targetPos = (typeof player.liveSyncPosition === "number" && player.liveSyncPosition > 0)
-                  ? player.liveSyncPosition
-                  : (v.seekable && v.seekable.length > 0 ? Math.max(0, v.seekable.end(v.seekable.length - 1) - 3.0) : null);
-                if (targetPos && Math.abs(v.currentTime - targetPos) > 1.5) {
-                  player._lastSeekTime = now;
-                  v.currentTime = targetPos;
-                  v.playbackRate = 1.0;
-                  if (v.paused && player._hasStarted) {
-                    v.play().catch(() => {});
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    });
 
     // Polling Cameras
     async function pollCameras() {

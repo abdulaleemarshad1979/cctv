@@ -647,7 +647,7 @@ webrtcAdditionalHosts:
 hls: yes
 hlsAddress: :{MEDIAMTX_HLS_PORT}
 hlsVariant: lowLatency
-hlsSegmentCount: 7
+hlsSegmentCount: 3
 hlsSegmentDuration: 1s
 hlsPartDuration: 200ms
 
