@@ -663,8 +663,8 @@ writeTimeout: 5s
 
 paths:
   all:
-    runOnAvailable: 'curl -X POST http://127.0.0.1:{port}/cameras/state -H "Content-Type: application/json" -d "{{\\"path\\":\\"$MTX_PATH\\", \\"status\\":\\"online\\"}}"'
-    runOnUnavailable: 'curl -X POST http://127.0.0.1:{port}/cameras/state -H "Content-Type: application/json" -d "{{\\"path\\":\\"$MTX_PATH\\", \\"status\\":\\"offline\\"}}"'
+    runOnReady: 'curl -X POST http://127.0.0.1:{port}/cameras/state -H "Content-Type: application/json" -d "{{\\"path\\":\\"$MTX_PATH\\", \\"status\\":\\"online\\"}}"'
+    runOnNotReady: 'curl -X POST http://127.0.0.1:{port}/cameras/state -H "Content-Type: application/json" -d "{{\\"path\\":\\"$MTX_PATH\\", \\"status\\":\\"offline\\"}}"'
 """
     with open("mediamtx.yml", "w") as f:
         f.write(config_content.strip())
@@ -676,7 +676,7 @@ def cleanup_and_start_mediamtx():
     # Reuse an already healthy local MediaMTX instance. This prevents duplicate
     # launch attempts after a dashboard restart and avoids briefly dropping all
     # live camera publishers.
-    required_ports = (1935, 8554, 8889, 8088)
+    required_ports = (1935, 8554, 8889, 8888)
     ports_ready = True
     for media_port in required_ports:
         try:
@@ -693,7 +693,10 @@ def cleanup_and_start_mediamtx():
     mediamtx_path = os.path.join(os.getcwd(), mediamtx_bin)
     if not os.path.exists(mediamtx_path):
         import shutil
-        mediamtx_path = shutil.which("mediamtx") or shutil.which("mediamtx.exe") or mediamtx_path
+        if os.name == "nt":
+            mediamtx_path = shutil.which("mediamtx.exe") or shutil.which("mediamtx") or mediamtx_path
+        else:
+            mediamtx_path = shutil.which("mediamtx") or mediamtx_path
 
     if not os.path.exists(mediamtx_path):
         try:
