@@ -1,0 +1,468 @@
+{
+  "drone-1": {
+    "id": "drone-1",
+    "location": "CHILLAKALLU-PS",
+    "name": "CHILLAKALLU-PS",
+    "contact": "CHILLAKALLU-PS",
+    "base_today_mins": 0,
+    "base_last_7_mins": 0,
+    "live_seconds": 0.0,
+    "flight_sessions": []
+  },
+  "drone-2": {
+    "id": "drone-2",
+    "location": "CHANDARLAPADU-PS",
+    "name": "CHANDARLAPADU-PS",
+    "contact": "CHANDARLAPADU-PS",
+    "base_today_mins": 0,
+    "base_last_7_mins": 78,
+    "live_seconds": 0.0,
+    "flight_sessions": []
+  },
+  "drone-3": {
+    "id": "drone-3",
+    "location": "1-TOWN-PS",
+    "name": "1-TOWN-PS",
+    "contact": "1-TOWN-PS",
+    "base_today_mins": 0,
+    "base_last_7_mins": 0,
+    "live_seconds": 0.0,
+    "flight_sessions": []
+  },
+  "drone-4": {
+    "id": "drone-4",
+    "location": "AJITH-SINGH-NAGAR-PS",
+    "name": "AJITH-SINGH-NAGAR-PS",
+    "contact": "AJITH-SINGH-NAGAR-PS",
+    "base_today_mins": 0,
+    "base_last_7_mins": 26,
+    "live_seconds": 0.0,
+    "flight_sessions": []
+  },
+  "drone-5": {
+    "id": "drone-5",
+    "location": "A-KONDURU-PS",
+    "name": "A-KONDURU-PS",
+    "contact": "A-KONDURU-PS",
+    "base_today_mins": 0,
+    "base_last_7_mins": 122,
+    "live_seconds": 0.0,
+    "flight_sessions": []
+  },
+  "drone-6": {
+    "id": "drone-6",
+    "location": "COMMAND-CONTROL",
+    "name": "COMMAND-CONTROL",
+    "contact": "COMMAND-CONTROL",
+    "base_today_mins": 0,
+    "base_last_7_mins": 20,
+    "live_seconds": 0.0,
+    "flight_sessions": []
+  },
+  "drone-7": {
+    "id": "drone-7",
+    "location": "SATYANARAYANAPURAM-PS",
+    "name": "SATYANARAYANAPURAM-PS",
+    "contact": "SATYANARAYANAPURAM-PS",
+    "base_today_mins": 0,
+    "base_last_7_mins": 79,
+    "live_seconds": 0.0,
+    "flight_sessions": []
+  },
+  "drone-8": {
+    "id": "drone-8",
+    "location": "2-TRAFFIC-S&C-2",
+    "name": "2-TRAFFIC-S&C-2",
+    "contact": "2-TRAFFIC-S&C-2",
+    "base_today_mins": 0,
+    "base_last_7_mins": 0,
+    "live_seconds": 0.0,
+    "flight_sessions": []
+  },
+  "drone-9": {
+    "id": "drone-9",
+    "location": "IBRAHIMPATNAM-PS",
+    "name": "IBRAHIMPATNAM-PS",
+    "contact": "IBRAHIMPATNAM-PS",
+    "base_today_mins": 0,
+    "base_last_7_mins": 0,
+    "live_seconds": 0.0,
+    "flight_sessions": []
+  },
+  "drone-10": {
+    "id": "drone-10",
+    "location": "ARLA-2-S&R",
+    "name": "ARLA-2-S&R",
+    "contact": "ARLA-2-S&R",
+    "base_today_mins": 0,
+    "base_last_7_mins": 0,
+    "live_seconds": 0.0,
+    "flight_sessions": []
+  },
+  "drone-11": {
+    "id": "drone-11",
+    "location": "KANCHIKACHERLA-PS",
+    "name": "KANCHIKACHERLA-PS",
+    "contact": "KANCHIKACHERLA-PS",
+    "base_today_mins": 0,
+    "base_last_7_mins": 0,
+    "live_seconds": 0.0,
+    "flight_sessions": []
+  },
+  "drone-12": {
+    "id": "drone-12",
+    "location": "GUNADALA-PS",
+    "name": "GUNADALA-PS",
+    "contact": "GUNADALA-PS",
+    "base_today_mins": 0,
+    "base_last_7_mins": 47,
+    "live_seconds": 0.0,
+    "flight_sessions": []
+  },
+  "drone-13": {
+    "id": "drone-13",
+    "location": "PENUGANCHIPROLU-PS",
+    "name": "PENUGANCHIPROLU-PS",
+    "contact": "PENUGANCHIPROLU-PS",
+    "base_today_mins": 0,
+    "base_last_7_mins": 0,
+    "live_seconds": 0.0,
+    "flight_sessions": []
+  },
+  "drone-14": {
+    "id": "drone-14",
+    "location": "NUNNA-PS",
+    "name": "NUNNA-PS",
+    "contact": "NUNNA-PS",
+    "base_today_mins": 0,
+    "base_last_7_mins": 0,
+    "live_seconds": 0.0,
+    "flight_sessions": []
+  },
+  "drone-15": {
+    "id": "drone-15",
+    "location": "MACHAVARAM-PS",
+    "name": "MACHAVARAM-PS",
+    "contact": "MACHAVARAM-PS",
+    "base_today_mins": 0,
+    "base_last_7_mins": 80,
+    "live_seconds": 0.0,
+    "flight_sessions": []
+  },
+  "drone-16": {
+    "id": "drone-16",
+    "location": "1-TRAFFIC-S&C-1",
+    "name": "1-TRAFFIC-S&C-1",
+    "contact": "1-TRAFFIC-S&C-1",
+    "base_today_mins": 25,
+    "base_last_7_mins": 287,
+    "live_seconds": 0.0,
+    "flight_sessions": [
+      {
+        "date": "2026-10-04",
+        "duration_mins": 25,
+        "note": "Routine surveillance patrol"
+      }
+    ]
+  },
+  "drone-17": {
+    "id": "drone-17",
+    "location": "G-TRAFFIC-S&C-1",
+    "name": "G-TRAFFIC-S&C-1",
+    "contact": "G-TRAFFIC-S&C-1",
+    "base_today_mins": 0,
+    "base_last_7_mins": 352,
+    "live_seconds": 0.0,
+    "flight_sessions": []
+  },
+  "drone-18": {
+    "id": "drone-18",
+    "location": "JAGGAYYAPET-PS",
+    "name": "JAGGAYYAPET-PS",
+    "contact": "JAGGAYYAPET-PS",
+    "base_today_mins": 0,
+    "base_last_7_mins": 80,
+    "live_seconds": 0.0,
+    "flight_sessions": []
+  },
+  "drone-19": {
+    "id": "drone-19",
+    "location": "G-TRAFFIC-S&C-2",
+    "name": "G-TRAFFIC-S&C-2",
+    "contact": "G-TRAFFIC-S&C-2",
+    "base_today_mins": 35,
+    "base_last_7_mins": 326,
+    "live_seconds": 0.0,
+    "flight_sessions": [
+      {
+        "date": "2026-10-04",
+        "duration_mins": 35,
+        "note": "Routine surveillance patrol"
+      }
+    ]
+  },
+  "drone-20": {
+    "id": "drone-20",
+    "location": "REDDIGUDEM-PS",
+    "name": "REDDIGUDEM-PS",
+    "contact": "REDDIGUDEM-PS",
+    "base_today_mins": 0,
+    "base_last_7_mins": 0,
+    "live_seconds": 0.0,
+    "flight_sessions": []
+  },
+  "drone-21": {
+    "id": "drone-21",
+    "location": "KRISHNALANKA-PS",
+    "name": "KRISHNALANKA-PS",
+    "contact": "KRISHNALANKA-PS",
+    "base_today_mins": 0,
+    "base_last_7_mins": 38,
+    "live_seconds": 0.0,
+    "flight_sessions": []
+  },
+  "drone-22": {
+    "id": "drone-22",
+    "location": "3-TRAFFIC-S&C-3",
+    "name": "3-TRAFFIC-S&C-3",
+    "contact": "3-TRAFFIC-S&C-3",
+    "base_today_mins": 0,
+    "base_last_7_mins": 216,
+    "live_seconds": 0.0,
+    "flight_sessions": []
+  },
+  "drone-23": {
+    "id": "drone-23",
+    "location": "TEST",
+    "name": "TEST",
+    "contact": "TEST",
+    "base_today_mins": 0,
+    "base_last_7_mins": 0,
+    "live_seconds": 0.0,
+    "flight_sessions": []
+  },
+  "drone-24": {
+    "id": "drone-24",
+    "location": "2-TRAFFIC-S&C-1",
+    "name": "2-TRAFFIC-S&C-1",
+    "contact": "2-TRAFFIC-S&C-1",
+    "base_today_mins": 18,
+    "base_last_7_mins": 220,
+    "live_seconds": 0.0,
+    "flight_sessions": [
+      {
+        "date": "2026-10-04",
+        "duration_mins": 18,
+        "note": "Routine surveillance patrol"
+      }
+    ]
+  },
+  "drone-25": {
+    "id": "drone-25",
+    "location": "VISSANNAPETA-PS",
+    "name": "VISSANNAPETA-PS",
+    "contact": "VISSANNAPETA-PS",
+    "base_today_mins": 0,
+    "base_last_7_mins": 171,
+    "live_seconds": 0.0,
+    "flight_sessions": []
+  },
+  "drone-26": {
+    "id": "drone-26",
+    "location": "2-TOWN-PS",
+    "name": "2-TOWN-PS",
+    "contact": "2-TOWN-PS",
+    "base_today_mins": 0,
+    "base_last_7_mins": 1084,
+    "live_seconds": 0.0,
+    "flight_sessions": []
+  },
+  "drone-27": {
+    "id": "drone-27",
+    "location": "1-TRAFFIC-S&C-2",
+    "name": "1-TRAFFIC-S&C-2",
+    "contact": "1-TRAFFIC-S&C-2",
+    "base_today_mins": 12,
+    "base_last_7_mins": 101,
+    "live_seconds": 0.0,
+    "flight_sessions": [
+      {
+        "date": "2026-10-04",
+        "duration_mins": 12,
+        "note": "Routine surveillance patrol"
+      }
+    ]
+  },
+  "drone-28": {
+    "id": "drone-28",
+    "location": "DCP-TRAFFIC",
+    "name": "DCP-TRAFFIC",
+    "contact": "DCP-TRAFFIC",
+    "base_today_mins": 0,
+    "base_last_7_mins": 0,
+    "live_seconds": 0.0,
+    "flight_sessions": []
+  },
+  "drone-29": {
+    "id": "drone-29",
+    "location": "BAPAT-PS",
+    "name": "BAPAT-PS",
+    "contact": "BAPAT-PS",
+    "base_today_mins": 0,
+    "base_last_7_mins": 83,
+    "live_seconds": 0.0,
+    "flight_sessions": []
+  },
+  "drone-30": {
+    "id": "drone-30",
+    "location": "G-TRAFFIC-CHARLI-8",
+    "name": "G-TRAFFIC-CHARLI-8",
+    "contact": "G-TRAFFIC-CHARLI-8",
+    "base_today_mins": 0,
+    "base_last_7_mins": 0,
+    "live_seconds": 0.0,
+    "flight_sessions": []
+  },
+  "drone-31": {
+    "id": "drone-31",
+    "location": "VEERULAPADU-PS",
+    "name": "VEERULAPADU-PS",
+    "contact": "VEERULAPADU-PS",
+    "base_today_mins": 0,
+    "base_last_7_mins": 44,
+    "live_seconds": 0.0,
+    "flight_sessions": []
+  },
+  "drone-32": {
+    "id": "drone-32",
+    "location": "TIRUVURU-PS",
+    "name": "TIRUVURU-PS",
+    "contact": "TIRUVURU-PS",
+    "base_today_mins": 0,
+    "base_last_7_mins": 0,
+    "live_seconds": 0.0,
+    "flight_sessions": []
+  },
+  "drone-33": {
+    "id": "drone-33",
+    "location": "CAMERA-4",
+    "name": "CAMERA-4",
+    "contact": "CAMERA-4",
+    "base_today_mins": 0,
+    "base_last_7_mins": 0,
+    "live_seconds": 0.0,
+    "flight_sessions": []
+  },
+  "drone-34": {
+    "id": "drone-34",
+    "location": "PATAMATA-PS",
+    "name": "PATAMATA-PS",
+    "contact": "PATAMATA-PS",
+    "base_today_mins": 0,
+    "base_last_7_mins": 563,
+    "live_seconds": 0.0,
+    "flight_sessions": []
+  },
+  "drone-35": {
+    "id": "drone-35",
+    "location": "GAMPALAGUDEM-PS",
+    "name": "GAMPALAGUDEM-PS",
+    "contact": "GAMPALAGUDEM-PS",
+    "base_today_mins": 0,
+    "base_last_7_mins": 21,
+    "live_seconds": 0.0,
+    "flight_sessions": []
+  },
+  "drone-36": {
+    "id": "drone-36",
+    "location": "VATSAVAI-PS",
+    "name": "VATSAVAI-PS",
+    "contact": "VATSAVAI-PS",
+    "base_today_mins": 0,
+    "base_last_7_mins": 0,
+    "live_seconds": 0.0,
+    "flight_sessions": []
+  },
+  "drone-37": {
+    "id": "drone-37",
+    "location": "G-KONDURU-PS",
+    "name": "G-KONDURU-PS",
+    "contact": "G-KONDURU-PS",
+    "base_today_mins": 0,
+    "base_last_7_mins": 207,
+    "live_seconds": 0.0,
+    "flight_sessions": []
+  },
+  "drone-38": {
+    "id": "drone-38",
+    "location": "MYLAVARAM-PS",
+    "name": "MYLAVARAM-PS",
+    "contact": "MYLAVARAM-PS",
+    "base_today_mins": 0,
+    "base_last_7_mins": 110,
+    "live_seconds": 0.0,
+    "flight_sessions": []
+  },
+  "drone-39": {
+    "id": "drone-39",
+    "location": "BHAVANIPURAM-PS",
+    "name": "BHAVANIPURAM-PS",
+    "contact": "BHAVANIPURAM-PS",
+    "base_today_mins": 0,
+    "base_last_7_mins": 103,
+    "live_seconds": 0.0,
+    "flight_sessions": []
+  },
+  "drone-40": {
+    "id": "drone-40",
+    "location": "2-TRAFFIC-CHARLI-7",
+    "name": "2-TRAFFIC-CHARLI-7",
+    "contact": "2-TRAFFIC-CHARLI-7",
+    "base_today_mins": 0,
+    "base_last_7_mins": 278,
+    "live_seconds": 0.0,
+    "flight_sessions": []
+  },
+  "drone-41": {
+    "id": "drone-41",
+    "location": "4-TRAFFIC-S&C-3",
+    "name": "4-TRAFFIC-S&C-3",
+    "contact": "4-TRAFFIC-S&C-3",
+    "base_today_mins": 76,
+    "base_last_7_mins": 487,
+    "live_seconds": 0.0,
+    "flight_sessions": [
+      {
+        "date": "2026-10-04",
+        "duration_mins": 76,
+        "note": "Routine surveillance patrol"
+      }
+    ]
+  },
+  "drone-42": {
+    "id": "drone-42",
+    "location": "3-TRAFFIC-S&C-1",
+    "name": "3-TRAFFIC-S&C-1",
+    "contact": "3-TRAFFIC-S&C-1",
+    "base_today_mins": 21,
+    "base_last_7_mins": 411,
+    "live_seconds": 0.0,
+    "flight_sessions": [
+      {
+        "date": "2026-10-04",
+        "duration_mins": 21,
+        "note": "Routine surveillance patrol"
+      }
+    ]
+  },
+  "drone-43": {
+    "id": "drone-43",
+    "location": "NANDIGAMA-PS",
+    "name": "NANDIGAMA-PS",
+    "contact": "NANDIGAMA-PS",
+    "base_today_mins": 0,
+    "base_last_7_mins": 11,
+    "live_seconds": 0.0,
+    "flight_sessions": []
+  }
+}

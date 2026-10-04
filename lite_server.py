@@ -27,6 +27,8 @@ from src.mission_control import (
     generate_survey_route,
 )
 from src.stream_state_monitor import MediaMTXStateMonitor
+from src.drone_analytics import drone_flight_analytics_store
+from src.video_recordings import video_recordings_manager
 
 def _sanitize_for_json(obj):
     if isinstance(obj, dict):
@@ -105,6 +107,8 @@ app = FastAPI(title="East Godavari Drone Monitoring System (EGDMS)", lifespan=li
 app.mount("/static", StaticFiles(directory="static"), name="static")
 if os.path.exists("Videos"):
     app.mount("/Videos", StaticFiles(directory="Videos"), name="videos")
+os.makedirs("recordings", exist_ok=True)
+app.mount("/recordings", StaticFiles(directory="recordings"), name="recordings")
 
 global_counting_mode = True
 MEDIAMTX_HOST = os.getenv("MEDIAMTX_HOST", "127.0.0.1")
@@ -1063,6 +1067,8 @@ async def auth_middleware(request: Request, call_next):
         is_admin_route = True
     elif path == "/api/notifications/clear":
         is_admin_route = True
+    elif path.startswith("/api/drone-analytics") or path.startswith("/api/recordings"):
+        is_admin_route = True
 
     if is_admin_route and user.get("role") != "admin":
         return JSONResponse(status_code=403, content={"detail": "Forbidden. Administrator privileges required."})
@@ -1173,6 +1179,23 @@ def _model_data(model: BaseModel, **kwargs) -> dict:
     if hasattr(model, "model_dump"):
         return model.model_dump(**kwargs)
     return model.dict(**kwargs)
+
+
+@app.get("/api/drone-analytics")
+def get_drone_analytics(from_date: Optional[str] = None, to_date: Optional[str] = None):
+    refresh_camera_health()
+    data = drone_flight_analytics_store.get_drone_flight_analytics(
+        cameras_db, from_date=from_date, to_date=to_date
+    )
+    return FastJSONResponse(content=_sanitize_for_json(data))
+
+
+@app.get("/api/recordings")
+def get_recordings(drone: Optional[str] = None, q: Optional[str] = None):
+    data = video_recordings_manager.list_recordings(
+        drone_filter=drone, search=q
+    )
+    return FastJSONResponse(content=_sanitize_for_json(data))
 
 
 @app.get("/api/mission-control/overview")
@@ -1485,6 +1508,11 @@ def update_camera_state(req: StateRequest):
             matched_camera["connection_message"] = "Waiting for drone camera stream..."
         update_camera_playback_path(matched_camera)
 
+    if matched_camera.get("status") == "online":
+        drone_flight_analytics_store.on_drone_online(matched_camera["id"])
+    else:
+        drone_flight_analytics_store.on_drone_offline(matched_camera["id"])
+
     return {"status": "updated", "camera_id": matched_camera["id"], "state": {
         "status": matched_camera["status"],
         "error_type": matched_camera["error_type"],
@@ -1528,7 +1556,7 @@ def start_camera(drone_id: str, req: StartRequest):
                 "waiting_for_source" if global_counting_mode else "disabled"
             )
             matched_camera["connection_message"] = (
-                f"Waiting for the camera to publish to {publish_url}"
+                "Waiting for drone camera stream..."
             )
         update_camera_playback_path(matched_camera)
         return {

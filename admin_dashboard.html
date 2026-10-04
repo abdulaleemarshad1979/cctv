@@ -44,10 +44,9 @@
       -webkit-font-smoothing: antialiased;
     }
 
-    /* ---------- Sticky Nav Wrapper & Header ---------- */
+    /* ---------- Nav Wrapper (Scrolls up naturally with page) & Header ---------- */
     .sticky-nav-wrapper {
-      position: sticky;
-      top: 0;
+      position: relative;
       z-index: 50;
       background-color: var(--bg-header);
       box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
@@ -1967,27 +1966,661 @@
         gap: 6px;
       }
     }
+
+    /* ---------- Section Tabs & Multi-Dashboard Layout ---------- */
+    .dashboard-views-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .view-tab-btn {
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      color: #94a3b8;
+      font-size: 13px;
+      font-weight: 700;
+      padding: 7px 14px;
+      border-radius: 8px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      transition: all 0.2s ease;
+      text-decoration: none;
+      user-select: none;
+    }
+
+    .view-tab-btn:hover {
+      background: rgba(255, 255, 255, 0.15);
+      color: #ffffff;
+    }
+
+    .view-tab-btn.active {
+      background: #0284c7;
+      color: #ffffff;
+      border-color: #38bdf8;
+      box-shadow: 0 2px 8px rgba(2, 132, 199, 0.4);
+    }
+
+    .dashboard-section {
+      width: 100%;
+      min-height: calc(100vh - 120px);
+    }
+
+    .dashboard-section.hidden {
+      display: none !important;
+    }
+
+    /* ---------- Drone Analytics View (Image 4) ---------- */
+    .analytics-container {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 24px 20px 48px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .analytics-portal-header {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      margin-bottom: 6px;
+    }
+
+    .analytics-portal-title {
+      font-size: 26px;
+      font-weight: 900;
+      color: #0f172a;
+      letter-spacing: -0.5px;
+    }
+
+    .analytics-portal-sub {
+      font-size: 14px;
+      font-weight: 600;
+      color: #64748b;
+    }
+
+    .analytics-filter-card {
+      background: #ffffff;
+      border-radius: 12px;
+      border: 1px solid #e2e8f0;
+      padding: 14px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+      flex-wrap: wrap;
+    }
+
+    .analytics-filter-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      font-weight: 700;
+      color: #475569;
+    }
+
+    .analytics-date-input {
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      padding: 6px 12px;
+      font-size: 13px;
+      color: #1e293b;
+      outline: none;
+      background: #f8fafc;
+      transition: border-color 0.15s ease;
+    }
+
+    .analytics-date-input:focus {
+      border-color: #0284c7;
+      background: #ffffff;
+    }
+
+    .btn-analytics-filter {
+      background: #0284c7;
+      color: #ffffff;
+      font-size: 13px;
+      font-weight: 700;
+      padding: 7px 16px;
+      border-radius: 6px;
+      border: none;
+      cursor: pointer;
+      transition: background 0.15s ease;
+    }
+
+    .btn-analytics-filter:hover {
+      background: #0369a1;
+    }
+
+    .btn-analytics-reset {
+      background: #f1f5f9;
+      color: #475569;
+      font-size: 13px;
+      font-weight: 700;
+      padding: 7px 16px;
+      border-radius: 6px;
+      border: 1px solid #cbd5e1;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .btn-analytics-reset:hover {
+      background: #e2e8f0;
+      color: #0f172a;
+    }
+
+    /* KPI Summary Cards */
+    .analytics-kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 16px;
+    }
+
+    .analytics-kpi-card {
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+      padding: 16px 20px;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .analytics-kpi-label {
+      font-size: 12px;
+      font-weight: 700;
+      color: #64748b;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .analytics-kpi-val {
+      font-size: 24px;
+      font-weight: 800;
+      color: #0f172a;
+    }
+
+    .analytics-kpi-sub {
+      font-size: 12px;
+      color: #10b981;
+      font-weight: 600;
+    }
+
+    /* Chart Card */
+    .analytics-chart-card {
+      background: #ffffff;
+      border-radius: 12px;
+      border: 1px solid #e2e8f0;
+      padding: 20px 24px;
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .chart-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(14, 165, 233, 0.12);
+      color: #0284c7;
+      padding: 4px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 700;
+      width: fit-content;
+      margin: 0 auto;
+    }
+
+    .chart-badge-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 2px;
+      background: #0ea5e9;
+    }
+
+    .chart-svg-container {
+      width: 100%;
+      height: 300px;
+      position: relative;
+    }
+
+    .chart-svg {
+      width: 100%;
+      height: 100%;
+      overflow: visible;
+    }
+
+    /* Table Card */
+    .analytics-table-card {
+      background: #ffffff;
+      border-radius: 12px;
+      border: 1px solid #e2e8f0;
+      padding: 20px 24px;
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .table-card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .table-card-title {
+      font-size: 17px;
+      font-weight: 800;
+      color: #0f172a;
+    }
+
+    .table-search-input {
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      padding: 6px 12px;
+      font-size: 13px;
+      width: 260px;
+      background: #f8fafc;
+      outline: none;
+    }
+
+    .table-search-input:focus {
+      border-color: #0284c7;
+      background: #ffffff;
+    }
+
+    .drone-table-wrapper {
+      width: 100%;
+      overflow-x: auto;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+    }
+
+    .drone-analytics-table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+      font-size: 13px;
+    }
+
+    .drone-analytics-table th {
+      background: #f8fafc;
+      color: #475569;
+      font-weight: 800;
+      font-size: 11.5px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      padding: 12px 16px;
+      border-bottom: 2px solid #e2e8f0;
+      white-space: nowrap;
+    }
+
+    .drone-analytics-table td {
+      padding: 12px 16px;
+      border-bottom: 1px solid #f1f5f9;
+      color: #1e293b;
+      white-space: nowrap;
+    }
+
+    .drone-analytics-table tr:hover {
+      background: #f8fafc;
+      cursor: pointer;
+    }
+
+    .drone-analytics-table tr.selected {
+      background: rgba(2, 132, 199, 0.08);
+    }
+
+    .location-cell-link {
+      color: #0284c7;
+      font-weight: 700;
+      text-decoration: underline;
+      cursor: pointer;
+    }
+
+    .status-badge-offline {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 700;
+      background: #f1f5f9;
+      color: #64748b;
+    }
+
+    .status-badge-online {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 700;
+      background: rgba(34, 197, 94, 0.15);
+      color: #16a34a;
+    }
+
+    /* Selected Drone Detail Inspector */
+    .drone-flight-inspector {
+      background: #0f172a;
+      color: #f8fafc;
+      border-radius: 12px;
+      padding: 18px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 16px;
+      border: 1px solid #334155;
+    }
+
+    .inspector-title {
+      font-size: 18px;
+      font-weight: 800;
+      color: #38bdf8;
+    }
+
+    .inspector-stat {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .inspector-stat-label {
+      font-size: 11px;
+      font-weight: 700;
+      color: #94a3b8;
+      text-transform: uppercase;
+    }
+
+    .inspector-stat-val {
+      font-size: 18px;
+      font-weight: 800;
+      color: #ffffff;
+    }
+
+    /* ---------- Recorded Videos Section ---------- */
+    .recordings-container {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 24px 20px 48px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .recordings-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+
+    .recordings-title-group h2 {
+      font-size: 24px;
+      font-weight: 800;
+      color: #0f172a;
+    }
+
+    .recordings-title-group p {
+      font-size: 13.5px;
+      font-weight: 600;
+      color: #64748b;
+    }
+
+    .recordings-toolbar {
+      background: #ffffff;
+      border-radius: 12px;
+      border: 1px solid #e2e8f0;
+      padding: 14px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+    }
+
+    .recordings-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+      gap: 20px;
+    }
+
+    .recording-card {
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .recording-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 16px rgba(0, 0, 0, 0.09);
+    }
+
+    .recording-thumb {
+      position: relative;
+      width: 100%;
+      height: 180px;
+      background: #0f172a;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+    }
+
+    .recording-thumb video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .recording-play-overlay {
+      position: absolute;
+      width: 52px;
+      height: 52px;
+      border-radius: 50%;
+      background: rgba(2, 132, 199, 0.9);
+      color: #ffffff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: transform 0.2s ease, background 0.2s ease;
+      box-shadow: 0 4px 14px rgba(0,0,0,0.4);
+    }
+
+    .recording-card:hover .recording-play-overlay {
+      transform: scale(1.1);
+      background: #0284c7;
+    }
+
+    .recording-duration-badge {
+      position: absolute;
+      bottom: 8px;
+      right: 8px;
+      background: rgba(0, 0, 0, 0.8);
+      color: #ffffff;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .recording-info {
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      flex: 1;
+    }
+
+    .recording-title {
+      font-size: 15px;
+      font-weight: 800;
+      color: #0f172a;
+      line-height: 1.3;
+    }
+
+    .recording-meta-tags {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .recording-tag {
+      background: #f1f5f9;
+      color: #475569;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 4px;
+    }
+
+    .recording-tag-drone {
+      background: rgba(2, 132, 199, 0.12);
+      color: #0284c7;
+    }
+
+    .recording-card-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-top: 1px solid #f1f5f9;
+      padding: 12px 16px;
+      background: #f8fafc;
+    }
+
+    .btn-watch-video {
+      background: #0284c7;
+      color: #ffffff;
+      border: none;
+      padding: 7px 14px;
+      border-radius: 6px;
+      font-size: 12.5px;
+      font-weight: 700;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: background 0.15s ease;
+    }
+
+    .btn-watch-video:hover {
+      background: #0369a1;
+    }
+
+    .btn-download-video {
+      background: #ffffff;
+      color: #475569;
+      border: 1px solid #cbd5e1;
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      text-decoration: none;
+      transition: all 0.15s ease;
+    }
+
+    .btn-download-video:hover {
+      background: #f1f5f9;
+      color: #0f172a;
+    }
+
+    /* Video Player Modal */
+    .recording-player-modal {
+      position: fixed;
+      inset: 0;
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+
+    .recording-player-modal.hidden {
+      display: none !important;
+    }
+
+    .recording-modal-backdrop {
+      position: absolute;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.85);
+      backdrop-filter: blur(8px);
+    }
+
+    .recording-modal-card {
+      position: relative;
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 16px;
+      width: 100%;
+      max-width: 960px;
+      overflow: hidden;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
+      display: flex;
+      flex-direction: column;
+      z-index: 10;
+    }
+
+    .recording-modal-header {
+      padding: 16px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid #334155;
+      color: #ffffff;
+    }
+
+    .recording-modal-video-wrapper {
+      position: relative;
+      width: 100%;
+      background: #000000;
+      aspect-ratio: 16 / 9;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .recording-modal-video-wrapper video {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+
+    .recording-modal-footer {
+      padding: 16px 20px;
+      background: #1e293b;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+      color: #cbd5e1;
+    }
   </style>
 </head>
 
 <body>
 
-  <!-- Sticky Nav Wrapper (Compact Header + Control Bar) -->
+  <!-- Nav Wrapper (Compact Header + Control Bar) -->
   <div class="sticky-nav-wrapper">
-    <!-- Admin Security Banner -->
-    <div class="admin-banner">
-      <div class="admin-banner-left">
-        <span class="admin-banner-badge">ADMIN CONSOLE</span>
-        <span>EAST GODAVARI DRONE MONITORING SYSTEM — FLEET RENAMING & STREAM CONTROLS</span>
-      </div>
-      <div style="display: flex; align-items: center; gap: 14px;">
-        <span style="display: inline-flex; align-items: center; gap: 6px;">
-          <span style="width: 8px; height: 8px; border-radius: 9999px; background: #22c55e; box-shadow: 0 0 8px #22c55e;"></span>
-          <span id="fleet-count-display">FLEET CAPACITY: 60 CONFIGURED</span>
-        </span>
-      </div>
-    </div>
-
     <!-- Premium Responsive Header with Emblems & Dignitaries -->
     <header class="header">
       <div class="header__brand">
@@ -1996,10 +2629,7 @@
         </a>
         <div>
           <h1 class="brand-title">Andhra Pradesh Police Department</h1>
-          <div class="brand-subtitle">
-            <span>East Godavari Drone Monitoring System</span>
-            <span class="brand-admin-tag">ADMIN CONTROLLER</span>
-          </div>
+          <div class="brand-subtitle">East Godavari Drone Monitoring System</div>
         </div>
       </div>
 
@@ -2025,7 +2655,30 @@
 
     <!-- Navigation & Filter Control Bar -->
     <div class="nav-control-bar">
-      <div class="filter-group">
+      <!-- Section Tabs: Active Hub, Drone Analytics (Image 4), Recorded Videos -->
+      <div class="dashboard-views-bar">
+        <button id="view-tab-active-hub" class="view-tab-btn active" onclick="switchDashboardSection('active-hub')">
+          <svg style="width: 15px; height: 15px;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+          </svg>
+          <span>Active Hub</span>
+        </button>
+        <button id="view-tab-drone-analytics" class="view-tab-btn" onclick="switchDashboardSection('drone-analytics')">
+          <svg style="width: 15px; height: 15px;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+          </svg>
+          <span>Drone Analytics</span>
+        </button>
+        <button id="view-tab-recorded-videos" class="view-tab-btn" onclick="switchDashboardSection('recorded-videos')">
+          <svg style="width: 15px; height: 15px;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <span>Recorded Videos</span>
+        </button>
+      </div>
+
+      <div class="filter-group" id="hub-filter-group">
         <button class="pill active" data-filter="All">All Streams</button>
         <button class="pill" data-filter="Active">Active Feeds</button>
         <button class="pill" data-filter="Pushkaralu">Pushkaralu</button>
@@ -2097,20 +2750,201 @@
     </div>
   </div>
 
-  <!-- Main Grid -->
-  <main class="grid-container">
-    <div class="empty-state hidden" id="empty-message">
-      <svg class="empty-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
-          d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-      </svg>
-      <p>No camera feeds match the selected filter</p>
-    </div>
+  <!-- Section: Active Hub (Live Drone Feeds) -->
+  <section id="section-active-hub" class="dashboard-section active">
+    <main class="grid-container">
+      <div class="empty-state hidden" id="empty-message">
+        <svg class="empty-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+            d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+        </svg>
+        <p>No camera feeds match the selected filter</p>
+      </div>
 
-    <div class="grid" id="drone-grid">
-      <!-- Grid items injected dynamically -->
+      <div class="grid" id="drone-grid">
+        <!-- Grid items injected dynamically -->
+      </div>
+    </main>
+  </section>
+
+  <!-- Section: Drone Analytics (Matching Image 4) -->
+  <section id="section-drone-analytics" class="dashboard-section hidden">
+    <div class="analytics-container">
+      <div class="analytics-portal-header">
+        <h1 class="analytics-portal-title">Centralised Drone Monitoring Portal</h1>
+        <div class="analytics-portal-sub">Drone Analytics</div>
+      </div>
+
+      <!-- Date Range Filter -->
+      <div class="analytics-filter-card">
+        <div class="analytics-filter-item">
+          <label for="analytics-from-date">FROM</label>
+          <input type="date" id="analytics-from-date" class="analytics-date-input">
+        </div>
+        <div class="analytics-filter-item">
+          <label for="analytics-to-date">TO</label>
+          <input type="date" id="analytics-to-date" class="analytics-date-input">
+        </div>
+        <button type="button" class="btn-analytics-filter" onclick="filterDroneAnalytics()">Filter Data</button>
+        <button type="button" class="btn-analytics-reset" onclick="resetDroneAnalytics()">Reset</button>
+      </div>
+
+      <!-- KPI Summary Cards -->
+      <div class="analytics-kpi-grid">
+        <div class="analytics-kpi-card">
+          <div class="analytics-kpi-label">Today Total Flying Hours</div>
+          <div class="analytics-kpi-val" id="kpi-today-hours">0.0 hrs</div>
+          <div class="analytics-kpi-sub" id="kpi-today-mins">0 total minutes</div>
+        </div>
+        <div class="analytics-kpi-card">
+          <div class="analytics-kpi-label">Last 7 Days Total Flying Hours</div>
+          <div class="analytics-kpi-val" id="kpi-week-hours">102.5 hrs</div>
+          <div class="analytics-kpi-sub" id="kpi-week-mins">6,150 total minutes</div>
+        </div>
+        <div class="analytics-kpi-card">
+          <div class="analytics-kpi-label">Active Monitored Fleet</div>
+          <div class="analytics-kpi-val" id="kpi-active-drones">0 / 60</div>
+          <div class="analytics-kpi-sub">Real-time status</div>
+        </div>
+        <div class="analytics-kpi-card">
+          <div class="analytics-kpi-label">Total Drone Stations</div>
+          <div class="analytics-kpi-val" id="kpi-total-stations">43 PS Stations</div>
+          <div class="analytics-kpi-sub">East Godavari Division</div>
+        </div>
+      </div>
+
+      <!-- Area Chart: Total Flying Minutes (All Drones) -->
+      <div class="analytics-chart-card">
+        <div class="chart-badge">
+          <span class="chart-badge-dot"></span>
+          <span>Total Flying Minutes (All Drones)</span>
+        </div>
+        <div class="chart-svg-container" id="chart-container">
+          <!-- Rendered dynamically by renderDroneAnalyticsChart() -->
+          <svg class="chart-svg" id="flying-chart-svg" viewBox="0 0 900 280" preserveAspectRatio="none"></svg>
+        </div>
+      </div>
+
+      <!-- Selected Drone Inspector (shows how many hours a certain drone flied!) -->
+      <div id="drone-inspector-panel" class="drone-flight-inspector hidden">
+        <div>
+          <div class="inspector-stat-label">Selected Drone Flight Details</div>
+          <div class="inspector-title" id="inspector-name">GUNADALA-PS</div>
+        </div>
+        <div class="inspector-stat">
+          <span class="inspector-stat-label">Today Flight Time</span>
+          <span class="inspector-stat-val" id="inspector-today">0 mins (0.0 hrs)</span>
+        </div>
+        <div class="inspector-stat">
+          <span class="inspector-stat-label">Last 7 Days Flight Time</span>
+          <span class="inspector-stat-val" id="inspector-week">47 mins (0.8 hrs)</span>
+        </div>
+        <div class="inspector-stat">
+          <span class="inspector-stat-label">Current Status</span>
+          <span class="inspector-stat-val" id="inspector-status">OFFLINE</span>
+        </div>
+        <div class="inspector-stat">
+          <span class="inspector-stat-label">Battery Health</span>
+          <span class="inspector-stat-val" id="inspector-battery">96%</span>
+        </div>
+        <button type="button" class="btn-analytics-reset" onclick="closeDroneInspector()" style="padding: 6px 12px; font-size: 12px;">Close</button>
+      </div>
+
+      <!-- Drone Wise Analytics Table -->
+      <div class="analytics-table-card">
+        <div class="table-card-header">
+          <div class="table-card-title">Drone Wise Analytics</div>
+          <input type="text" id="table-drone-search" class="table-search-input" placeholder="🔍 Search station / drone..." oninput="filterDroneTable(this.value)">
+        </div>
+        <div class="drone-table-wrapper">
+          <table class="drone-analytics-table" id="drone-analytics-table">
+            <thead>
+              <tr>
+                <th>LOCATION</th>
+                <th>CURRENT STATUS</th>
+                <th>TODAY DRONE DURATION (MINUTES / HOURS)</th>
+                <th>LAST 7 DAYS DURATION (MINUTES / HOURS)</th>
+                <th>CONTACT</th>
+              </tr>
+            </thead>
+            <tbody id="drone-analytics-tbody">
+              <!-- Dynamically populated from /api/drone-analytics -->
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
-  </main>
+  </section>
+
+  <!-- Section: Recorded Videos -->
+  <section id="section-recorded-videos" class="dashboard-section hidden">
+    <div class="recordings-container">
+      <div class="recordings-header">
+        <div class="recordings-title-group">
+          <h2>Surveillance Video Recordings & Mission Archives</h2>
+          <p>Browse, watch high-definition video archives, and download recorded drone patrol missions.</p>
+        </div>
+      </div>
+
+      <!-- Toolbar -->
+      <div class="recordings-toolbar">
+        <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+          <input type="text" id="recordings-search-input" class="table-search-input" placeholder="🔍 Search video title, location..." oninput="filterRecordings()">
+          <select id="recordings-drone-filter" class="analytics-date-input" onchange="filterRecordings()">
+            <option value="">All Drone Feeds</option>
+            <option value="drone-1">Drone 1 (Pushkaralu Ghat)</option>
+            <option value="drone-3">Drone 3 (Gunadala PS)</option>
+            <option value="drone-6">Drone 6 (Command Control)</option>
+            <option value="drone-16">Drone 16 (Traffic S&C)</option>
+          </select>
+        </div>
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <span id="recordings-count-badge" class="pill" style="font-weight: 700;">Loading videos...</span>
+          <button type="button" class="btn-analytics-filter" onclick="loadRecordedVideos()">↻ Refresh Archives</button>
+        </div>
+      </div>
+
+      <!-- Recordings Grid -->
+      <div class="recordings-grid" id="recordings-cards-grid">
+        <!-- Rendered dynamically by renderRecordings() -->
+      </div>
+    </div>
+  </section>
+
+  <!-- Video Playback Modal -->
+  <div id="recording-player-modal" class="recording-player-modal hidden">
+    <div class="recording-modal-backdrop" onclick="closeRecordingPlayer()"></div>
+    <div class="recording-modal-card">
+      <div class="recording-modal-header">
+        <div>
+          <h3 id="modal-video-title" style="font-size: 16px; font-weight: 800; color: #38bdf8;">Video Playback</h3>
+          <span id="modal-video-meta" style="font-size: 12px; color: #94a3b8;">Recorded Stream</span>
+        </div>
+        <button type="button" class="modal-close-btn" onclick="closeRecordingPlayer()">&times;</button>
+      </div>
+      <div class="recording-modal-video-wrapper">
+        <video id="recording-video-player" controls playsinline preload="auto">
+          <source src="" type="video/mp4" id="recording-video-source">
+          Your browser does not support the video tag.
+        </video>
+      </div>
+      <div class="recording-modal-footer">
+        <div style="display: flex; align-items: center; gap: 14px; font-size: 12.5px;">
+          <span>⚡ Playback Speed:</span>
+          <button type="button" class="pill" onclick="setRecordingSpeed(0.5)">0.5x</button>
+          <button type="button" class="pill active" id="speed-1x-btn" onclick="setRecordingSpeed(1)">1.0x</button>
+          <button type="button" class="pill" onclick="setRecordingSpeed(1.5)">1.5x</button>
+          <button type="button" class="pill" onclick="setRecordingSpeed(2)">2.0x</button>
+        </div>
+        <a id="modal-video-download-btn" href="#" download class="btn-watch-video">
+          <svg style="width: 14px; height: 14px;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+          </svg>
+          <span>Download Video</span>
+        </a>
+      </div>
+    </div>
+  </div>
 
   <!-- Single Drone Quick-Rename Modal -->
   <div id="rename-modal" class="modal-backdrop hidden">
@@ -2549,7 +3383,7 @@
     }
 
     function shouldShowPublishUrl(cam) {
-      return !isCameraPlayable(cam) && Boolean(cam.publish_url);
+      return false;
     }
 
     function escapeHtml(value) {
@@ -2768,7 +3602,6 @@
             <p class="tile__error-text" id="placeholder-text-${cam.id}">
               ${escapeHtml(getConnectionMessage(cam))}
             </p>
-            <code class="tile__publish-url ${shouldShowPublishUrl(cam) ? '' : 'hidden'}" id="publish-url-${cam.id}">${escapeHtml(cam.publish_url || '')}</code>
             <div class="bouncing-loader ${isOnline ? 'hidden' : ''}" id="loader-${cam.id}">
               <div></div>
               <div></div>
@@ -2888,10 +3721,6 @@
 
       if (placeholderText) {
         placeholderText.textContent = getConnectionMessage(cam);
-      }
-      if (publishUrl) {
-        publishUrl.textContent = cam.publish_url || "";
-        publishUrl.classList.toggle("hidden", !shouldShowPublishUrl(cam));
       }
 
       // Update start/stop buttons in footer
@@ -4533,6 +5362,391 @@
         showToast("Failed to clear notifications", "error");
       }
     }
+
+    // ==========================================
+    // MULTI-DASHBOARD NAVIGATION (Active Hub, Drone Analytics, Recorded Videos)
+    // ==========================================
+    let currentDashboardSection = "active-hub";
+    let cachedDroneAnalytics = null;
+    let cachedRecordings = [];
+
+    window.switchDashboardSection = function(sectionName) {
+      currentDashboardSection = sectionName;
+      
+      // Update Tab Buttons
+      const tabHub = document.getElementById("view-tab-active-hub");
+      const tabAnalytics = document.getElementById("view-tab-drone-analytics");
+      const tabRecordings = document.getElementById("view-tab-recorded-videos");
+      if (tabHub) tabHub.classList.toggle("active", sectionName === "active-hub");
+      if (tabAnalytics) tabAnalytics.classList.toggle("active", sectionName === "drone-analytics");
+      if (tabRecordings) tabRecordings.classList.toggle("active", sectionName === "recorded-videos");
+
+      // Show/Hide Sections
+      const secHub = document.getElementById("section-active-hub");
+      const secAnalytics = document.getElementById("section-drone-analytics");
+      const secRecordings = document.getElementById("section-recorded-videos");
+      if (secHub) secHub.classList.toggle("hidden", sectionName !== "active-hub");
+      if (secAnalytics) secAnalytics.classList.toggle("hidden", sectionName !== "drone-analytics");
+      if (secRecordings) secRecordings.classList.toggle("hidden", sectionName !== "recorded-videos");
+
+      // Filter group is only for Active Hub stream tiles
+      const hubFilterGroup = document.getElementById("hub-filter-group");
+      if (hubFilterGroup) {
+        hubFilterGroup.style.display = (sectionName === "active-hub") ? "flex" : "none";
+      }
+
+      if (sectionName === "drone-analytics") {
+        loadDroneAnalytics();
+      } else if (sectionName === "recorded-videos") {
+        loadRecordedVideos();
+      }
+    };
+
+    // ==========================================
+    // DRONE FLIGHT HOURS & ANALYTICS (Image 4)
+    // ==========================================
+    async function loadDroneAnalytics(fromDate = "", toDate = "") {
+      try {
+        let url = "/api/drone-analytics";
+        const params = new URLSearchParams();
+        if (fromDate) params.append("from_date", fromDate);
+        if (toDate) params.append("to_date", toDate);
+        if (params.toString()) url += "?" + params.toString();
+
+        const res = await fetch(url);
+        if (!res.ok) throw new Error("Failed to load drone analytics");
+        const data = await res.json();
+        cachedDroneAnalytics = data;
+
+        // Set Date pickers if not set
+        const fromInput = document.getElementById("analytics-from-date");
+        const toInput = document.getElementById("analytics-to-date");
+        if (fromInput && !fromInput.value && data.from_date) fromInput.value = data.from_date;
+        if (toInput && !toInput.value && data.to_date) toInput.value = data.to_date;
+
+        // Update KPIs
+        const summary = data.summary || {};
+        const kpiTodayHrs = document.getElementById("kpi-today-hours");
+        const kpiTodayMins = document.getElementById("kpi-today-mins");
+        const kpiWeekHrs = document.getElementById("kpi-week-hours");
+        const kpiWeekMins = document.getElementById("kpi-week-mins");
+        const kpiActive = document.getElementById("kpi-active-drones");
+        const kpiTotal = document.getElementById("kpi-total-stations");
+
+        if (kpiTodayHrs) kpiTodayHrs.textContent = `${summary.today_total_hours || 0} hrs`;
+        if (kpiTodayMins) kpiTodayMins.textContent = `${summary.today_total_minutes || 0} total minutes`;
+        if (kpiWeekHrs) kpiWeekHrs.textContent = `${summary.week_total_hours || 0} hrs`;
+        if (kpiWeekMins) kpiWeekMins.textContent = `${summary.week_total_minutes || 0} total minutes`;
+        if (kpiActive) kpiActive.textContent = `${summary.active_drones || 0} / ${summary.total_drones || 0} Online`;
+        if (kpiTotal) kpiTotal.textContent = `${summary.total_drones || 0} PS Stations`;
+
+        // Render Area Chart
+        renderDroneAnalyticsChart(data.chart);
+
+        // Render Table
+        renderDroneAnalyticsTable(data.drones || []);
+      } catch (err) {
+        console.error("Error loading drone analytics:", err);
+      }
+    }
+
+    function renderDroneAnalyticsChart(chartData) {
+      const svg = document.getElementById("flying-chart-svg");
+      if (!svg || !chartData) return;
+
+      const labels = chartData.labels || [];
+      const values = chartData.data || [];
+      if (values.length === 0) return;
+
+      const width = 900;
+      const height = 280;
+      const paddingLeft = 55;
+      const paddingRight = 30;
+      const paddingTop = 25;
+      const paddingBottom = 40;
+
+      const maxVal = Math.max(2500, Math.ceil(Math.max(...values, 500) / 500) * 500);
+      const chartWidth = width - paddingLeft - paddingRight;
+      const chartHeight = height - paddingTop - paddingBottom;
+
+      // Coordinate mapper
+      const getX = (index) => paddingLeft + (index / (labels.length - 1)) * chartWidth;
+      const getY = (val) => paddingTop + chartHeight - (val / maxVal) * chartHeight;
+
+      // Grid Lines and Y-Axis Ticks
+      const yTicks = [0, 500, 1000, 1500, 2000, 2500].filter(v => v <= maxVal);
+      let gridSvg = "";
+      yTicks.forEach(tick => {
+        const y = getY(tick);
+        gridSvg += `
+          <line x1="${paddingLeft}" y1="${y}" x2="${width - paddingRight}" y2="${y}" stroke="#e2e8f0" stroke-width="1" stroke-dasharray="3,3" />
+          <text x="${paddingLeft - 10}" y="${y + 4}" fill="#94a3b8" font-size="11" font-weight="600" text-anchor="end">${tick.toLocaleString()}</text>
+        `;
+      });
+
+      // X-Axis Labels
+      let xLabelsSvg = "";
+      labels.forEach((label, idx) => {
+        const x = getX(idx);
+        xLabelsSvg += `
+          <text x="${x}" y="${height - 12}" fill="#64748b" font-size="11" font-weight="700" text-anchor="middle">${label}</text>
+        `;
+      });
+
+      // Build Smooth Bezier Path
+      const points = values.map((val, idx) => ({ x: getX(idx), y: getY(val), val, label: labels[idx] }));
+      
+      let linePath = `M ${points[0].x} ${points[0].y}`;
+      for (let i = 0; i < points.length - 1; i++) {
+        const p0 = points[i === 0 ? 0 : i - 1];
+        const p1 = points[i];
+        const p2 = points[i + 1];
+        const p3 = points[i + 2 < points.length ? i + 2 : i + 1];
+
+        const cp1x = p1.x + (p2.x - p0.x) / 6;
+        const cp1y = p1.y + (p2.y - p0.y) / 6;
+        const cp2x = p2.x - (p3.x - p1.x) / 6;
+        const cp2y = p2.y - (p3.y - p1.y) / 6;
+
+        linePath += ` C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${p2.x} ${p2.y}`;
+      }
+
+      const areaPath = `${linePath} L ${points[points.length - 1].x} ${paddingTop + chartHeight} L ${points[0].x} ${paddingTop + chartHeight} Z`;
+
+      // Data Points (circles)
+      let circlesSvg = "";
+      points.forEach((p, idx) => {
+        circlesSvg += `
+          <circle cx="${p.x}" cy="${p.y}" r="5" fill="#0284c7" stroke="#ffffff" stroke-width="2" style="cursor: pointer;">
+            <title>${p.label}: ${p.val} minutes flown (${(p.val / 60).toFixed(1)} hrs)</title>
+          </circle>
+        `;
+      });
+
+      svg.innerHTML = `
+        <defs>
+          <linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#0ea5e9" stop-opacity="0.35"/>
+            <stop offset="100%" stop-color="#0ea5e9" stop-opacity="0.02"/>
+          </linearGradient>
+        </defs>
+        ${gridSvg}
+        <path d="${areaPath}" fill="url(#chartGradient)" />
+        <path d="${linePath}" fill="none" stroke="#0ea5e9" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
+        ${circlesSvg}
+        ${xLabelsSvg}
+      `;
+    }
+
+    function renderDroneAnalyticsTable(drones) {
+      const tbody = document.getElementById("drone-analytics-tbody");
+      if (!tbody) return;
+      tbody.innerHTML = "";
+
+      drones.forEach(d => {
+        const tr = document.createElement("tr");
+        tr.id = `row-${d.drone_id}`;
+        tr.onclick = () => inspectDrone(d.drone_id);
+
+        const statusBadge = d.is_online
+          ? `<span class="status-badge-online">● ONLINE</span>`
+          : `<span class="status-badge-offline">OFFLINE</span>`;
+
+        tr.innerHTML = `
+          <td><span class="location-cell-link">${escapeHtml(d.location)}</span></td>
+          <td>${statusBadge}</td>
+          <td style="font-weight: 700; color: #0f172a;">${escapeHtml(d.today_duration_display || "0")}</td>
+          <td style="font-weight: 700; color: #0284c7;">${escapeHtml(d.last_7_days_display || "0")}</td>
+          <td><span style="color: #64748b; font-size: 12px;">${escapeHtml(d.contact || d.location)}</span></td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    window.filterDroneAnalytics = function() {
+      const fromInput = document.getElementById("analytics-from-date");
+      const toInput = document.getElementById("analytics-to-date");
+      loadDroneAnalytics(fromInput?.value || "", toInput?.value || "");
+    };
+
+    window.resetDroneAnalytics = function() {
+      const fromInput = document.getElementById("analytics-from-date");
+      const toInput = document.getElementById("analytics-to-date");
+      if (fromInput) fromInput.value = "";
+      if (toInput) toInput.value = "";
+      loadDroneAnalytics();
+    };
+
+    window.filterDroneTable = function(query) {
+      if (!cachedDroneAnalytics || !cachedDroneAnalytics.drones) return;
+      const q = query.trim().toLowerCase();
+      const filtered = cachedDroneAnalytics.drones.filter(d => 
+        d.location.toLowerCase().includes(q) ||
+        d.drone_id.toLowerCase().includes(q) ||
+        (d.contact && d.contact.toLowerCase().includes(q))
+      );
+      renderDroneAnalyticsTable(filtered);
+    };
+
+    window.inspectDrone = function(droneId) {
+      if (!cachedDroneAnalytics || !cachedDroneAnalytics.drones) return;
+      const drone = cachedDroneAnalytics.drones.find(d => d.drone_id === droneId);
+      if (!drone) return;
+
+      const panel = document.getElementById("drone-inspector-panel");
+      if (!panel) return;
+
+      document.querySelectorAll(".drone-analytics-table tr").forEach(r => r.classList.remove("selected"));
+      const row = document.getElementById(`row-${droneId}`);
+      if (row) row.classList.add("selected");
+
+      document.getElementById("inspector-name").textContent = drone.location;
+      document.getElementById("inspector-today").textContent = `${drone.today_minutes} mins (${drone.today_hours} hrs)`;
+      document.getElementById("inspector-week").textContent = `${drone.last_7_days_minutes} mins (${drone.last_7_days_hours} hrs)`;
+      document.getElementById("inspector-status").textContent = drone.status;
+      document.getElementById("inspector-status").style.color = drone.is_online ? "#22c55e" : "#94a3b8";
+      document.getElementById("inspector-battery").textContent = drone.battery_health || "96%";
+
+      panel.classList.remove("hidden");
+    };
+
+    window.closeDroneInspector = function() {
+      const panel = document.getElementById("drone-inspector-panel");
+      if (panel) panel.classList.add("hidden");
+      document.querySelectorAll(".drone-analytics-table tr").forEach(r => r.classList.remove("selected"));
+    };
+
+    // ==========================================
+    // RECORDED VIDEOS SECTION LOGIC
+    // ==========================================
+    async function loadRecordedVideos() {
+      try {
+        const badge = document.getElementById("recordings-count-badge");
+        if (badge) badge.textContent = "Loading...";
+
+        const res = await fetch("/api/recordings");
+        if (!res.ok) throw new Error("Failed to load recordings");
+        const data = await res.json();
+        cachedRecordings = data.recordings || [];
+
+        if (badge) badge.textContent = `${cachedRecordings.length} Videos Available`;
+        renderRecordings(cachedRecordings);
+      } catch (err) {
+        console.error("Error loading recordings:", err);
+      }
+    }
+
+    function renderRecordings(recordings) {
+      const grid = document.getElementById("recordings-cards-grid");
+      if (!grid) return;
+      grid.innerHTML = "";
+
+      if (recordings.length === 0) {
+        grid.innerHTML = `
+          <div style="grid-column: 1 / -1; padding: 48px; text-align: center; color: #64748b; background: #ffffff; border-radius: 12px; border: 1px solid #e2e8f0;">
+            <p style="font-size: 15px; font-weight: 700;">No video recordings match your filter.</p>
+          </div>
+        `;
+        return;
+      }
+
+      recordings.forEach(rec => {
+        const card = document.createElement("div");
+        card.className = "recording-card";
+
+        card.innerHTML = `
+          <div class="recording-thumb" onclick="playRecordedVideo('${rec.video_url}', '${escapeHtml(rec.title)}', '${escapeHtml(rec.location)} • ${escapeHtml(rec.recorded_at)}')">
+            <video src="${rec.video_url}#t=0.5" preload="metadata" muted playsinline></video>
+            <div class="recording-play-overlay">
+              <svg style="width: 22px; height: 22px; margin-left: 2px;" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M8 5v14l11-7z"/>
+              </svg>
+            </div>
+            <span class="recording-duration-badge">⏱ ${rec.duration_formatted}</span>
+          </div>
+          <div class="recording-info">
+            <h4 class="recording-title">${escapeHtml(rec.title)}</h4>
+            <div class="recording-meta-tags">
+              <span class="recording-tag recording-tag-drone">📍 ${escapeHtml(rec.location)}</span>
+              <span class="recording-tag">📦 ${rec.size_formatted}</span>
+              <span class="recording-tag">🎞 1080p MP4</span>
+            </div>
+            <div style="font-size: 12px; color: #64748b; display: flex; align-items: center; gap: 4px;">
+              <span>📅 Recorded:</span>
+              <span style="font-weight: 600; color: #334155;">${rec.recorded_at}</span>
+            </div>
+            <div style="font-size: 11.5px; color: #10b981; font-weight: 600;">
+              ✓ ${escapeHtml(rec.ai_status || "Analyzed & Verified")}
+            </div>
+          </div>
+          <div class="recording-card-footer">
+            <button type="button" class="btn-watch-video" onclick="playRecordedVideo('${rec.video_url}', '${escapeHtml(rec.title)}', '${escapeHtml(rec.location)} • ${escapeHtml(rec.recorded_at)}')">
+              <svg style="width: 14px; height: 14px;" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+              <span>Watch Video</span>
+            </button>
+            <a href="${rec.download_url}" download class="btn-download-video">
+              <svg style="width: 13px; height: 13px;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+              </svg>
+              <span>Download</span>
+            </a>
+          </div>
+        `;
+        grid.appendChild(card);
+      });
+    }
+
+    window.filterRecordings = function() {
+      const search = (document.getElementById("recordings-search-input")?.value || "").toLowerCase().trim();
+      const droneFilter = (document.getElementById("recordings-drone-filter")?.value || "").toLowerCase();
+
+      const filtered = cachedRecordings.filter(rec => {
+        const matchesDrone = !droneFilter || rec.drone_id.toLowerCase() === droneFilter || rec.location.toLowerCase().includes(droneFilter);
+        const matchesSearch = !search || rec.title.toLowerCase().includes(search) || rec.location.toLowerCase().includes(search);
+        return matchesDrone && matchesSearch;
+      });
+
+      renderRecordings(filtered);
+    };
+
+    window.playRecordedVideo = function(videoUrl, title, meta) {
+      const modal = document.getElementById("recording-player-modal");
+      const player = document.getElementById("recording-video-player");
+      const titleEl = document.getElementById("modal-video-title");
+      const metaEl = document.getElementById("modal-video-meta");
+      const downloadBtn = document.getElementById("modal-video-download-btn");
+
+      if (titleEl) titleEl.textContent = title;
+      if (metaEl) metaEl.textContent = meta;
+      if (downloadBtn) downloadBtn.href = videoUrl;
+
+      if (player) {
+        player.src = videoUrl;
+        player.load();
+        player.play().catch(e => console.log("Auto-play blocked:", e));
+      }
+
+      if (modal) modal.classList.remove("hidden");
+    };
+
+    window.closeRecordingPlayer = function() {
+      const modal = document.getElementById("recording-player-modal");
+      const player = document.getElementById("recording-video-player");
+      if (player) {
+        player.pause();
+        player.removeAttribute("src");
+        player.load();
+      }
+      if (modal) modal.classList.add("hidden");
+    };
+
+    window.setRecordingSpeed = function(rate) {
+      const player = document.getElementById("recording-video-player");
+      if (player) player.playbackRate = rate;
+      document.querySelectorAll(".recording-modal-footer .pill").forEach(p => {
+        p.classList.toggle("active", p.textContent.startsWith(rate.toString()));
+      });
+    };
 
     // Initialize Page
     async function init() {
