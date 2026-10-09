@@ -2151,50 +2151,7 @@
       font-weight: 600;
     }
 
-    /* Chart Card */
-    .analytics-chart-card {
-      background: #ffffff;
-      border-radius: 12px;
-      border: 1px solid #e2e8f0;
-      padding: 20px 24px;
-      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
-      display: flex;
-      flex-direction: column;
-      gap: 14px;
-    }
 
-    .chart-badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      background: rgba(14, 165, 233, 0.12);
-      color: #0284c7;
-      padding: 4px 12px;
-      border-radius: 6px;
-      font-size: 12px;
-      font-weight: 700;
-      width: fit-content;
-      margin: 0 auto;
-    }
-
-    .chart-badge-dot {
-      width: 10px;
-      height: 10px;
-      border-radius: 2px;
-      background: #0ea5e9;
-    }
-
-    .chart-svg-container {
-      width: 100%;
-      height: 300px;
-      position: relative;
-    }
-
-    .chart-svg {
-      width: 100%;
-      height: 100%;
-      overflow: visible;
-    }
 
     /* Table Card */
     .analytics-table-card {
@@ -2813,17 +2770,7 @@
         </div>
       </div>
 
-      <!-- Area Chart: Total Flying Minutes (All Drones) -->
-      <div class="analytics-chart-card">
-        <div class="chart-badge">
-          <span class="chart-badge-dot"></span>
-          <span>Total Flying Minutes (All Drones)</span>
-        </div>
-        <div class="chart-svg-container" id="chart-container">
-          <!-- Rendered dynamically by renderDroneAnalyticsChart() -->
-          <svg class="chart-svg" id="flying-chart-svg" viewBox="0 0 900 280" preserveAspectRatio="none"></svg>
-        </div>
-      </div>
+
 
       <!-- Selected Drone Inspector (shows how many hours a certain drone flied!) -->
       <div id="drone-inspector-panel" class="drone-flight-inspector hidden">
@@ -5440,102 +5387,11 @@
         if (kpiActive) kpiActive.textContent = `${summary.active_drones || 0} / ${summary.total_drones || 0} Online`;
         if (kpiTotal) kpiTotal.textContent = `${summary.total_drones || 0} PS Stations`;
 
-        // Render Area Chart
-        renderDroneAnalyticsChart(data.chart);
-
         // Render Table
         renderDroneAnalyticsTable(data.drones || []);
       } catch (err) {
         console.error("Error loading drone analytics:", err);
       }
-    }
-
-    function renderDroneAnalyticsChart(chartData) {
-      const svg = document.getElementById("flying-chart-svg");
-      if (!svg || !chartData) return;
-
-      const labels = chartData.labels || [];
-      const values = chartData.data || [];
-      if (values.length === 0) return;
-
-      const width = 900;
-      const height = 280;
-      const paddingLeft = 55;
-      const paddingRight = 30;
-      const paddingTop = 25;
-      const paddingBottom = 40;
-
-      const maxVal = Math.max(2500, Math.ceil(Math.max(...values, 500) / 500) * 500);
-      const chartWidth = width - paddingLeft - paddingRight;
-      const chartHeight = height - paddingTop - paddingBottom;
-
-      // Coordinate mapper
-      const getX = (index) => paddingLeft + (index / (labels.length - 1)) * chartWidth;
-      const getY = (val) => paddingTop + chartHeight - (val / maxVal) * chartHeight;
-
-      // Grid Lines and Y-Axis Ticks
-      const yTicks = [0, 500, 1000, 1500, 2000, 2500].filter(v => v <= maxVal);
-      let gridSvg = "";
-      yTicks.forEach(tick => {
-        const y = getY(tick);
-        gridSvg += `
-          <line x1="${paddingLeft}" y1="${y}" x2="${width - paddingRight}" y2="${y}" stroke="#e2e8f0" stroke-width="1" stroke-dasharray="3,3" />
-          <text x="${paddingLeft - 10}" y="${y + 4}" fill="#94a3b8" font-size="11" font-weight="600" text-anchor="end">${tick.toLocaleString()}</text>
-        `;
-      });
-
-      // X-Axis Labels
-      let xLabelsSvg = "";
-      labels.forEach((label, idx) => {
-        const x = getX(idx);
-        xLabelsSvg += `
-          <text x="${x}" y="${height - 12}" fill="#64748b" font-size="11" font-weight="700" text-anchor="middle">${label}</text>
-        `;
-      });
-
-      // Build Smooth Bezier Path
-      const points = values.map((val, idx) => ({ x: getX(idx), y: getY(val), val, label: labels[idx] }));
-      
-      let linePath = `M ${points[0].x} ${points[0].y}`;
-      for (let i = 0; i < points.length - 1; i++) {
-        const p0 = points[i === 0 ? 0 : i - 1];
-        const p1 = points[i];
-        const p2 = points[i + 1];
-        const p3 = points[i + 2 < points.length ? i + 2 : i + 1];
-
-        const cp1x = p1.x + (p2.x - p0.x) / 6;
-        const cp1y = p1.y + (p2.y - p0.y) / 6;
-        const cp2x = p2.x - (p3.x - p1.x) / 6;
-        const cp2y = p2.y - (p3.y - p1.y) / 6;
-
-        linePath += ` C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${p2.x} ${p2.y}`;
-      }
-
-      const areaPath = `${linePath} L ${points[points.length - 1].x} ${paddingTop + chartHeight} L ${points[0].x} ${paddingTop + chartHeight} Z`;
-
-      // Data Points (circles)
-      let circlesSvg = "";
-      points.forEach((p, idx) => {
-        circlesSvg += `
-          <circle cx="${p.x}" cy="${p.y}" r="5" fill="#0284c7" stroke="#ffffff" stroke-width="2" style="cursor: pointer;">
-            <title>${p.label}: ${p.val} minutes flown (${(p.val / 60).toFixed(1)} hrs)</title>
-          </circle>
-        `;
-      });
-
-      svg.innerHTML = `
-        <defs>
-          <linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stop-color="#0ea5e9" stop-opacity="0.35"/>
-            <stop offset="100%" stop-color="#0ea5e9" stop-opacity="0.02"/>
-          </linearGradient>
-        </defs>
-        ${gridSvg}
-        <path d="${areaPath}" fill="url(#chartGradient)" />
-        <path d="${linePath}" fill="none" stroke="#0ea5e9" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
-        ${circlesSvg}
-        ${xLabelsSvg}
-      `;
     }
 
     function renderDroneAnalyticsTable(drones) {
