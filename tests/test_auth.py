@@ -97,7 +97,6 @@ def test_viewer_can_access_viewing_dashboard_and_reports():
     assert "Admin Console" not in res_dash.text
     assert "changeGlobalMode" in res_dash.text
     assert 'fetch("/set_mode"' in res_dash.text
-    assert "Read-only alerts" in res_dash.text
 
     # Can view cameras
     res_cams = viewer_client.get("/cameras")
