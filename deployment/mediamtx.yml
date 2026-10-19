@@ -28,23 +28,9 @@ rtmpAddress: :1935
 hls: yes
 hlsAddress: :8888
 hlsVariant: lowLatency
-hlsSegmentCount: 12
+hlsSegmentCount: 7
 hlsSegmentDuration: 1s
 hlsPartDuration: 200ms
-
-# The playback server stays on the private Docker network. The app validates
-# camera paths and authorizes archive requests before proxying them.
-playback: yes
-playbackAddress: :9996
-
-pathDefaults:
-  recordPath: /recordings/%path/%Y-%m-%d_%H-%M-%S-%f
-  recordFormat: fmp4
-  recordPartDuration: 1s
-  recordSegmentDuration: 5m
-  recordDeleteAfter: 720h
-  runOnAvailable: 'curl --fail --silent --show-error --max-time 3 -X POST http://app:8000/cameras/state -H "Content-Type: application/json" -d "{\"path\":\"$MTX_PATH\", \"status\":\"online\"}"'
-  runOnUnavailable: 'curl --fail --silent --show-error --max-time 3 -X POST http://app:8000/cameras/state -H "Content-Type: application/json" -d "{\"path\":\"$MTX_PATH\", \"status\":\"offline\"}"'
 
 webrtc: yes
 webrtcAddress: :8889
@@ -56,8 +42,44 @@ webrtcAdditionalHosts:
   - 117.216.215.157
   - stream.dmsegpolice.in
 
+pathDefaults:
+  record: yes
+  recordPath: /recordings/%path/%Y-%m-%d_%H-%M-%S-%f
+  recordFormat: fmp4
+  recordPartDuration: 1s
+  recordMaxPartSize: 50M
+  recordSegmentDuration: 50m
+  recordDeleteAfter: 0s
+
 paths:
-  # Archive raw drone/CCTV uploads; analyzed copies can restart independently.
-  '~^live/':
-    record: yes
+
+  # REAL DRONE SOURCE STREAMS ONLY.
+  #
+  # MediaMTX records the encoded stream directly. There is NO decoding and
+  # NO re-encoding, therefore the archive retains the exact video quality
+  # received from the drone publisher.
+  "~^live/drone[0-9]+$":
+    record: true
+    recordPath: /recordings/%path/%Y-%m-%d_%H-%M-%S-%f
+    recordFormat: fmp4
+
+    # Fragment frequently for crash resilience without changing video quality.
+    recordPartDuration: 1s
+    recordMaxPartSize: 100M
+
+    # A normal drone flight will generally remain a single file. The file is
+    # closed immediately when the publisher disconnects.
+    recordSegmentDuration: 50m
+
+    # Do not auto-delete police archives.
+    recordDeleteAfter: 0s
+
+    runOnReady: 'curl --fail --silent --show-error --max-time 3 -X POST http://app:8000/cameras/state -H "Content-Type: application/json" -d "{\"path\":\"$MTX_PATH\", \"status\":\"online\"}"'
+    runOnNotReady: 'curl --fail --silent --show-error --max-time 3 -X POST http://app:8000/cameras/state -H "Content-Type: application/json" -d "{\"path\":\"$MTX_PATH\", \"status\":\"offline\"}"'
+
+  # Other MediaMTX paths still report state but are NOT recorded, preventing
+  # duplicate recordings of the AI/analyzed stream.
   all_others:
+    record: false
+    runOnReady: 'curl --fail --silent --show-error --max-time 3 -X POST http://app:8000/cameras/state -H "Content-Type: application/json" -d "{\"path\":\"$MTX_PATH\", \"status\":\"online\"}"'
+    runOnNotReady: 'curl --fail --silent --show-error --max-time 3 -X POST http://app:8000/cameras/state -H "Content-Type: application/json" -d "{\"path\":\"$MTX_PATH\", \"status\":\"offline\"}"'

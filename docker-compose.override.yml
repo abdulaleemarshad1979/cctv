@@ -1,0 +1,8 @@
+services:
+  nginx:
+    networks:
+      - eg-bodycam_default
+
+networks:
+  eg-bodycam_default:
+    external: true

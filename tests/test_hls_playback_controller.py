@@ -8,12 +8,12 @@ def _read(path):
     return (ROOT / path).read_text(encoding="utf-8")
 
 
-def test_mediamtx_configs_keep_a_twelve_second_hls_window():
+def test_mediamtx_configs_have_exact_hls_low_latency_settings():
     for rel_path in ["mediamtx.yml", "deployment/mediamtx.yml"]:
         content = _read(rel_path)
         assert "hls: yes" in content, f"hls: yes missing in {rel_path}"
         assert "hlsVariant: lowLatency" in content, f"hlsVariant: lowLatency missing in {rel_path}"
-        assert "hlsSegmentCount: 12" in content, f"hlsSegmentCount: 12 missing in {rel_path}"
+        assert "hlsSegmentCount: 6" in content, f"hlsSegmentCount: 6 missing in {rel_path}"
         assert "hlsSegmentDuration: 1s" in content, f"hlsSegmentDuration: 1s missing in {rel_path}"
         assert "hlsPartDuration: 200ms" in content, f"hlsPartDuration: 200ms missing in {rel_path}"
         assert "webrtcLocalUDPAddress: :8189" in content, f"webrtcLocalUDPAddress: :8189 missing in {rel_path}"
@@ -22,36 +22,40 @@ def test_mediamtx_configs_keep_a_twelve_second_hls_window():
 def test_lite_server_generates_correct_mediamtx_config():
     server_code = _read("lite_server.py")
     assert "hlsVariant: lowLatency" in server_code
-    assert "hlsSegmentCount: 12" in server_code
+    assert "hlsSegmentCount: 6" in server_code
     assert "hlsSegmentDuration: 1s" in server_code
     assert "hlsPartDuration: 200ms" in server_code
     assert "webrtcLocalUDPAddress: :8189" in server_code
 
 
-def test_dashboards_have_buffered_hls_configuration():
-    admin = _read("admin_dashboard.html")
-    lite = _read("lite_dashboard.html")
-
-    required_hls_settings = [
+def test_dashboards_have_low_latency_hls_configuration():
+    # hls.js throws "Illegal hls.js config" when liveSyncDuration/liveMaxLatencyDuration
+    # are combined with liveSyncDurationCount/liveMaxLatencyDurationCount, which left
+    # every HLS fallback with a black tile.  The config now lives in one shared file.
+    player = _read("static/monitor/js/egdms-player.js")
+    for setting in [
         "lowLatencyMode: false",
-        "liveSyncDuration: 6",
-        "liveMaxLatencyDuration: 12",
-        "maxLiveSyncPlaybackRate: 1.1",
-        "backBufferLength: 15",
-        "maxBufferLength: 20",
-        "maxMaxBufferLength: 30",
+        "liveSyncDuration: Math.max(1.5, target - 1.5)",
+        "liveMaxLatencyDuration: target + 5",
+        "maxLiveSyncPlaybackRate: 1.15",
+        "maxBufferLength: 6",
+        "maxMaxBufferLength: 12",
         "startPosition: -1",
         "enableWorker: true",
         "liveDurationInfinity: true",
-    ]
+        "capLevelToPlayerSize: true",
+    ]:
+        assert setting in player, f"Setting '{setting}' missing in egdms-player.js"
+    assert "liveSyncDurationCount" not in player
+    assert "liveMaxLatencyDurationCount" not in player
 
-    for setting in required_hls_settings:
-        assert setting in admin, f"Setting '{setting}' missing in admin_dashboard.html"
-        assert setting in lite, f"Setting '{setting}' missing in lite_dashboard.html"
-
-    for content in (admin, lite):
-        assert "liveSyncDurationCount:" not in content
-        assert "liveMaxLatencyDurationCount:" not in content
+    for name in ["admin_dashboard.html", "lite_dashboard.html"]:
+        content = _read(name)
+        assert '<script src="/static/monitor/js/egdms-player.js"></script>' in content
+        assert "new Hls(EGDMSPlayer.hlsConfig(" in content
+        assert not ("liveSyncDurationCount" in content and "liveSyncDuration:" in content), (
+            f"{name} mixes count- and second-based live sync options (hls.js rejects this)"
+        )
 
 
 def test_dashboards_have_immediate_autoplay_without_stalling():

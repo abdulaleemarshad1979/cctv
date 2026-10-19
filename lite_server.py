@@ -1,5 +1,6 @@
 import os
 import sys
+import asyncio
 import json
 import socket
 import time
@@ -9,14 +10,13 @@ import ipaddress
 import threading
 import hashlib
 import hmac
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from functools import lru_cache
 from contextlib import asynccontextmanager
 from typing import Optional
 from fastapi import FastAPI, HTTPException, Request, Response
-from fastapi.responses import FileResponse, RedirectResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from starlette.background import BackgroundTask
 from pydantic import BaseModel, Field
 import config
 import numpy as np
@@ -29,11 +29,12 @@ from src.mission_control import (
 )
 from src.stream_state_monitor import MediaMTXStateMonitor
 from src.drone_analytics import drone_flight_analytics_store
-from src.mediamtx_recordings import (
-    RETENTION_DAYS,
-    RecordingIndexUnavailable,
-    list_mediamtx_recordings,
-)
+from src.video_recordings import video_recordings_manager
+from src import stream_events as stream_ev
+from src.stream_events import StreamEventLog
+from src.stream_telemetry import StreamTelemetry
+from src.recording_continuity import RecordingContinuity
+from src.abr_transcoder import AbrManager, AbrUnavailable
 
 def _sanitize_for_json(obj):
     if isinstance(obj, dict):
@@ -81,7 +82,6 @@ cameras_db = []
 _cameras_by_id = {}
 _cameras_by_stream_path = {}
 running_processes = {}
-_analysis_start_lock = threading.Lock()
 stampede_notifications = []
 _notifications_lock = threading.Lock()
 _last_notification_time = {}
@@ -93,10 +93,15 @@ async def lifespan(app: FastAPI):
     global _stream_state_monitor
     _stream_state_monitor = build_stream_state_monitor()
     _stream_state_monitor.start()
+    _health_watch_stop.clear()
+    health_thread = threading.Thread(target=_health_watch_loop, name="stream-health-watch", daemon=True)
+    health_thread.start()
     try:
         yield
     finally:
+        _health_watch_stop.set()
         _stream_state_monitor.stop()
+        abr_manager.stop_all()
         print("[LITE SERVER] Shutting down. Terminating managed child processes...")
         for pid, p in list(running_processes.items()):
             try:
@@ -123,12 +128,95 @@ MEDIAMTX_RTMP_PORT = int(os.getenv("MEDIAMTX_RTMP_PORT", "1935"))
 MEDIAMTX_HLS_PORT = int(os.getenv("MEDIAMTX_HLS_PORT", "8888"))
 MEDIAMTX_WEBRTC_PORT = int(os.getenv("MEDIAMTX_WEBRTC_PORT", "8889"))
 MEDIAMTX_API_PORT = int(os.getenv("MEDIAMTX_API_PORT", "9997"))
-MEDIAMTX_PLAYBACK_URL = os.getenv(
-    "MEDIAMTX_PLAYBACK_URL", f"http://{MEDIAMTX_HOST}:9996"
-).rstrip("/")
 MEDIAMTX_STATE_POLL_SECONDS = float(
     os.getenv("MEDIAMTX_STATE_POLL_SECONDS", "2")
 )
+
+
+def _env_float(name, default):
+    try:
+        return float(os.getenv(name, str(default)))
+    except ValueError:
+        return float(default)
+
+
+def _env_flag(name, default="1"):
+    return os.getenv(name, default).strip().lower() not in ("0", "false", "no", "off", "")
+
+
+# --- Stream reliability settings ---
+# Seconds a dropped source is shown as "reconnecting" (last frame held) before
+# the tile falls back to the waiting placeholder.
+STREAM_GRACE_SECONDS = max(0.0, _env_float("STREAM_GRACE_SECONDS", 20))
+# Always play the raw drone feed; the analyzed feed is a re-encode with no
+# overlays that only adds delay and reconnects when the analyzer restarts.
+PLAYBACK_PREFER_RAW = _env_flag("PLAYBACK_PREFER_RAW", "1")
+PLAYER_LATENCY_TARGET_SECONDS = max(2.0, _env_float("PLAYER_LATENCY_TARGET_SECONDS", 5))
+# Must match MediaMTX readTimeout; used to tell uplink timeouts from app closes.
+MEDIAMTX_READ_TIMEOUT_SECONDS = _env_float("MEDIAMTX_READ_TIMEOUT_SECONDS", 10)
+HEALTH_WATCH_SECONDS = max(2.0, _env_float("HEALTH_WATCH_SECONDS", 5))
+CONTINUITY_SCAN_SECONDS = max(10.0, _env_float("CONTINUITY_SCAN_SECONDS", 30))
+ABR_STARTUP_TIMEOUT_SECONDS = max(2.0, _env_float("ABR_STARTUP_TIMEOUT_SECONDS", 12))
+RECORDINGS_DIR = os.getenv("RECORDINGS_DIR", "recordings")
+
+stream_events = StreamEventLog(
+    os.getenv("STREAM_EVENT_LOG", os.path.join("logs", "stream_events.jsonl")),
+    max_bytes=int(_env_float("STREAM_EVENT_LOG_MAX_MB", 20) * 1024 * 1024),
+    backup_count=int(_env_float("STREAM_EVENT_LOG_BACKUPS", 10)),
+    retention_days=_env_float("STREAM_EVENT_RETENTION_DAYS", 30),
+)
+
+
+def _source_camera_id(path):
+    camera, role = find_camera_by_stream_path(path)
+    return camera["id"] if camera is not None and role == "source" else None
+
+
+stream_telemetry = StreamTelemetry(
+    stream_events,
+    _source_camera_id,
+    stall_after_seconds=_env_float("UPLINK_STALL_SECONDS", 4),
+    server_read_timeout_seconds=MEDIAMTX_READ_TIMEOUT_SECONDS,
+)
+recording_continuity = RecordingContinuity(
+    RECORDINGS_DIR,
+    os.getenv("CONTINUITY_CACHE_FILE", os.path.join("outputs", "recording_continuity_cache.json")),
+    events=stream_events,
+    scan_days=_env_float("CONTINUITY_SCAN_DAYS", 14),
+    flight_break_seconds=_env_float("CONTINUITY_FLIGHT_BREAK_SECONDS", 600),
+    recorder_stall_seconds=_env_float("RECORDER_STALL_SECONDS", 20),
+    disk_warn_free_gb=_env_float("DISK_WARN_FREE_GB", 50),
+    disk_critical_free_gb=_env_float("DISK_CRITICAL_FREE_GB", 10),
+)
+abr_manager = AbrManager(
+    f"rtsp://{MEDIAMTX_HOST}:{MEDIAMTX_RTSP_PORT}",
+    os.getenv("ABR_WORK_DIR", "/tmp/egdms-abr"),
+    max_sessions=int(_env_float("ABR_MAX_SESSIONS", 4)),
+    idle_seconds=_env_float("ABR_IDLE_SECONDS", 45),
+    encode_720=_env_flag("ABR_ENCODE_720", "1"),
+    events=stream_events,
+    is_source_online=lambda camera_id: bool((find_camera_by_id(camera_id) or {}).get("source_online")),
+)
+_health_watch_stop = threading.Event()
+
+
+def _health_watch_loop():
+    """Background checks that must run whether or not anyone is viewing."""
+    next_scan = 0.0
+    while not _health_watch_stop.is_set():
+        try:
+            abr_manager.reap()
+            expire_stream_grace()
+            now = time.time()
+            if now >= next_scan:
+                recording_continuity.scan()
+                recording_continuity.check_disk()
+                next_scan = now + CONTINUITY_SCAN_SECONDS
+            for camera in list(cameras_db):
+                recording_continuity.check_recorder(camera["id"], bool(camera.get("source_online")))
+        except Exception as exc:  # keep the watchdog alive
+            print(f"[STREAM HEALTH] check failed: {type(exc).__name__}: {exc}")
+        _health_watch_stop.wait(HEALTH_WATCH_SECONDS)
 
 ANALYTICS_STALE_AFTER_SECONDS = float(
     os.getenv("ANALYTICS_STALE_AFTER_SECONDS", "20")
@@ -374,6 +462,8 @@ def build_stream_state_monitor():
         interval_seconds=MEDIAMTX_STATE_POLL_SECONDS,
         request_timeout_seconds=2.0,
         offline_confirmations=2,
+        on_payload=stream_telemetry.observe,
+        on_error=stream_telemetry.api_failed,
     )
 
 class StartRequest(BaseModel):
@@ -482,6 +572,11 @@ def get_worker_dependency_error():
 
 def update_camera_playback_path(camera):
     """Prefer raw video while analysis is disabled, unavailable, or starting."""
+    if PLAYBACK_PREFER_RAW:
+        # Counts and risk come from the analyzer over HTTP; the video tile
+        # stays on the raw feed so analyzer restarts never reload the player.
+        camera["playback_stream_path"] = camera.get("source_stream_path")
+        return
     use_raw = camera.get("source_online") and (
         not global_counting_mode or not camera.get("output_online")
     )
@@ -538,43 +633,30 @@ def start_live_analysis(camera):
             stop_stream(camera["id"])
         return None
 
-    # Serialize the capacity check and worker launch: simultaneous publisher
-    # notifications must not start more CPU analyzers than the configured cap.
-    with _analysis_start_lock:
-        if is_stream_running(camera["id"]):
-            return None
-
-        try:
-            capacity = max(1, int(os.getenv("MAX_CONCURRENT_AI_FEEDS", "4")))
-        except ValueError:
-            capacity = 4
-        active = sum(is_stream_running(item["id"]) for item in cameras_db)
-        if active >= capacity:
-            camera["analytics_status"] = "capacity"
-            camera["connection_message"] = "Live video connected. Waiting for a counting slot."
-            update_camera_playback_path(camera)
-            return None
-
-        dependency_error = get_worker_dependency_error()
-        if dependency_error:
-            camera["analytics_status"] = "error"
-            camera["error_type"] = "analysis unavailable"
-            camera["connection_message"] = f"Live video connected. {dependency_error}"
-            return None
-
+    if is_stream_running(camera["id"]):
         camera["analytics_status"] = "starting"
-        camera["connection_message"] = "Live video connected. Counting is starting..."
-        reset_camera_analytics(camera)
-        source_url = f"rtsp://{MEDIAMTX_HOST}:{MEDIAMTX_RTSP_PORT}/{source_path.strip('/')}"
-        print(f"[LITE SERVER] Starting analysis for {camera['id']} from {source_path}")
-        try:
-            return start_stream(camera, source_url)
-        except Exception as exc:
-            camera["analytics_status"] = "error"
-            camera["error_type"] = "analysis failed to start"
-            camera["connection_message"] = f"Live video connected. Counting failed to start: {exc}"
-            update_camera_playback_path(camera)
-            return None
+        return None
+
+    dependency_error = get_worker_dependency_error()
+    if dependency_error:
+        camera["analytics_status"] = "error"
+        camera["error_type"] = "analysis unavailable"
+        camera["connection_message"] = f"Live video connected. {dependency_error}"
+        return None
+
+    camera["analytics_status"] = "starting"
+    camera["connection_message"] = "Live video connected. Counting is starting..."
+    reset_camera_analytics(camera)
+    source_url = f"rtsp://{MEDIAMTX_HOST}:{MEDIAMTX_RTSP_PORT}/{source_path.strip('/')}"
+    print(f"[LITE SERVER] Starting analysis for {camera['id']} from {source_path}")
+    try:
+        return start_stream(camera, source_url)
+    except Exception as exc:
+        camera["analytics_status"] = "error"
+        camera["error_type"] = "analysis failed to start"
+        camera["connection_message"] = f"Live video connected. Counting failed to start: {exc}"
+        update_camera_playback_path(camera)
+        return None
 
 
 def reset_analytics_freshness(camera):
@@ -583,9 +665,28 @@ def reset_analytics_freshness(camera):
     camera["stats_updated_at"] = None
 
 
+def expire_stream_grace():
+    """End the reconnect grace period for sources that did not come back."""
+    now = time.time()
+    for camera in cameras_db:
+        lost_at = camera.get("reconnecting_since")
+        if camera.get("status") != "reconnecting" or lost_at is None:
+            continue
+        if now - lost_at < STREAM_GRACE_SECONDS:
+            continue
+        camera.pop("reconnecting_since", None)
+        camera["status"] = "connecting"
+        camera["connection_message"] = "Waiting for drone camera stream to resume..."
+        stream_events.record(
+            camera["id"], stream_ev.CAMERA, "grace_expired",
+            f"Source did not return within {STREAM_GRACE_SECONDS:.0f}s; viewers show the waiting screen",
+        )
+
+
 def refresh_camera_health():
     """Detect worker exits and never present an old inference result as live."""
     now = time.time()
+    expire_stream_grace()
     for camera in cameras_db:
         process = running_processes.get(camera["id"])
         if process and process.poll() is not None:
@@ -595,6 +696,8 @@ def refresh_camera_health():
             camera["analytics_status"] = "error"
             camera["error_type"] = "video processor stopped"
             crash_message = _worker_exit_message(process)
+            stream_events.record(camera["id"], stream_ev.ANALYZER, "worker_exited", crash_message,
+                                 exit_code=process.returncode)
             if camera.get("source_online") and camera.get("enabled", True):
                 camera["status"] = "online"
                 camera["connection_message"] = f"Live video connected. {crash_message}"
@@ -615,16 +718,6 @@ def refresh_camera_health():
         ):
             camera["analytics_status"] = "stale"
             reset_camera_analytics(camera)
-
-    # A stopped or disconnected worker frees a slot for a waiting live feed.
-    if global_counting_mode:
-        for camera in cameras_db:
-            if (
-                camera.get("analytics_status") == "capacity"
-                and camera.get("source_online")
-                and camera.get("enabled", True)
-            ):
-                start_live_analysis(camera)
 
 
 @lru_cache(maxsize=1)
@@ -686,7 +779,7 @@ webrtcAdditionalHosts:
 hls: yes
 hlsAddress: :{MEDIAMTX_HLS_PORT}
 hlsVariant: lowLatency
-hlsSegmentCount: 12
+hlsSegmentCount: 6
 hlsSegmentDuration: 1s
 hlsPartDuration: 200ms
 
@@ -1082,7 +1175,7 @@ async def auth_middleware(request: Request, call_next):
     if not user:
         if path == "/":
             return RedirectResponse(url="/login?role=viewer&redirect=/", status_code=307)
-        elif path == "/admin":
+        elif path == "/admin" or path.startswith("/admin/"):
             return RedirectResponse(url="/login?role=admin&redirect=/admin", status_code=307)
         elif path == "/commercial":
             return RedirectResponse(url="/login?redirect=/commercial", status_code=307)
@@ -1092,7 +1185,7 @@ async def auth_middleware(request: Request, call_next):
 
     # Admin-only route / mutation enforcement
     is_admin_route = False
-    if path == "/admin":
+    if path == "/admin" or path.startswith("/admin/"):
         is_admin_route = True
     elif path.startswith("/api/cameras/"):
         is_admin_route = True
@@ -1103,6 +1196,8 @@ async def auth_middleware(request: Request, call_next):
     elif path == "/api/notifications/clear":
         is_admin_route = True
     elif path.startswith("/api/drone-analytics") or path.startswith("/api/recordings"):
+        is_admin_route = True
+    elif path.startswith("/api/stream-diagnostics"):
         is_admin_route = True
 
     if is_admin_route and user.get("role") != "admin":
@@ -1226,62 +1321,203 @@ def get_drone_analytics(from_date: Optional[str] = None, to_date: Optional[str] 
 
 
 @app.get("/api/recordings")
-async def get_recordings(drone: Optional[str] = None, q: Optional[str] = None):
-    try:
-        data = await list_mediamtx_recordings(
-            cameras_db, MEDIAMTX_PLAYBACK_URL, drone=drone, search=q
+def get_recordings(drone: Optional[str] = None, q: Optional[str] = None):
+    data = video_recordings_manager.list_recordings(
+        drone_filter=drone, search=q
+    )
+    return FastJSONResponse(content=_sanitize_for_json(data))
+
+
+@app.get("/api/recordings/continuity")
+def get_recording_continuity(camera: Optional[str] = None, hours: float = 24.0):
+    """Recorded duration, gaps and segment integrity per camera (admin)."""
+    camera_id = None
+    if camera:
+        found = find_camera_by_id(camera)
+        if found is None:
+            raise HTTPException(status_code=404, detail="Unknown camera")
+        camera_id = found["id"]
+    hours = min(max(hours, 0.1), 24.0 * 14)
+    return FastJSONResponse(content=recording_continuity.report(camera_id, hours))
+
+
+# --- Stream diagnostics -----------------------------------------------------
+
+class BrowserStreamEvent(BaseModel):
+    camera_id: str = Field(..., max_length=32)
+    event: str = Field(..., max_length=40)
+    detail: str = Field("", max_length=300)
+    transport: Optional[str] = Field(None, max_length=16)
+    latency_seconds: Optional[float] = None
+    level_height: Optional[int] = None
+    stall_seconds: Optional[float] = None
+
+
+class BrowserStreamEvents(BaseModel):
+    events: list[BrowserStreamEvent] = Field(..., max_length=20)
+
+
+BROWSER_EVENT_TYPES = {
+    "stall", "reconnecting", "recovered", "signal_lost", "playback_error",
+    "quality_switch", "abr_fallback", "webrtc_failed", "latency_sample",
+}
+_browser_event_times = {}
+_browser_latency = {}
+_browser_event_lock = threading.Lock()
+
+
+@app.post("/api/stream-events")
+def report_browser_stream_events(batch: BrowserStreamEvents, request: Request):
+    """Viewer players report stalls, reconnects and latency (rate limited)."""
+    user = (get_current_user(request) or {}).get("username") or "viewer"
+    now = time.time()
+    accepted = 0
+    for item in batch.events:
+        camera = find_camera_by_id(item.camera_id)
+        if camera is None or item.event not in BROWSER_EVENT_TYPES:
+            continue
+        if item.latency_seconds is not None and 0 <= item.latency_seconds < 600:
+            with _browser_event_lock:
+                _browser_latency[camera["id"]] = {
+                    "latency_seconds": round(item.latency_seconds, 2),
+                    "level_height": item.level_height,
+                    "transport": item.transport,
+                    "at": now,
+                }
+        if item.event == "latency_sample":
+            continue
+        key = (user, camera["id"])
+        with _browser_event_lock:
+            recent = [t for t in _browser_event_times.get(key, []) if now - t < 60.0]
+            if len(recent) >= 20:
+                _browser_event_times[key] = recent
+                continue
+            recent.append(now)
+            _browser_event_times[key] = recent
+        stream_events.record(
+            camera["id"], stream_ev.BROWSER, item.event, item.detail,
+            viewer=str(user)[:40], transport=item.transport,
+            latency_seconds=item.latency_seconds, level_height=item.level_height,
+            stall_seconds=item.stall_seconds,
         )
-    except RecordingIndexUnavailable as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-    return FastJSONResponse(content=data, headers={"Cache-Control": "no-store"})
+        accepted += 1
+    return {"accepted": accepted}
 
 
-@app.get("/api/recordings/play")
-async def play_recording(path: str, start: str, duration: float, download: bool = False):
-    """Stream a known camera's archive through the admin-authenticated API."""
-    import httpx
+def _camera_diagnostics(camera, now):
+    lost_at = camera.get("reconnecting_since")
+    with _browser_event_lock:
+        viewer = dict(_browser_latency.get(camera["id"]) or {})
+    if viewer:
+        viewer["age_seconds"] = round(now - viewer.pop("at"), 1)
+    return {
+        "camera_id": camera["id"],
+        "name": camera.get("name"),
+        "status": camera.get("status"),
+        "source_online": bool(camera.get("source_online")),
+        "connection_message": camera.get("connection_message"),
+        "reconnecting_for_seconds": round(now - lost_at, 1) if lost_at else None,
+        "recorder_state": recording_continuity.check_recorder(camera["id"], bool(camera.get("source_online"))),
+        "source": stream_telemetry.snapshot(camera["id"], now),
+        "viewer_playback": viewer or None,
+        "analytics_status": camera.get("analytics_status"),
+    }
 
-    camera = next(
-        (cam for cam in cameras_db if cam.get("source_stream_path") == path), None
+
+@app.get("/api/stream-diagnostics")
+def stream_diagnostics(camera: Optional[str] = None, hours: float = 6.0, limit: int = 500):
+    """Per-camera connection, recording and viewer state plus an event timeline (admin)."""
+    now = time.time()
+    hours = min(max(hours, 0.1), 24.0 * 30)
+    since = now - hours * 3600.0
+    if camera:
+        found = find_camera_by_id(camera)
+        if found is None:
+            raise HTTPException(status_code=404, detail="Unknown camera")
+        selected = [found]
+        timeline = stream_events.recent(found["id"], limit=limit, since=since)
+    else:
+        timeline = stream_events.recent(None, limit=limit, since=since)
+        active = {event["camera_id"] for event in timeline}
+        selected = [c for c in cameras_db if c.get("source_online") or c["id"] in active
+                    or c.get("status") == "reconnecting"]
+    return FastJSONResponse(content=_sanitize_for_json({
+        "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "settings": {
+            "stream_grace_seconds": STREAM_GRACE_SECONDS,
+            "player_latency_target_seconds": PLAYER_LATENCY_TARGET_SECONDS,
+            "mediamtx_read_timeout_seconds": MEDIAMTX_READ_TIMEOUT_SECONDS,
+            "playback_prefers_raw_feed": PLAYBACK_PREFER_RAW,
+        },
+        "server": {
+            "mediamtx_state_sync": _stream_state_monitor.snapshot() if _stream_state_monitor else None,
+            **stream_telemetry.server_status(),
+        },
+        "disk": recording_continuity.check_disk(),
+        "abr": abr_manager.snapshot(),
+        "event_log": stream_events.snapshot(),
+        "cameras": [_camera_diagnostics(c, now) for c in selected],
+        "timeline": timeline,
+    }))
+
+
+@app.get("/admin/diagnostics", response_class=FileResponse)
+def stream_diagnostics_page():
+    return FileResponse("stream_diagnostics.html", headers={"Cache-Control": "no-store"})
+
+
+# --- Adaptive-quality live playback -----------------------------------------
+
+_ABR_MEDIA_TYPES = {".m3u8": "application/vnd.apple.mpegurl", ".ts": "video/mp2t"}
+
+
+def _abr_unavailable(camera, reason, detail):
+    return JSONResponse(
+        status_code=503,
+        content={"detail": detail, "reason": reason,
+                 "fallback": f"/hls/{camera.get('playback_stream_path') or camera.get('source_stream_path')}/index.m3u8"},
+        headers={"Retry-After": "10", "Cache-Control": "no-store"},
     )
+
+
+@app.get("/abr/{camera_id}/master.m3u8")
+async def abr_master_playlist(camera_id: str):
+    camera = find_camera_by_id(camera_id)
     if camera is None:
-        raise HTTPException(status_code=404, detail="Unknown recording path")
+        raise HTTPException(status_code=404, detail="Unknown camera")
+    if not camera.get("source_online"):
+        return _abr_unavailable(camera, "source_offline", "The camera is not publishing")
     try:
-        start_time = datetime.fromisoformat(start.replace("Z", "+00:00"))
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail="Invalid recording start") from exc
-    now = datetime.now(timezone.utc)
-    if (start_time.tzinfo is None or start_time < now - timedelta(days=RETENTION_DAYS)
-            or start_time > now + timedelta(minutes=1)
-            or not 1 <= duration <= 600):
-        raise HTTPException(status_code=400, detail="Recording outside the available range")
+        abr_manager.ensure(camera["id"], camera["source_stream_path"],
+                           stream_telemetry.source_height(camera["id"]))
+    except AbrUnavailable as exc:
+        return _abr_unavailable(camera, exc.reason, str(exc))
+    deadline = time.time() + ABR_STARTUP_TIMEOUT_SECONDS
+    while not abr_manager.is_ready(camera["id"]):
+        failure = abr_manager.failure_reason(camera["id"])
+        if failure or time.time() > deadline:
+            return _abr_unavailable(camera, "starting" if not failure else "transcoder_failed",
+                                    failure or "Adaptive-quality stream is still starting")
+        await asyncio.sleep(0.25)
+    abr_manager.touch(camera["id"])
+    path = abr_manager.resolve_file(camera["id"], ["master.m3u8"])
+    if path is None:
+        return _abr_unavailable(camera, "starting", "Adaptive-quality stream is still starting")
+    return FileResponse(path, media_type=_ABR_MEDIA_TYPES[".m3u8"], headers={"Cache-Control": "no-store"})
 
-    client = httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=3.0, read=30.0))
-    params = {"path": path, "start": start, "duration": duration, "format": "mp4"}
-    try:
-        upstream_request = client.build_request("GET", f"{MEDIAMTX_PLAYBACK_URL}/get", params=params)
-        upstream = await client.send(upstream_request, stream=True)
-    except httpx.HTTPError as exc:
-        await client.aclose()
-        raise HTTPException(status_code=503, detail="Recording playback is unavailable") from exc
-    if upstream.status_code != 200:
-        status = 404 if upstream.status_code == 404 else 502
-        await upstream.aclose()
-        await client.aclose()
-        raise HTTPException(status_code=status, detail="Recording not found")
 
-    async def close_upstream():
-        await upstream.aclose()
-        await client.aclose()
-
-    headers = {"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"}
-    if download:
-        filename = f"{camera['id']}_{start_time.astimezone(timezone.utc):%Y-%m-%d_%H-%M-%S}.mp4"
-        headers["Content-Disposition"] = f'attachment; filename="{filename}"'
-    return StreamingResponse(
-        upstream.aiter_bytes(), media_type="video/mp4", headers=headers,
-        background=BackgroundTask(close_upstream),
-    )
+@app.get("/abr/{camera_id}/{variant}/{name}")
+def abr_variant_file(camera_id: str, variant: str, name: str):
+    camera = find_camera_by_id(camera_id)
+    if camera is None:
+        raise HTTPException(status_code=404, detail="Unknown camera")
+    path = abr_manager.resolve_file(camera["id"], [variant, name])
+    if path is None:
+        raise HTTPException(status_code=404, detail="Not found")
+    abr_manager.touch(camera["id"])
+    ext = os.path.splitext(name)[1]
+    cache = "no-store" if ext == ".m3u8" else "private, max-age=30"
+    return FileResponse(path, media_type=_ABR_MEDIA_TYPES[ext], headers={"Cache-Control": cache})
 
 
 @app.get("/api/mission-control/overview")
@@ -1526,10 +1762,14 @@ def download_crowd_history():
 def get_cameras():
     refresh_camera_health()
     publish_host = get_lan_ip()
+    abr_available = abr_manager.enabled
     for camera in cameras_db:
         camera["publish_url"] = (
             f"rtmp://{publish_host}:1935/{camera['source_stream_path']}"
         )
+        camera["stream_grace_seconds"] = STREAM_GRACE_SECONDS
+        camera["player_latency_target_seconds"] = PLAYER_LATENCY_TARGET_SECONDS
+        camera["abr_available"] = abr_available
         update_camera_playback_path(camera)
     return FastJSONResponse(content=cameras_db)
 
@@ -1544,6 +1784,13 @@ def update_camera_state(req: StateRequest):
     is_online = req.status.lower() == "online"
 
     if path_role == "source" and is_online:
+        lost_at = matched_camera.pop("reconnecting_since", None)
+        if lost_at is not None:
+            stream_events.record(
+                matched_camera["id"], stream_ev.CAMERA, "recovered_within_grace",
+                f"Source returned after {time.time() - lost_at:.1f}s, inside the {STREAM_GRACE_SECONDS:.0f}s grace period",
+                outage_seconds=round(time.time() - lost_at, 1),
+            )
         matched_camera["source_online"] = True
         matched_camera["source_kind"] = "live_publish"
         if matched_camera.get("enabled", True):
@@ -1555,12 +1802,20 @@ def update_camera_state(req: StateRequest):
             matched_camera["connection_message"] = "Video is available but disconnected by the operator."
         update_camera_playback_path(matched_camera)
     elif path_role == "source":
+        was_live = matched_camera.get("source_online") or matched_camera.get("status") == "reconnecting"
         matched_camera["source_online"] = False
         matched_camera["output_online"] = False
         matched_camera["enabled"] = True
-        matched_camera["status"] = "connecting"
         matched_camera["error_type"] = None
-        matched_camera["connection_message"] = "Waiting for drone camera stream to resume..."
+        if STREAM_GRACE_SECONDS > 0 and was_live:
+            # Viewers keep the last frame and a reconnecting badge; recording
+            # simply resumes in a new file when the publisher returns.
+            matched_camera.setdefault("reconnecting_since", time.time())
+            matched_camera["status"] = "reconnecting"
+            matched_camera["connection_message"] = "Signal interrupted — reconnecting…"
+        else:
+            matched_camera["status"] = "connecting"
+            matched_camera["connection_message"] = "Waiting for drone camera stream to resume..."
         matched_camera["analytics_status"] = "waiting_for_source"
         stop_stream(matched_camera["id"])
         reset_camera_analytics(matched_camera)
@@ -1586,6 +1841,9 @@ def update_camera_state(req: StateRequest):
                 start_live_analysis(matched_camera)
             elif not global_counting_mode:
                 matched_camera["analytics_status"] = "disabled"
+        elif matched_camera.get("status") == "reconnecting":
+            # The analyzer output follows its source down; keep the grace state.
+            matched_camera["analytics_status"] = "waiting_for_source"
         else:
             matched_camera["enabled"] = True
             matched_camera["status"] = "connecting"

@@ -10,6 +10,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 from lite_server import (
     app,
     drone_flight_analytics_store,
+    video_recordings_manager,
     load_cameras,
     save_camera_customizations
 )
@@ -132,16 +133,8 @@ def test_api_drone_analytics_permissions():
     assert "week_total_hours" in data["summary"]
 
 
-def test_api_recordings_permissions_and_response(monkeypatch):
+def test_api_recordings_permissions_and_response():
     """Verify /api/recordings enforces admin authentication and returns video list."""
-    async def sample_recordings(*args, **kwargs):
-        return {"total_recordings": 1, "recordings": [{
-            "title": "Drone 1", "duration_formatted": "0m 8s",
-            "video_url": "/api/recordings/play?path=live%2Fdrone1",
-            "download_url": "/api/recordings/play?path=live%2Fdrone1&download=1",
-        }]}
-
-    monkeypatch.setattr(lite_server, "list_mediamtx_recordings", sample_recordings)
     # Viewer request
     viewer_client = TestClient(app)
     viewer_client.post("/login", json={"username": TEST_VIEWER_USERNAME, "password": TEST_VIEWER_PASSWORD})
@@ -163,15 +156,3 @@ def test_api_recordings_permissions_and_response(monkeypatch):
     assert "download_url" in rec
     assert "title" in rec
     assert "duration_formatted" in rec
-
-
-def test_recorded_video_requires_admin_and_known_camera():
-    start = "2026-10-19T05:29:41Z"
-    params = {"path": "live/unknown", "start": start, "duration": 8}
-    viewer = TestClient(app)
-    viewer.post("/login", json={"username": TEST_VIEWER_USERNAME, "password": TEST_VIEWER_PASSWORD})
-    assert viewer.get("/api/recordings/play", params=params).status_code == 403
-
-    admin = TestClient(app)
-    admin.post("/login", json={"username": TEST_ADMIN_USERNAME, "password": TEST_ADMIN_PASSWORD})
-    assert admin.get("/api/recordings/play", params=params).status_code == 404

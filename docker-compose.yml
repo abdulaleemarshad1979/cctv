@@ -12,6 +12,9 @@ services:
     volumes:
       - ./data/outputs:/app/outputs
       - ./data/logs:/app/logs
+      - ./data/recordings:/app/recordings:ro
+      - ./data/drone_flight_analytics.json:/app/config/drone_flight_analytics.json
+      - ./data/camera_customizations.json:/app/config/camera_customizations.json
       - ./dm_count/pretrained_models:/app/dm_count/pretrained_models:ro
     networks:
       - pushkaralu

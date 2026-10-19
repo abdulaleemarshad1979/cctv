@@ -143,26 +143,12 @@ RTMP URL exactly as shown; no username, password, token, or query string is
 required. This is appropriate only on a trusted local network. Re-enable an
 authentication boundary before exposing MediaMTX or the portal to the internet.
 
-The browser uses HLS with about six seconds of playback buffer by default.
-Add `?transport=webrtc` to the dashboard URL when the lowest delay matters more
-than uninterrupted playback. Only tiles near the visible part of the dashboard
-start decoders. Analyzer output uses a bounded latest-frame encoder, so a slow
-encoder cannot build a backlog. Its default browser resolution is 640x360 and
-frame rate is set by `OUTPUT_STREAM_FPS` (15 in `.env.example`).
-
-With Docker Compose, MediaMTX records raw `live/` drone and CCTV paths as
-five-minute fMP4 segments in `data/recordings/`. It deletes segments after
-30 days. The admin archive reads MediaMTX's playback index and streams MP4
-through the authenticated app; the playback server on port 9996 is internal
-to Docker. `ENABLE_RECORDING` controls the separate AI output recorder and
-does not disable these raw stream archives. Existing files in the old
-`recordings/` directory are left in place, but this archive lists the new
-MediaMTX segments.
-
-Allow enough disk space for 30 days of footage. At 4 Mb/s, one continuous
-camera uses roughly 1.3 TB per month; 60 cameras use roughly 78 TB. The app
-cannot smooth a stream whose source stops publishing or whose codec the browser
-cannot decode. Use H.264 for browser playback.
+The browser prefers MediaMTX WebRTC for sub-second playback and falls back to
+low-latency HLS. Analyzer output is clocked at 30 FPS by a bounded latest-frame
+encoder, so a slow encoder cannot build a backlog. The default browser stream
+is 640x360 to reduce per-camera CPU and memory cost while counting uses its own
+independent inference resolution. A slower source repeats the latest frame to
+keep timestamps and playback continuous.
 
 Crowd forecasts are regenerated every 15 seconds for horizons from 15 seconds
 to 3 hours. The next-15-second LSTM may be used at its measured 85% gate;
