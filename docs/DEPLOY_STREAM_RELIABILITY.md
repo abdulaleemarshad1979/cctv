@@ -127,9 +127,6 @@ Notes:
   change the worker. Video is unaffected; it restarts on the next source online.
   Worth checking in production logs.
 
-## Stage B (needs approval: restarts MediaMTX, ~5 s gap in all streams and recordings)
+## Stage B
 
-- `readTimeout: 20s` in `deployment/mediamtx.yml` (then set `MEDIAMTX_READ_TIMEOUT_SECONDS=20`): keeps 4G uplinks that stall 10–20 s from being dropped.
-- Rename deprecated `runOnReady`/`runOnNotReady` to `runOnAvailable`/`runOnUnavailable`.
-- Mount the MediaMTX config as a directory so edits take effect without stale-inode problems.
-- Optional: publish SRT (`8890/udp`) for drones that support it (better than RTMP over lossy 4G).
+See [DEPLOY_STAGE_B.md](DEPLOY_STAGE_B.md).

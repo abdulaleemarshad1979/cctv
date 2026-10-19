@@ -34,6 +34,7 @@ from src import stream_events as stream_ev
 from src.stream_events import StreamEventLog
 from src.stream_telemetry import StreamTelemetry
 from src.recording_continuity import RecordingContinuity
+from src.recording_flights import FlightPlayback, group_flights
 from src.abr_transcoder import AbrManager, AbrUnavailable
 
 def _sanitize_for_json(obj):
@@ -779,7 +780,7 @@ webrtcAdditionalHosts:
 hls: yes
 hlsAddress: :{MEDIAMTX_HLS_PORT}
 hlsVariant: lowLatency
-hlsSegmentCount: 6
+hlsSegmentCount: 12
 hlsSegmentDuration: 1s
 hlsPartDuration: 200ms
 
@@ -1320,12 +1321,81 @@ def get_drone_analytics(from_date: Optional[str] = None, to_date: Optional[str] 
     return FastJSONResponse(content=_sanitize_for_json(data))
 
 
+flight_playback = FlightPlayback(
+    video_recordings_manager.recordings_dir,
+    os.path.join("outputs", "recording_cache"),
+)
+_flight_lookup = {"at": 0.0, "by_id": {}}
+_flight_lookup_lock = threading.Lock()
+
+
+def _remember_flights(flights):
+    with _flight_lookup_lock:
+        _flight_lookup["by_id"] = {flight["id"]: flight for flight in flights}
+        _flight_lookup["at"] = time.time()
+
+
+def _find_flight(flight_id: str):
+    # Players send many range requests; reuse the last listing for a while.
+    with _flight_lookup_lock:
+        fresh = time.time() - _flight_lookup["at"] < 300
+        flight = _flight_lookup["by_id"].get(flight_id)
+    if flight is None or not fresh:
+        flights = group_flights(video_recordings_manager.list_recordings()["recordings"])
+        _remember_flights(flights)
+        flight = next((f for f in flights if f["id"] == flight_id), None)
+    if flight is None:
+        raise HTTPException(status_code=404, detail="Unknown flight")
+    return flight
+
+
 @app.get("/api/recordings")
-def get_recordings(drone: Optional[str] = None, q: Optional[str] = None):
+def get_recordings(drone: Optional[str] = None, q: Optional[str] = None, view: Optional[str] = None):
     data = video_recordings_manager.list_recordings(
         drone_filter=drone, search=q
     )
+    if view == "flights":
+        flights = group_flights(data.pop("recordings"))
+        if not drone and not q:
+            _remember_flights(flights)
+        data["flights"] = flights
+        data["summary"]["total_flights"] = len(flights)
     return FastJSONResponse(content=_sanitize_for_json(data))
+
+
+@app.get("/api/recordings/flights/{flight_id}/prepare")
+def prepare_flight_video(flight_id: str):
+    """Start (or report) building the single-file playback copy of a flight."""
+    status = flight_playback.status(_find_flight(flight_id))
+    status["video_url"] = f"/api/recordings/flights/{flight_id}/video.mp4"
+    return status
+
+
+@app.get("/api/recordings/flights/{flight_id}/video.mp4")
+def flight_video(flight_id: str, download: bool = False):
+    flight = _find_flight(flight_id)
+    path = flight_playback.video_path(flight)
+    if not os.path.exists(path):
+        raise HTTPException(status_code=409, detail="Flight video is not prepared yet")
+    flight_playback.touch(path)
+    started = datetime.fromtimestamp(flight["start_epoch"], timezone.utc).strftime("%Y-%m-%d_%H-%M-%S")
+    return FileResponse(
+        path,
+        media_type="video/mp4",
+        filename=f"{flight['drone_id']}_{started}Z.mp4",
+        content_disposition_type="attachment" if download else "inline",
+    )
+
+
+@app.get("/api/recordings/thumbnail")
+def recording_thumbnail(path: str):
+    record = video_recordings_manager.index.get(path)
+    if not record:
+        raise HTTPException(status_code=404, detail="Unknown recording")
+    thumb = flight_playback.thumbnail(path, record.get("duration_seconds") or 0)
+    if not thumb:
+        raise HTTPException(status_code=404, detail="No frame available")
+    return FileResponse(thumb, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=86400"})
 
 
 @app.get("/api/recordings/continuity")

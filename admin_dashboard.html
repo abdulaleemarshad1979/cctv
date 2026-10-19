@@ -1206,8 +1206,6 @@
       position: absolute;
       inset: 0;
       background: rgba(15, 23, 42, 0.85);
-      backdrop-filter: blur(8px);
-      -webkit-backdrop-filter: blur(8px);
     }
 
     .full-view-content {
@@ -1957,10 +1955,71 @@
       cursor: pointer;
     }
 
-    .recording-thumb video {
+    .recording-thumb img {
+      position: absolute;
+      inset: 0;
       width: 100%;
       height: 100%;
       object-fit: cover;
+    }
+    .recording-thumb img.recording-thumb--missing {
+      display: none;
+    }
+    .recordings-more {
+      grid-column: 1 / -1;
+      padding: 16px;
+      text-align: center;
+      color: #64748b;
+      font-size: 13px;
+    }
+    .recording-modal-status {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      color: #e2e8f0;
+      font-size: 14px;
+      font-weight: 600;
+      background: #000000;
+      z-index: 2;
+    }
+    .recording-modal-status.hidden {
+      display: none;
+    }
+    .recording-modal-progress {
+      width: 240px;
+      height: 6px;
+      border-radius: 3px;
+      background: #334155;
+      overflow: hidden;
+    }
+    .recording-modal-progress > span {
+      display: block;
+      height: 100%;
+      width: 0;
+      background: #38bdf8;
+      transition: width 0.4s ease;
+    }
+    .recording-segments {
+      padding: 0 20px 14px;
+      background: #1e293b;
+      color: #94a3b8;
+      font-size: 12px;
+    }
+    .recording-segments summary {
+      cursor: pointer;
+      color: #cbd5e1;
+    }
+    .recording-segments ol {
+      margin: 8px 0 0 18px;
+      max-height: 140px;
+      overflow-y: auto;
+    }
+    .recording-segments a {
+      color: #38bdf8;
     }
 
     .recording-play-overlay {
@@ -2097,8 +2156,7 @@
     .recording-modal-backdrop {
       position: absolute;
       inset: 0;
-      background: rgba(0, 0, 0, 0.85);
-      backdrop-filter: blur(8px);
+      background: rgba(0, 0, 0, 0.88);
     }
 
     .recording-modal-card {
@@ -2390,10 +2448,6 @@
           <input type="text" id="recordings-search-input" class="table-search-input" placeholder="🔍 Search video title, location..." oninput="filterRecordings()">
           <select id="recordings-drone-filter" class="analytics-date-input" onchange="filterRecordings()">
             <option value="">All Drone Feeds</option>
-            <option value="drone-1">Drone 1 (Pushkaralu Ghat)</option>
-            <option value="drone-3">Drone 3 (Gunadala PS)</option>
-            <option value="drone-6">Drone 6 (Command Control)</option>
-            <option value="drone-16">Drone 16 (Traffic S&C)</option>
           </select>
         </div>
         <div style="display: flex; align-items: center; gap: 10px;">
@@ -2421,10 +2475,11 @@
         <button type="button" class="modal-close-btn" onclick="closeRecordingPlayer()">&times;</button>
       </div>
       <div class="recording-modal-video-wrapper">
-        <video id="recording-video-player" controls playsinline preload="auto">
-          <source src="" type="video/mp4" id="recording-video-source">
-          Your browser does not support the video tag.
-        </video>
+        <video id="recording-video-player" controls playsinline preload="auto"></video>
+        <div id="recording-modal-status" class="recording-modal-status hidden" role="status">
+          <span id="recording-modal-status-text">Preparing video…</span>
+          <div class="recording-modal-progress"><span id="recording-modal-progress-bar"></span></div>
+        </div>
       </div>
       <div class="recording-modal-footer">
         <div style="display: flex; align-items: center; gap: 14px; font-size: 12.5px;">
@@ -2441,6 +2496,10 @@
           <span>Download Video</span>
         </a>
       </div>
+      <details id="recording-segments" class="recording-segments hidden">
+        <summary id="recording-segments-summary">Original files</summary>
+        <ol id="recording-segments-list"></ol>
+      </details>
     </div>
   </div>
 
@@ -2534,6 +2593,28 @@
     const CAMERA_POLL_INTERVAL_MS = 1000;
     let cameraPollInFlight = false;
     let activeFullViewCamId = null;
+    // Lazy live playback: a stream runs only while its tile is on screen in
+    // the Active Hub (or open in full view).  Off-screen players stop and keep
+    // their last frame, which frees bandwidth for the streams being watched.
+    // After leaving the Active Hub, streams that were on screen keep running
+    // for HUB_LEAVE_GRACE_MS so a quick look at another tab never restarts them.
+    const HUB_LEAVE_GRACE_MS = 60000;
+    let hubLeftAt = 0;
+    let hubLeaveTimer = null;
+    const tilesShownWhenHubLeft = new Set();
+    function liveTileWanted(camId) {
+      if (activeFullViewCamId === camId) return true;
+      if (currentDashboardSection === "active-hub") return liveTileGate.isVisible(camId);
+      return Date.now() - hubLeftAt < HUB_LEAVE_GRACE_MS && tilesShownWhenHubLeft.has(camId);
+    }
+    function resumeLiveTile(camId) {
+      const cam = cameras.find(c => c.id === camId);
+      if (cam && isCameraPlayable(cam) && !hlsPlayers[camId] && !playerRetryTimers[camId]) setupVideoFeed(cam);
+    }
+    function pauseLiveTile(camId) {
+      if (hlsPlayers[camId] && !liveTileWanted(camId)) teardownVideoFeed(camId, false, true);
+    }
+    const liveTileGate = new EGDMSPlayer.LiveTileGate({ onShow: resumeLiveTile, onHide: pauseLiveTile });
     const urlParams = new URLSearchParams(window.location.search);
     // HLS (adaptive when available) is the default: it buffers through
     // packet loss and supports quality switching. ?transport=webrtc opts in
@@ -2663,6 +2744,7 @@
         activeFullViewCamId = camId;
         const video = container.querySelector("video");
         if (video && !video._userPaused) safePlay(video);
+        else if (!video) resumeLiveTile(camId);
       }
     };
 
@@ -2682,6 +2764,7 @@
       activeFullViewCamId = null;
       const video = container?.querySelector("video");
       if (video && !video._userPaused) safePlay(video);
+      if (!liveTileWanted(camId)) pauseLiveTile(camId);
     };
 
     window.toggleNativeFullscreen = function() {
@@ -2862,6 +2945,7 @@
       existingCards.forEach((card, id) => {
         if (!currentCamMap.has(id)) {
           if (activeFullViewCamId === id) closeFullViewModal();
+          liveTileGate.unobserve(card);
           card.remove();
           teardownVideoFeed(id);
         }
@@ -2902,6 +2986,7 @@
         if (!card) {
           card = createTileCard(cam);
           grid.appendChild(card);
+          liveTileGate.observe(card);
           if (isOnline) {
             setupVideoFeed(cam);
             updateLiveStats(cam);
@@ -3381,6 +3466,8 @@ function setupHlsPlayback(cam, video, playbackPath, getMediaRecoveries) {
     function setupVideoFeed(cam) {
       const container = document.getElementById(`player-container-${cam.id}`);
       if (!container) return;
+      // Started later by liveTileGate when the tile comes on screen.
+      if (!liveTileWanted(cam.id)) return;
       // Keep any held frame visible until the new stream shows a frame.
       teardownVideoFeed(cam.id, false, true);
       if (playerRetryTimers[cam.id]) {
@@ -3457,7 +3544,9 @@ function setupHlsPlayback(cam, video, playbackPath, getMediaRecoveries) {
         const currentCam = (cameras || []).find(c => c.id === cam.id) || cam;
         if (!isCameraPlayable(currentCam)) return;
 
-        if (document.hidden) {
+        // A hidden page or a hidden Active Hub tab may pause video; that is
+        // not a stall and must not trigger a reconnect.
+        if (document.hidden || (currentDashboardSection !== "active-hub" && activeFullViewCamId !== cam.id)) {
           egdmsLastProgressAt = Date.now();
           return;
         }
@@ -3480,12 +3569,7 @@ function setupHlsPlayback(cam, video, playbackPath, getMediaRecoveries) {
         if (!video.seeking && video.readyState >= 2 && video.currentTime > egdmsLastTime) {
           egdmsLastTime = video.currentTime;
           egdmsLastProgressAt = now;
-          const player = hlsPlayers[cam.id];
-          if (player && typeof player.liveSyncPosition === "number" && player.liveSyncPosition > 0) {
-            if (player.liveSyncPosition - video.currentTime > 4.0) {
-              video.currentTime = player.liveSyncPosition;
-            }
-          }
+          EGDMSPlayer.keepLiveDelay(hlsPlayers[cam.id], video);
           return;
         }
 
@@ -3972,6 +4056,26 @@ function setupHlsPlayback(cam, video, playbackPath, getMediaRecoveries) {
         hubFilterGroup.style.display = (sectionName === "active-hub") ? "flex" : "none";
       }
 
+      // Live tiles are hidden on the other tabs.  Keep their streams for a
+      // minute (quick tab switches never restart video), then stop them so
+      // the archive and analytics get the bandwidth.
+      if (hubLeaveTimer) clearTimeout(hubLeaveTimer);
+      hubLeaveTimer = null;
+      if (sectionName !== "active-hub") {
+        if (!hubLeftAt) {
+          hubLeftAt = Date.now();
+          tilesShownWhenHubLeft.clear();
+          Object.keys(hlsPlayers).forEach(id => tilesShownWhenHubLeft.add(id));
+        }
+        hubLeaveTimer = setTimeout(() => {
+          hubLeaveTimer = null;
+          Object.keys(hlsPlayers).forEach(pauseLiveTile);
+        }, Math.max(0, HUB_LEAVE_GRACE_MS - (Date.now() - hubLeftAt)) + 100);
+      } else {
+        hubLeftAt = 0;
+        tilesShownWhenHubLeft.clear();
+      }
+
       if (sectionName === "drone-analytics") {
         loadDroneAnalytics();
       } else if (sectionName === "recorded-videos") {
@@ -4105,29 +4209,85 @@ function setupHlsPlayback(cam, video, playbackPath, getMediaRecoveries) {
     // ==========================================
     // RECORDED VIDEOS SECTION LOGIC
     // ==========================================
-    async function loadRecordedVideos() {
-      try {
-        const badge = document.getElementById("recordings-count-badge");
-        if (badge) badge.textContent = "Loading...";
+    // One card per flight: the server joins MediaMTX's many short files
+    // (reconnects, slow-uplink resets) into flights.  Cards render a page at a
+    // time and use a lazily loaded still image, never a <video> element.
+    const RECORDINGS_PAGE_SIZE = 24;
+    let filteredRecordings = [];
+    let recordingsShown = 0;
+    let recordingsObserver = null;
+    let recordingPrepareTimer = null;
+    let recordingPrepareFlightId = null;
 
-        const res = await fetch("/api/recordings");
+    function formatClock(epochSeconds) {
+      const d = new Date(epochSeconds * 1000);
+      const pad = n => String(n).padStart(2, "0");
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    }
+
+    function formatSpan(seconds) {
+      const s = Math.max(0, Math.round(seconds));
+      const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+      if (h) return `${h}h ${m}m`;
+      if (m) return `${m}m ${sec}s`;
+      return `${sec}s`;
+    }
+
+    function formatBytes(bytes) {
+      if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(2)} GB`;
+      if (bytes >= 1024 ** 2) return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
+      return `${(bytes / 1024).toFixed(1)} KB`;
+    }
+
+    function flightTitle(flight) {
+      return `${flight.location} — ${formatClock(flight.start_epoch)}`;
+    }
+
+    async function loadRecordedVideos() {
+      const badge = document.getElementById("recordings-count-badge");
+      try {
+        if (badge) badge.textContent = "Loading...";
+        const res = await fetch("/api/recordings?view=flights", { cache: "no-store" });
         if (!res.ok) throw new Error("Failed to load recordings");
         const data = await res.json();
-        cachedRecordings = data.recordings || [];
-
-        if (badge) badge.textContent = `${cachedRecordings.length} Videos Available`;
-        renderRecordings(cachedRecordings);
+        cachedRecordings = data.flights || [];
+        const files = cachedRecordings.reduce((n, f) => n + f.segment_count, 0);
+        if (badge) badge.textContent = `${cachedRecordings.length} flights · ${files} files`;
+        populateRecordingDroneFilter(cachedRecordings);
+        filterRecordings();
       } catch (err) {
         console.error("Error loading recordings:", err);
+        if (badge) badge.textContent = "Could not load recordings";
       }
     }
 
-    function renderRecordings(recordings) {
+    function populateRecordingDroneFilter(flights) {
+      const select = document.getElementById("recordings-drone-filter");
+      if (!select) return;
+      const current = select.value;
+      const drones = new Map();
+      flights.forEach(f => { if (!drones.has(f.drone_id)) drones.set(f.drone_id, f.location); });
+      const sorted = Array.from(drones.entries()).sort((a, b) =>
+        a[0].localeCompare(b[0], undefined, { numeric: true }));
+      select.innerHTML = '<option value="">All Drone Feeds</option>';
+      sorted.forEach(([id, location]) => {
+        const option = document.createElement("option");
+        option.value = id;
+        option.textContent = location && location !== id ? `${id} (${location})` : id;
+        select.appendChild(option);
+      });
+      if (drones.has(current)) select.value = current;
+    }
+
+    function renderRecordings(flights) {
       const grid = document.getElementById("recordings-cards-grid");
       if (!grid) return;
+      if (recordingsObserver) recordingsObserver.disconnect();
       grid.innerHTML = "";
+      filteredRecordings = flights;
+      recordingsShown = 0;
 
-      if (recordings.length === 0) {
+      if (flights.length === 0) {
         grid.innerHTML = `
           <div style="grid-column: 1 / -1; padding: 48px; text-align: center; color: #64748b; background: #ffffff; border-radius: 12px; border: 1px solid #e2e8f0;">
             <p style="font-size: 15px; font-weight: 700;">No video recordings match your filter.</p>
@@ -4135,87 +4295,209 @@ function setupHlsPlayback(cam, video, playbackPath, getMediaRecoveries) {
         `;
         return;
       }
+      appendRecordingCards();
+    }
 
-      recordings.forEach(rec => {
-        const card = document.createElement("div");
-        card.className = "recording-card";
+    function appendRecordingCards() {
+      const grid = document.getElementById("recordings-cards-grid");
+      if (!grid) return;
+      grid.querySelector(".recordings-more")?.remove();
+      const page = filteredRecordings.slice(recordingsShown, recordingsShown + RECORDINGS_PAGE_SIZE);
+      page.forEach(flight => grid.appendChild(createRecordingCard(flight)));
+      recordingsShown += page.length;
 
-        card.innerHTML = `
-          <div class="recording-thumb" onclick="playRecordedVideo('${rec.video_url}', '${escapeHtml(rec.title)}', '${escapeHtml(rec.location)} • ${escapeHtml(rec.recorded_at)}')">
-            <video src="${rec.video_url}#t=0.5" preload="metadata" muted playsinline></video>
-            <div class="recording-play-overlay">
-              <svg style="width: 22px; height: 22px; margin-left: 2px;" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M8 5v14l11-7z"/>
-              </svg>
-            </div>
-            <span class="recording-duration-badge">⏱ ${rec.duration_formatted}</span>
+      if (recordingsShown < filteredRecordings.length) {
+        const more = document.createElement("div");
+        more.className = "recordings-more";
+        more.textContent = `Showing ${recordingsShown} of ${filteredRecordings.length} — scroll for more`;
+        grid.appendChild(more);
+        if (!recordingsObserver) {
+          recordingsObserver = new IntersectionObserver(entries => {
+            if (entries.some(e => e.isIntersecting)) appendRecordingCards();
+          }, { rootMargin: "600px 0px" });
+        }
+        recordingsObserver.disconnect();
+        recordingsObserver.observe(more);
+      }
+    }
+
+    function createRecordingCard(flight) {
+      const card = document.createElement("div");
+      card.className = "recording-card";
+      const parts = flight.segment_count > 1
+        ? `<span class="recording-tag" title="Joined from ${flight.segment_count} recorder files">🧩 ${flight.segment_count} parts</span>`
+        : "";
+      const gaps = flight.gap_seconds >= 1
+        ? `<div style="font-size: 11.5px; color: #b45309; font-weight: 600;">⚠ ${formatSpan(flight.gap_seconds)} without signal during flight</div>`
+        : "";
+      const resolution = flight.height ? `${flight.height}p` : "Source";
+      card.innerHTML = `
+        <div class="recording-thumb" data-action="play">
+          <img alt="" loading="lazy" decoding="async"
+               src="/api/recordings/thumbnail?path=${encodeURIComponent(flight.thumbnail_path)}">
+          <div class="recording-play-overlay">
+            <svg style="width: 22px; height: 22px; margin-left: 2px;" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M8 5v14l11-7z"/>
+            </svg>
           </div>
-          <div class="recording-info">
-            <h4 class="recording-title">${escapeHtml(rec.title)}</h4>
-            <div class="recording-meta-tags">
-              <span class="recording-tag recording-tag-drone">📍 ${escapeHtml(rec.location)}</span>
-              <span class="recording-tag">📦 ${rec.size_formatted}</span>
-              <span class="recording-tag">🎞 1080p MP4</span>
-            </div>
-            <div style="font-size: 12px; color: #64748b; display: flex; align-items: center; gap: 4px;">
-              <span>📅 Recorded:</span>
-              <span style="font-weight: 600; color: #334155;">${rec.recorded_at}</span>
-            </div>
-            <div style="font-size: 11.5px; color: #10b981; font-weight: 600;">
-              ✓ ${escapeHtml(rec.ai_status || "Analyzed & Verified")}
-            </div>
+          <span class="recording-duration-badge">⏱ ${formatSpan(flight.duration_seconds)}</span>
+        </div>
+        <div class="recording-info">
+          <h4 class="recording-title">${escapeHtml(flightTitle(flight))}</h4>
+          <div class="recording-meta-tags">
+            <span class="recording-tag recording-tag-drone">📍 ${escapeHtml(flight.location)}</span>
+            <span class="recording-tag">📦 ${formatBytes(flight.size_bytes)}</span>
+            <span class="recording-tag">🎞 ${escapeHtml(resolution)} MP4</span>
+            ${parts}
           </div>
-          <div class="recording-card-footer">
-            <button type="button" class="btn-watch-video" onclick="playRecordedVideo('${rec.video_url}', '${escapeHtml(rec.title)}', '${escapeHtml(rec.location)} • ${escapeHtml(rec.recorded_at)}')">
-              <svg style="width: 14px; height: 14px;" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
-              <span>Watch Video</span>
-            </button>
-            <a href="${rec.download_url}" download class="btn-download-video">
-              <svg style="width: 13px; height: 13px;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
-              </svg>
-              <span>Download</span>
-            </a>
+          <div style="font-size: 12px; color: #64748b; display: flex; align-items: center; gap: 4px;">
+            <span>📅 ${escapeHtml(formatClock(flight.start_epoch))} → ${escapeHtml(formatClock(flight.end_epoch).slice(11))}</span>
           </div>
-        `;
-        grid.appendChild(card);
+          ${gaps}
+        </div>
+        <div class="recording-card-footer">
+          <button type="button" class="btn-watch-video" data-action="play">
+            <svg style="width: 14px; height: 14px;" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+            <span>Watch Video</span>
+          </button>
+          <button type="button" class="btn-download-video" data-action="download">
+            <svg style="width: 13px; height: 13px;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+            </svg>
+            <span>Download</span>
+          </button>
+        </div>
+      `;
+      card.querySelector("img").addEventListener("error", e => e.target.classList.add("recording-thumb--missing"));
+      card.querySelectorAll("[data-action]").forEach(el => {
+        el.addEventListener("click", () => {
+          if (el.dataset.action === "download") playRecordedVideo(flight.id, { download: true });
+          else playRecordedVideo(flight.id);
+        });
       });
+      return card;
     }
 
     window.filterRecordings = function() {
       const search = (document.getElementById("recordings-search-input")?.value || "").toLowerCase().trim();
       const droneFilter = (document.getElementById("recordings-drone-filter")?.value || "").toLowerCase();
 
-      const filtered = cachedRecordings.filter(rec => {
-        const matchesDrone = !droneFilter || rec.drone_id.toLowerCase() === droneFilter || rec.location.toLowerCase().includes(droneFilter);
-        const matchesSearch = !search || rec.title.toLowerCase().includes(search) || rec.location.toLowerCase().includes(search);
+      const filtered = cachedRecordings.filter(flight => {
+        const title = flightTitle(flight).toLowerCase();
+        const matchesDrone = !droneFilter || flight.drone_id.toLowerCase() === droneFilter;
+        const matchesSearch = !search || title.includes(search) ||
+          flight.location.toLowerCase().includes(search) || flight.drone_id.toLowerCase().includes(search);
         return matchesDrone && matchesSearch;
       });
 
       renderRecordings(filtered);
     };
 
-    window.playRecordedVideo = function(videoUrl, title, meta) {
+    function setRecordingStatus(text, progress) {
+      const box = document.getElementById("recording-modal-status");
+      if (!box) return;
+      box.classList.toggle("hidden", text == null);
+      if (text == null) return;
+      document.getElementById("recording-modal-status-text").textContent = text;
+      const bar = document.getElementById("recording-modal-progress-bar");
+      bar.parentElement.style.display = progress == null ? "none" : "";
+      bar.style.width = `${Math.round((progress || 0) * 100)}%`;
+    }
+
+    function stopRecordingPrepare() {
+      if (recordingPrepareTimer) clearTimeout(recordingPrepareTimer);
+      recordingPrepareTimer = null;
+      recordingPrepareFlightId = null;
+    }
+
+    function triggerDownload(url) {
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    }
+
+    window.playRecordedVideo = function(flightId, options = {}) {
+      const flight = cachedRecordings.find(f => f.id === flightId);
+      if (!flight) return;
       const modal = document.getElementById("recording-player-modal");
       const player = document.getElementById("recording-video-player");
-      const titleEl = document.getElementById("modal-video-title");
-      const metaEl = document.getElementById("modal-video-meta");
       const downloadBtn = document.getElementById("modal-video-download-btn");
 
-      if (titleEl) titleEl.textContent = title;
-      if (metaEl) metaEl.textContent = meta;
-      if (downloadBtn) downloadBtn.href = videoUrl;
+      document.getElementById("modal-video-title").textContent = flightTitle(flight);
+      document.getElementById("modal-video-meta").textContent =
+        `${formatSpan(flight.duration_seconds)} recorded · ${formatClock(flight.start_epoch)} → ${formatClock(flight.end_epoch).slice(11)}` +
+        (flight.segment_count > 1 ? ` · joined from ${flight.segment_count} files` : "");
 
-      if (player) {
-        player.src = videoUrl;
-        player.load();
-        player.play().catch(e => console.log("Auto-play blocked:", e));
-      }
+      const segBox = document.getElementById("recording-segments");
+      const segList = document.getElementById("recording-segments-list");
+      segList.innerHTML = "";
+      flight.segments.forEach(seg => {
+        const li = document.createElement("li");
+        const a = document.createElement("a");
+        a.href = seg.url;
+        a.download = "";
+        a.textContent = `${formatClock(seg.start_epoch).slice(11)} · ${formatSpan(seg.duration_seconds)} · ${formatBytes(seg.size_bytes)}`;
+        li.appendChild(a);
+        segList.appendChild(li);
+      });
+      document.getElementById("recording-segments-summary").textContent =
+        `Original recorder files (${flight.segment_count}) — unmodified evidence copies`;
+      segBox.classList.remove("hidden");
 
-      if (modal) modal.classList.remove("hidden");
+      stopRecordingPrepare();
+      player.pause();
+      player.removeAttribute("src");
+      player.load();
+      downloadBtn.removeAttribute("href");
+      downloadBtn.style.opacity = "0.5";
+      downloadBtn.style.pointerEvents = "none";
+      modal.classList.remove("hidden");
+      setRecordingStatus("Preparing video…", 0);
+      recordingPrepareFlightId = flightId;
+
+      const poll = async () => {
+        if (recordingPrepareFlightId !== flightId) return;
+        try {
+          const res = await fetch(`/api/recordings/flights/${encodeURIComponent(flightId)}/prepare`, { cache: "no-store" });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const status = await res.json();
+          if (recordingPrepareFlightId !== flightId) return;
+          if (status.state === "ready") {
+            recordingPrepareFlightId = null;
+            setRecordingStatus(null);
+            downloadBtn.href = `${status.video_url}?download=1`;
+            downloadBtn.style.opacity = "";
+            downloadBtn.style.pointerEvents = "";
+            player.src = status.video_url;
+            player.load();
+            if (options.download) {
+              triggerDownload(`${status.video_url}?download=1`);
+            } else {
+              player.play().catch(e => console.log("Auto-play blocked:", e));
+            }
+            return;
+          }
+          if (status.state === "error") {
+            recordingPrepareFlightId = null;
+            setRecordingStatus("This flight could not be joined. The original files below still play and download.", null);
+            segBox.open = true;
+            return;
+          }
+          const pct = Math.round((status.progress || 0) * 100);
+          setRecordingStatus(`Preparing video… ${pct}%`, status.progress || 0);
+        } catch (err) {
+          setRecordingStatus("Waiting for the server…", null);
+        }
+        recordingPrepareTimer = setTimeout(poll, 1000);
+      };
+      poll();
     };
 
     window.closeRecordingPlayer = function() {
+      stopRecordingPrepare();
       const modal = document.getElementById("recording-player-modal");
       const player = document.getElementById("recording-video-player");
       if (player) {
@@ -4223,6 +4505,7 @@ function setupHlsPlayback(cam, video, playbackPath, getMediaRecoveries) {
         player.removeAttribute("src");
         player.load();
       }
+      setRecordingStatus(null);
       if (modal) modal.classList.add("hidden");
     };
 

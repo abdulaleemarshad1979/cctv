@@ -133,7 +133,7 @@ def test_dashboards_default_to_hls_and_have_latency_catchup():
     """HLS (adaptive when available) is the default; ?transport=webrtc opts in.
 
     Latency is bounded by the shared hls.js config (live-sync target ~5 s,
-    hard ceiling target + 5 s) plus the watchdog/visibility catch-up jumps.
+    hard ceiling target + 7 s) plus the watchdog/visibility catch-up jumps.
     """
     for name in ["admin_dashboard.html", "lite_dashboard.html"]:
         content = _read(name)
@@ -141,8 +141,10 @@ def test_dashboards_default_to_hls_and_have_latency_catchup():
             f"HLS must be the default transport (WebRTC only with transport=webrtc) in {name}"
         )
         assert "targetLatency: cam.player_latency_target_seconds || 5" in content
-        assert "player.liveSyncPosition - video.currentTime > 4.0" in content, (
-            f"Watchdog live-sync catchup missing in {name}"
+        # The watchdog holds the target delay by adjusting speed; it only
+        # jumps when far behind, so short hiccups never skip video.
+        assert "EGDMSPlayer.keepLiveDelay(hlsPlayers[cam.id], video);" in content, (
+            f"Watchdog live-delay control missing in {name}"
         )
         assert "player.liveSyncPosition - video.currentTime > 3.0" in content, (
             f"Visibilitychange live-sync catchup missing in {name}"
@@ -167,3 +169,40 @@ def test_gen_rtmp_scripts_enforce_short_gop_for_low_latency():
     assert "-g" in content and "30" in content, "gen_rtmp.py must enforce short keyframe interval"
     assert "ultrafast" in content and "zerolatency" in content
 
+
+
+def test_live_players_only_run_for_tiles_on_screen():
+    player = _read("static/monitor/js/egdms-player.js")
+    assert "P.LiveTileGate = class" in player
+    assert "new IntersectionObserver" in player
+    for name in ["admin_dashboard.html", "lite_dashboard.html"]:
+        content = _read(name)
+        assert "new EGDMSPlayer.LiveTileGate(" in content, name
+        assert "liveTileGate.observe(card);" in content, name
+        assert "liveTileGate.unobserve(card);" in content, name
+        assert "if (!liveTileWanted(cam.id)) return;" in content, name
+
+
+def test_recordings_archive_does_not_create_a_video_per_card():
+    admin = _read("admin_dashboard.html")
+    assert "/api/recordings?view=flights" in admin
+    assert 'loading="lazy"' in admin
+    assert "RECORDINGS_PAGE_SIZE" in admin
+    assert '<video src="${rec.video_url}' not in admin
+    # A blurred backdrop over moving video made the player controls flicker.
+    assert "backdrop-filter: blur(8px)" not in admin
+
+
+def test_switching_admin_tabs_does_not_restart_live_video():
+    admin = _read("admin_dashboard.html")
+    assert "const HUB_LEAVE_GRACE_MS = 60000;" in admin
+    assert "tilesShownWhenHubLeft.has(camId)" in admin
+    # A hidden Active Hub may pause video; the watchdog must not reconnect it.
+    assert 'currentDashboardSection !== "active-hub" && activeFullViewCamId !== cam.id' in admin
+
+
+def test_live_delay_control_only_uses_buffered_video():
+    player = _read("static/monitor/js/egdms-player.js")
+    assert "P.keepLiveDelay = function (hls, video)" in player
+    assert "behind > 3 && ahead > 3" in player
+    assert "if (ahead < 1) {" in player

@@ -1,8 +1,11 @@
 /*
  * EGDMS live-player helpers shared by lite_dashboard.html and admin_dashboard.html.
  *
- * - hlsConfig(): a valid hls.js configuration aimed at ~5 s end-to-end delay
- *   (hls.js throws if second-based and count-based live-sync options are mixed).
+ * - hlsConfig(): a valid hls.js configuration that plays a steady ~5 s behind
+ *   the drone, so short network hiccups are absorbed by the buffer instead of
+ *   stalling (hls.js throws if second-based and count-based live-sync options
+ *   are mixed).
+ * - LiveTileGate: run live players only for tiles that are on screen.
  * - Backoff: bounded exponential retry delays with jitter.
  * - freezeFrame()/clearFreeze(): keep the last decoded frame on screen while a
  *   stream reconnects, instead of a black tile.  Nothing is written to any
@@ -24,14 +27,15 @@
       // Regular (not partial-segment) HLS is far more tolerant of lossy
       // links; delay is controlled by the live-sync distance below.
       lowLatencyMode: false,
-      liveSyncDuration: Math.max(1.5, target - 1.5),
-      liveMaxLatencyDuration: target + 5,
-      maxLiveSyncPlaybackRate: 1.15,
+      // Hold playback ~(target - 1) s behind the newest segment (plus ~1 s
+      // of segmenting = target end to end).  That gap is the jitter buffer;
+      // keepLiveDelay() holds playback there.
+      liveSyncDuration: Math.max(2, target - 1),
+      // Last-resort jump if keepLiveDelay() cannot keep up.
+      liveMaxLatencyDuration: target + 7,
       liveDurationInfinity: true,
-      // Small buffer normally; it may grow to ride out short stalls, and the
-      // live-sync rules above pull playback back to the live edge afterwards.
-      maxBufferLength: 6,
-      maxMaxBufferLength: 12,
+      maxBufferLength: target + 5,
+      maxMaxBufferLength: 20,
       backBufferLength: 10,
       startPosition: -1,
       // Adaptive bitrate: start conservatively, upgrade only on clear headroom.
@@ -53,6 +57,82 @@
       highBufferWatchdogPeriod: 2,
       xhrSetup: function (xhr) { xhr.withCredentials = true; }
     };
+  };
+
+  // Runs live players only for tiles on screen.  A tile that leaves the
+  // screen stops after stopDelayMs, so scrolling past briefly does not
+  // restart its stream.  Cards need a data-id attribute.
+  P.LiveTileGate = class {
+    constructor(options) {
+      this.onShow = options.onShow;
+      this.onHide = options.onHide;
+      this.stopDelayMs = options.stopDelayMs == null ? 15000 : options.stopDelayMs;
+      this.visible = new Set();
+      this.timers = {};
+      this.observer = typeof IntersectionObserver === "undefined" ? null
+        : new IntersectionObserver(entries => entries.forEach(e => this.update(e)),
+          { rootMargin: options.rootMargin || "200px 0px" });
+    }
+    observe(card) {
+      if (this.observer) this.observer.observe(card);
+      else this.visible.add(card.getAttribute("data-id"));
+    }
+    unobserve(card) {
+      const id = card.getAttribute("data-id");
+      if (this.observer) this.observer.unobserve(card);
+      this.visible.delete(id);
+      clearTimeout(this.timers[id]);
+      delete this.timers[id];
+    }
+    isVisible(id) {
+      return !this.observer || this.visible.has(id);
+    }
+    update(entry) {
+      const id = entry.target.getAttribute("data-id");
+      clearTimeout(this.timers[id]);
+      delete this.timers[id];
+      if (entry.isIntersecting) {
+        this.visible.add(id);
+        this.onShow(id);
+        return;
+      }
+      this.visible.delete(id);
+      this.timers[id] = setTimeout(() => {
+        delete this.timers[id];
+        if (!this.visible.has(id)) this.onHide(id);
+      }, this.stopDelayMs);
+    }
+  };
+
+  // Hold an HLS player near its live-sync point (the target delay).  hls.js
+  // only adjusts speed in low-latency mode, which is off for robustness, so
+  // drift is corrected here, and only with video that is really buffered:
+  // hls.js keeps advancing liveSyncPosition on the clock even while the
+  // drone's uplink is frozen, so "behind" alone would drain the buffer.
+  //  - buffer thin (< 1 s): play 5% slower to stretch it through a hiccup
+  //  - > 3 s behind with spare video buffered: jump forward inside the buffer
+  //  - > 1 s behind with spare video buffered: play 10% faster
+  // Call every couple of seconds.
+  P.keepLiveDelay = function (hls, video) {
+    if (!hls || !video || video.paused || video.seeking) return;
+    const sync = hls.liveSyncPosition;
+    if (typeof sync !== "number" || !(sync > 0)) return;
+    const ranges = video.buffered;
+    const bufferEnd = ranges.length ? ranges.end(ranges.length - 1) : video.currentTime;
+    const ahead = bufferEnd - video.currentTime;
+    const behind = sync - video.currentTime;
+    let rate = video.playbackRate;
+    if (ahead < 1) {
+      rate = 0.95;
+    } else if (behind > 3 && ahead > 3) {
+      video.currentTime = Math.min(sync, bufferEnd - 1.5);
+      rate = 1;
+    } else if (behind > 1 && ahead > 2) {
+      rate = 1.1;
+    } else if (behind < 0.25 || ahead < 2) {
+      rate = ahead < 1.5 ? 0.95 : 1;
+    }
+    if (video.playbackRate !== rate) video.playbackRate = rate;
   };
 
   P.Backoff = class {
