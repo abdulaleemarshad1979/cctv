@@ -76,6 +76,7 @@ cameras_db = []
 _cameras_by_id = {}
 _cameras_by_stream_path = {}
 running_processes = {}
+_analysis_start_lock = threading.Lock()
 stampede_notifications = []
 _notifications_lock = threading.Lock()
 _last_notification_time = {}
@@ -529,30 +530,43 @@ def start_live_analysis(camera):
             stop_stream(camera["id"])
         return None
 
-    if is_stream_running(camera["id"]):
+    # Serialize the capacity check and worker launch: simultaneous publisher
+    # notifications must not start more CPU analyzers than the configured cap.
+    with _analysis_start_lock:
+        if is_stream_running(camera["id"]):
+            return None
+
+        try:
+            capacity = max(1, int(os.getenv("MAX_CONCURRENT_AI_FEEDS", "4")))
+        except ValueError:
+            capacity = 4
+        active = sum(is_stream_running(item["id"]) for item in cameras_db)
+        if active >= capacity:
+            camera["analytics_status"] = "capacity"
+            camera["connection_message"] = "Live video connected. Waiting for a counting slot."
+            update_camera_playback_path(camera)
+            return None
+
+        dependency_error = get_worker_dependency_error()
+        if dependency_error:
+            camera["analytics_status"] = "error"
+            camera["error_type"] = "analysis unavailable"
+            camera["connection_message"] = f"Live video connected. {dependency_error}"
+            return None
+
         camera["analytics_status"] = "starting"
-        return None
-
-    dependency_error = get_worker_dependency_error()
-    if dependency_error:
-        camera["analytics_status"] = "error"
-        camera["error_type"] = "analysis unavailable"
-        camera["connection_message"] = f"Live video connected. {dependency_error}"
-        return None
-
-    camera["analytics_status"] = "starting"
-    camera["connection_message"] = "Live video connected. Counting is starting..."
-    reset_camera_analytics(camera)
-    source_url = f"rtsp://{MEDIAMTX_HOST}:{MEDIAMTX_RTSP_PORT}/{source_path.strip('/')}"
-    print(f"[LITE SERVER] Starting analysis for {camera['id']} from {source_path}")
-    try:
-        return start_stream(camera, source_url)
-    except Exception as exc:
-        camera["analytics_status"] = "error"
-        camera["error_type"] = "analysis failed to start"
-        camera["connection_message"] = f"Live video connected. Counting failed to start: {exc}"
-        update_camera_playback_path(camera)
-        return None
+        camera["connection_message"] = "Live video connected. Counting is starting..."
+        reset_camera_analytics(camera)
+        source_url = f"rtsp://{MEDIAMTX_HOST}:{MEDIAMTX_RTSP_PORT}/{source_path.strip('/')}"
+        print(f"[LITE SERVER] Starting analysis for {camera['id']} from {source_path}")
+        try:
+            return start_stream(camera, source_url)
+        except Exception as exc:
+            camera["analytics_status"] = "error"
+            camera["error_type"] = "analysis failed to start"
+            camera["connection_message"] = f"Live video connected. Counting failed to start: {exc}"
+            update_camera_playback_path(camera)
+            return None
 
 
 def reset_analytics_freshness(camera):
@@ -593,6 +607,16 @@ def refresh_camera_health():
         ):
             camera["analytics_status"] = "stale"
             reset_camera_analytics(camera)
+
+    # A stopped or disconnected worker frees a slot for a waiting live feed.
+    if global_counting_mode:
+        for camera in cameras_db:
+            if (
+                camera.get("analytics_status") == "capacity"
+                and camera.get("source_online")
+                and camera.get("enabled", True)
+            ):
+                start_live_analysis(camera)
 
 
 @lru_cache(maxsize=1)

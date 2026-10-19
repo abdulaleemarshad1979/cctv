@@ -1963,6 +1963,35 @@
       object-fit: cover;
     }
 
+    .recordings-pagination {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      padding: 24px 0;
+      color: #334155;
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    .recordings-pagination button {
+      padding: 8px 14px;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      background: #fff;
+      color: #1e293b;
+      cursor: pointer;
+    }
+
+    .recordings-pagination button:disabled {
+      color: #64748b;
+      cursor: default;
+    }
+
+    .recordings-pagination[hidden] {
+      display: none;
+    }
+
     .recording-play-overlay {
       position: absolute;
       width: 52px;
@@ -2406,6 +2435,7 @@
       <div class="recordings-grid" id="recordings-cards-grid">
         <!-- Rendered dynamically by renderRecordings() -->
       </div>
+      <div id="recordings-pagination" class="recordings-pagination" aria-label="Recording pages"></div>
     </div>
   </section>
 
@@ -2884,6 +2914,7 @@
         const isOnline = isCameraPlayable(cam);
 
         if (!isVisible) {
+          if (hlsPlayers[cam.id]) teardownVideoFeed(cam.id);
           if (card) card.classList.add("hidden");
           return;
         }
@@ -2893,7 +2924,7 @@
         if (!card) {
           card = createTileCard(cam);
           grid.appendChild(card);
-          if (isOnline) {
+          if (isOnline && currentDashboardSection === "active-hub" && !document.hidden) {
             setupVideoFeed(cam);
             updateLiveStats(cam);
           }
@@ -2949,7 +2980,7 @@
         `;
       }
 
-      if (isOnline) {
+      if (isOnline && currentDashboardSection === "active-hub" && !document.hidden && !card.classList.contains("hidden")) {
         const playbackPath = cameraPlaybackPath(cam);
         if (!playerUsesPath(hlsPlayers[cam.id], playbackPath)) {
           if (hlsPlayers[cam.id]) {
@@ -3118,6 +3149,7 @@
 
     function setupWebRtcPlayback(cam, video, playbackPath, fallbackToHls) {
       let webrtcEstablished = false;
+      let fallbackTimeout;
       let pc;
       try {
         pc = new RTCPeerConnection({
@@ -3130,13 +3162,11 @@
       }
 
       pc.addTransceiver("video", { direction: "recvonly" });
-      pc.addTransceiver("audio", { direction: "recvonly" });
 
       pc.ontrack = (event) => {
-        if (event.streams && event.streams[0]) {
-          video.srcObject = event.streams[0];
+        if (event.track.kind === "video") {
+          video.srcObject = event.streams?.[0] || new MediaStream([event.track]);
           safePlay(video);
-          webrtcEstablished = true;
         }
       };
 
@@ -3148,41 +3178,66 @@
         pc: pc,
         destroy() {
           this._destroyed = true;
+          clearTimeout(fallbackTimeout);
           try { pc.close(); } catch (e) {}
         }
       };
       hlsPlayers[cam.id] = webrtcPlayer;
 
-      const fallbackTimeout = setTimeout(() => {
-        if (!webrtcEstablished && !webrtcPlayer._destroyed) {
-          console.warn(`[WebRTC] Camera ${cam.id} media timeout, falling back to HLS`);
-          webrtcUnavailable[cam.id] = true;
-          webrtcPlayer.destroy();
-          fallbackToHls();
+      const fallback = (reason) => {
+        if (webrtcPlayer._destroyed || hlsPlayers[cam.id] !== webrtcPlayer) return;
+        console.warn(`[WebRTC] Camera ${cam.id} ${reason}, falling back to HLS`);
+        webrtcUnavailable[cam.id] = true;
+        webrtcPlayer.destroy();
+        video._recovering = true;
+        video._userPaused = false;
+        video.srcObject = null;
+        fallbackToHls();
+        setTimeout(() => { video._recovering = false; }, 500);
+      };
+      video.addEventListener("loadeddata", () => {
+        if (hlsPlayers[cam.id] === webrtcPlayer) {
+          webrtcEstablished = true;
+          clearTimeout(fallbackTimeout);
         }
-      }, 4000);
+      }, { once: true });
+      pc.onconnectionstatechange = () => {
+        if (pc.connectionState === "failed") fallback("connection failed");
+      };
+      fallbackTimeout = setTimeout(() => {
+        if (!webrtcEstablished) fallback("media timeout");
+      }, 6000);
 
-      pc.createOffer().then(offer => {
-        return pc.setLocalDescription(offer).then(() => offer);
-      }).then(offer => {
+      pc.createOffer().then(async offer => {
+        await pc.setLocalDescription(offer);
+        if (pc.iceGatheringState !== "complete") {
+          await new Promise(resolve => {
+            const done = () => {
+              clearTimeout(timeout);
+              pc.removeEventListener("icegatheringstatechange", onChange);
+              resolve();
+            };
+            const onChange = () => {
+              if (pc.iceGatheringState === "complete") done();
+            };
+            const timeout = setTimeout(done, 1500);
+            pc.addEventListener("icegatheringstatechange", onChange);
+          });
+        }
+        if (webrtcPlayer._destroyed) return null;
         return fetch(`/webrtc/${playbackPath}/whep`, {
           method: "POST",
           headers: { "Content-Type": "application/sdp" },
-          body: offer.sdp
+          body: pc.localDescription.sdp
         });
       }).then(async res => {
+        if (!res) return;
         if (!res.ok) throw new Error("WHEP error: " + res.status);
         const answerSdp = await res.text();
         if (webrtcPlayer._destroyed) return;
         await pc.setRemoteDescription({ type: "answer", sdp: answerSdp });
       }).catch(err => {
-        clearTimeout(fallbackTimeout);
-        if (!webrtcPlayer._destroyed) {
-          console.warn(`[WebRTC] Camera ${cam.id} WHEP negotiation failed, falling back to HLS:`, err);
-          webrtcUnavailable[cam.id] = true;
-          webrtcPlayer.destroy();
-          fallbackToHls();
-        }
+        fallback(`WHEP negotiation failed: ${err}`);
       });
     }
 
@@ -3193,13 +3248,12 @@
         const hls = new Hls({
           enableWorker: true,
           lowLatencyMode: true,
-          liveSyncDuration: 1.5,
-          liveMaxLatencyDuration: 3.5,
-          backBufferLength: 4,
-          maxBufferLength: 5,
-          maxMaxBufferLength: 10,
-          liveSyncDurationCount: 3,
-          liveMaxLatencyDurationCount: 5,
+          // hls.js rejects mixing these second-based settings with durationCount options.
+          liveSyncDuration: 3,
+          liveMaxLatencyDuration: 8,
+          backBufferLength: 6,
+          maxBufferLength: 10,
+          maxMaxBufferLength: 20,
           maxLiveSyncPlaybackRate: 1.1,
           liveDurationInfinity: true,
           startPosition: -1,
@@ -3287,7 +3341,8 @@
 
     function setupVideoFeed(cam) {
       const container = document.getElementById(`player-container-${cam.id}`);
-      if (!container) return;
+      const card = container?.closest(".tile");
+      if (!container || currentDashboardSection !== "active-hub" || document.hidden || card?.classList.contains("hidden")) return;
       teardownVideoFeed(cam.id);
       if (playerRetryTimers[cam.id]) {
         clearTimeout(playerRetryTimers[cam.id]);
@@ -3330,6 +3385,7 @@
         if (egdmsReconnecting) return;
         egdmsReconnecting = true;
         const currentCam = (cameras || []).find(c => c.id === cam.id) || cam;
+        if (hlsPlayers[cam.id]?._isWebRtc) webrtcUnavailable[cam.id] = true;
         teardownVideoFeed(cam.id);
         if (isCameraPlayable(currentCam)) setupVideoFeed(currentCam);
       };
@@ -3375,7 +3431,7 @@
           egdmsLastProgressAt = now;
           const player = hlsPlayers[cam.id];
           if (player && typeof player.liveSyncPosition === "number" && player.liveSyncPosition > 0) {
-            if (player.liveSyncPosition - video.currentTime > 4.0) {
+            if (player.liveSyncPosition - video.currentTime > 8.0) {
               video.currentTime = player.liveSyncPosition;
             }
           }
@@ -3414,20 +3470,10 @@
     }
 
     document.addEventListener("visibilitychange", () => {
-      if (!document.hidden) {
-        Object.keys(hlsPlayers).forEach(id => {
-          const container = document.getElementById(`player-container-${id}`);
-          const video = container?.querySelector("video");
-          const player = hlsPlayers[id];
-          if (video && !video._userPaused) {
-            if (player && typeof player.liveSyncPosition === "number" && player.liveSyncPosition > 0) {
-              if (player.liveSyncPosition - video.currentTime > 3.0) {
-                video.currentTime = player.liveSyncPosition;
-              }
-            }
-            safePlay(video);
-          }
-        });
+      if (document.hidden) {
+        Object.keys(hlsPlayers).forEach(id => teardownVideoFeed(id));
+      } else if (currentDashboardSection === "active-hub") {
+        renderGrid();
       }
     });
 
@@ -3829,8 +3875,14 @@
     let currentDashboardSection = "active-hub";
     let cachedDroneAnalytics = null;
     let cachedRecordings = [];
+    let filteredRecordings = [];
+    let recordingsPage = 1;
+    const RECORDINGS_PAGE_SIZE = 24;
 
     window.switchDashboardSection = function(sectionName) {
+      if (sectionName !== "active-hub") {
+        Object.keys(hlsPlayers).forEach(id => teardownVideoFeed(id));
+      }
       currentDashboardSection = sectionName;
       
       // Update Tab Buttons
@@ -3855,7 +3907,9 @@
         hubFilterGroup.style.display = (sectionName === "active-hub") ? "flex" : "none";
       }
 
-      if (sectionName === "drone-analytics") {
+      if (sectionName === "active-hub") {
+        renderGrid();
+      } else if (sectionName === "drone-analytics") {
         loadDroneAnalytics();
       } else if (sectionName === "recorded-videos") {
         loadRecordedVideos();
@@ -4005,10 +4059,22 @@
       }
     }
 
-    function renderRecordings(recordings) {
+    function renderRecordings(recordings, page = 1) {
       const grid = document.getElementById("recordings-cards-grid");
       if (!grid) return;
+      filteredRecordings = recordings;
+      const pageCount = Math.ceil(recordings.length / RECORDINGS_PAGE_SIZE);
+      recordingsPage = Math.min(Math.max(1, page), Math.max(1, pageCount));
       grid.innerHTML = "";
+      const pagination = document.getElementById("recordings-pagination");
+      if (pagination) {
+        pagination.hidden = pageCount <= 1;
+        pagination.innerHTML = pageCount <= 1 ? "" : `
+          <button type="button" onclick="changeRecordingsPage(-1)" ${recordingsPage === 1 ? "disabled" : ""}>Previous</button>
+          <span>Page ${recordingsPage} of ${pageCount}</span>
+          <button type="button" onclick="changeRecordingsPage(1)" ${recordingsPage === pageCount ? "disabled" : ""}>Next</button>
+        `;
+      }
 
       if (recordings.length === 0) {
         grid.innerHTML = `
@@ -4019,13 +4085,13 @@
         return;
       }
 
-      recordings.forEach(rec => {
+      const start = (recordingsPage - 1) * RECORDINGS_PAGE_SIZE;
+      recordings.slice(start, start + RECORDINGS_PAGE_SIZE).forEach(rec => {
         const card = document.createElement("div");
         card.className = "recording-card";
 
         card.innerHTML = `
           <div class="recording-thumb" onclick="playRecordedVideo('${rec.video_url}', '${escapeHtml(rec.title)}', '${escapeHtml(rec.location)} • ${escapeHtml(rec.recorded_at)}')">
-            <video src="${rec.video_url}#t=0.5" preload="metadata" muted playsinline></video>
             <div class="recording-play-overlay">
               <svg style="width: 22px; height: 22px; margin-left: 2px;" fill="currentColor" viewBox="0 0 24 24">
                 <path d="M8 5v14l11-7z"/>
@@ -4064,6 +4130,11 @@
         grid.appendChild(card);
       });
     }
+
+    window.changeRecordingsPage = function(delta) {
+      renderRecordings(filteredRecordings, recordingsPage + delta);
+      document.getElementById("recordings-cards-grid")?.scrollIntoView({ block: "start" });
+    };
 
     window.filterRecordings = function() {
       const search = (document.getElementById("recordings-search-input")?.value || "").toLowerCase().trim();

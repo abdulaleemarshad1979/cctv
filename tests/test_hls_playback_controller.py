@@ -34,14 +34,12 @@ def test_dashboards_have_low_latency_hls_configuration():
 
     required_hls_settings = [
         "lowLatencyMode: true",
-        "liveSyncDuration: 1.5",
-        "liveMaxLatencyDuration: 3.5",
-        "liveSyncDurationCount: 3",
-        "liveMaxLatencyDurationCount: 5",
+        "liveSyncDuration: 3",
+        "liveMaxLatencyDuration: 8",
         "maxLiveSyncPlaybackRate: 1.1",
-        "backBufferLength: 4",
-        "maxBufferLength: 5",
-        "maxMaxBufferLength: 10",
+        "backBufferLength: 6",
+        "maxBufferLength: 10",
+        "maxMaxBufferLength: 20",
         "startPosition: -1",
         "enableWorker: true",
         "liveDurationInfinity: true",
@@ -50,6 +48,10 @@ def test_dashboards_have_low_latency_hls_configuration():
     for setting in required_hls_settings:
         assert setting in admin, f"Setting '{setting}' missing in admin_dashboard.html"
         assert setting in lite, f"Setting '{setting}' missing in lite_dashboard.html"
+
+    for content in (admin, lite):
+        assert "liveSyncDurationCount:" not in content
+        assert "liveMaxLatencyDurationCount:" not in content
 
 
 def test_dashboards_have_immediate_autoplay_without_stalling():

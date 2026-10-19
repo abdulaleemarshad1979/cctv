@@ -129,21 +129,41 @@ def test_fastapi_hls_proxy_supports_get_and_head():
     assert "/live/drone1/index.m3u8" in head_res.headers["location"]
 
 
-def test_dashboards_default_to_webrtc_and_have_latency_catchup():
-    """Verify that WebRTC is the default transport and latency catch-up is enforced."""
+def test_dashboards_default_to_webrtc_and_resume_at_live_edge():
+    """A hidden tab releases decoders and reconnects at the live edge on return."""
     for name in ["admin_dashboard.html", "lite_dashboard.html"]:
         content = _read(name)
         assert 'let useWebRtc = urlParams.get("transport") !== "hls";' in content, (
             f"WebRTC must be active by default (unless transport=hls) in {name}"
         )
-        assert "liveSyncDuration: 1.5" in content, f"liveSyncDuration missing in {name}"
-        assert "liveMaxLatencyDuration: 3.5" in content, f"liveMaxLatencyDuration missing in {name}"
-        assert "player.liveSyncPosition - video.currentTime > 4.0" in content, (
+        assert "liveSyncDuration: 3" in content, f"liveSyncDuration missing in {name}"
+        assert "liveMaxLatencyDuration: 8" in content, f"liveMaxLatencyDuration missing in {name}"
+        assert "player.liveSyncPosition - video.currentTime > 8.0" in content, (
             f"Watchdog live-sync catchup missing in {name}"
         )
-        assert "player.liveSyncPosition - video.currentTime > 3.0" in content, (
-            f"Visibilitychange live-sync catchup missing in {name}"
-        )
+        assert 'if (document.hidden) {' in content
+        assert 'Object.keys(hlsPlayers).forEach(id => teardownVideoFeed(id));' in content
+        assert "renderGrid();" in content
+
+
+def test_webrtc_waits_for_ice_and_falls_back_if_no_video_arrives():
+    for name in ["admin_dashboard.html", "lite_dashboard.html"]:
+        content = _read(name)
+        assert 'pc.iceGatheringState !== "complete"' in content
+        assert 'body: pc.localDescription.sdp' in content
+        assert 'event.track.kind === "video"' in content
+        assert 'video.addEventListener("loadeddata"' in content
+        assert 'pc.connectionState === "failed"' in content
+        assert 'if (hlsPlayers[cam.id]?._isWebRtc) webrtcUnavailable[cam.id] = true;' in content
+
+
+def test_archive_limits_cards_and_does_not_preload_every_mp4():
+    admin = _read("admin_dashboard.html")
+    assert "const RECORDINGS_PAGE_SIZE = 24;" in admin
+    assert "recordings.slice(start, start + RECORDINGS_PAGE_SIZE)" in admin
+    assert 'id="recordings-pagination"' in admin
+    assert 'preload="metadata" muted playsinline' not in admin
+    assert 'if (sectionName !== "active-hub") {' in admin
 
 
 def test_webrtc_additional_hosts_includes_localhost_and_loopback():
