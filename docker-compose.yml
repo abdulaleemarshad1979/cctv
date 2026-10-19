@@ -12,6 +12,9 @@ services:
     volumes:
       - ./data/outputs:/app/outputs
       - ./data/logs:/app/logs
+      - ./data/recordings:/app/recordings:ro
+      - ./data/drone_flight_analytics.json:/app/config/drone_flight_analytics.json
+      - ./data/camera_customizations.json:/app/config/camera_customizations.json
       - ./dm_count/pretrained_models:/app/dm_count/pretrained_models:ro
     networks:
       - pushkaralu
@@ -33,6 +36,7 @@ services:
       - "8189:8189/udp" # WebRTC Media
     volumes:
       - ./deployment/mediamtx.yml:/mediamtx.yml:ro
+      - ./data/recordings:/recordings
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9997/v3/paths/list"]
       interval: 10s
