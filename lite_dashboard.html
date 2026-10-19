@@ -1245,6 +1245,26 @@
       margin-bottom: 16px;
       color: var(--border-hover);
     }
+    /* Number of drones flying now, like an app notification count. */
+    .flying-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 20px;
+      height: 20px;
+      padding: 0 6px;
+      margin-left: 6px;
+      border-radius: 10px;
+      background: #dc2626;
+      color: #ffffff;
+      font-size: 11px;
+      font-weight: 800;
+      line-height: 1;
+      box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.9);
+    }
+    .flying-badge[hidden] {
+      display: none;
+    }
   </style>
 </head>
 
@@ -1288,7 +1308,7 @@
     <div class="nav-control-bar">
       <div class="filter-group">
         <button class="pill active" data-filter="All">All Streams</button>
-        <button class="pill" data-filter="Active">Active Feeds</button>
+        <button class="pill" data-filter="Active">Active Feeds<span class="flying-badge" data-flying-badge hidden aria-live="polite"></span></button>
         <button class="pill" data-filter="Pushkaralu">Pushkaralu</button>
         <button class="pill" data-filter="Rjy">Rjy</button>
       </div>
@@ -1360,6 +1380,19 @@
     // packet loss and supports quality switching. ?transport=webrtc opts in
     // to sub-second WebRTC.
     let useWebRtc = urlParams.get("transport") === "webrtc";
+
+    // Count of drones flying now: badge on the Active Hub tab and the
+    // Active Feeds filter, and in the browser tab title.
+    const baseDocumentTitle = document.title;
+    function updateFlyingCount() {
+      const flying = cameras.filter(isCameraPlayable).length;
+      document.querySelectorAll("[data-flying-badge]").forEach(badge => {
+        badge.textContent = flying > 99 ? "99+" : String(flying);
+        badge.hidden = flying === 0;
+        badge.title = `${flying} drone${flying === 1 ? "" : "s"} flying now`;
+      });
+      document.title = flying ? `(${flying}) ${baseDocumentTitle}` : baseDocumentTitle;
+    }
 
     function isCameraPlayable(cam) {
       if (cam.enabled === false) return false;
@@ -1501,6 +1534,7 @@
           return;
         }
         cameras = await res.json();
+        updateFlyingCount();
         renderGrid();
       } catch (e) {
         console.error("[EGDMS] Failed to load cameras from backend:", e);
@@ -2288,8 +2322,12 @@ function setupHlsPlayback(cam, video, playbackPath, getMediaRecoveries) {
     };
 
     // Dynamic Polling for real-time camera updates
+    // Background tabs poll every 5 s instead of every second.
+    let lastCameraPollAt = 0;
     async function pollCameras() {
       if (cameraPollInFlight) return;
+      if (document.hidden && Date.now() - lastCameraPollAt < 5000) return;
+      lastCameraPollAt = Date.now();
       cameraPollInFlight = true;
       try {
         const res = await fetch("/cameras", { cache: "no-store" });
@@ -2353,6 +2391,7 @@ function setupHlsPlayback(cam, video, playbackPath, getMediaRecoveries) {
         });
 
         cameras = newCameras;
+        updateFlyingCount();
         if (needsRerender) {
           renderGrid();
         }

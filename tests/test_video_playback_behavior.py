@@ -185,9 +185,11 @@ def test_live_players_only_run_for_tiles_on_screen():
 
 def test_recordings_archive_does_not_create_a_video_per_card():
     admin = _read("admin_dashboard.html")
-    assert "/api/recordings?view=flights" in admin
+    assert 'view: "flights"' in admin
     assert 'loading="lazy"' in admin
-    assert "RECORDINGS_PAGE_SIZE" in admin
+    # Pages come from the server; a flight plays as one HLS video.
+    assert "renderRecordingsPager(data.page, data.total_pages)" in admin
+    assert "/playlist.m3u8" in admin
     assert '<video src="${rec.video_url}' not in admin
     # A blurred backdrop over moving video made the player controls flicker.
     assert "backdrop-filter: blur(8px)" not in admin
@@ -206,3 +208,11 @@ def test_live_delay_control_only_uses_buffered_video():
     assert "P.keepLiveDelay = function (hls, video)" in player
     assert "behind > 3 && ahead > 3" in player
     assert "if (ahead < 1) {" in player
+
+
+def test_manual_quality_falls_back_to_auto_and_is_not_kept_forever():
+    player = _read("static/monitor/js/egdms-player.js")
+    assert "window.sessionStorage.getItem(prefKey(camId))" in player
+    assert "window.localStorage.getItem(prefKey" not in player
+    assert 'apply("auto", true);' in player
+    assert "Slow network — switched to Auto quality" in player

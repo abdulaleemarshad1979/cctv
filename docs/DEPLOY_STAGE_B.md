@@ -1,10 +1,10 @@
-# Stage B: recordings archive, smoother live video, MediaMTX settings
+# Stage B: one video per flight, smoother live video, MediaMTX settings
 
 Two parts. Do them in order; they can be on different days.
 
 | Part | What changes | Effect on users |
 |---|---|---|
-| **B1: app only** | Recordings shown per flight (joined, seekable, no flicker), lazy-loaded archive and live tiles, steady ~5 s live delay, tab switches no longer restart video | Viewers see "Reconnecting…" for 10–30 s while the app restarts. MediaMTX, live ingest and recording keep running. |
+| **B1: app only** | Each flight is one video (however many files MediaMTX split it into), plays instantly and seeks anywhere, with no copies stored; recordings in pages; flying-drones badge; adaptive quality now includes the original stream and a 360p level for weak networks; steady ~5 s live delay; lazy live tiles; tab switches no longer restart video; compressed pages | Viewers see "Reconnecting…" for 10–30 s while the app restarts. MediaMTX, live ingest and recording keep running. |
 | **B2: MediaMTX** | `readTimeout: 20s` (4G stalls of up to 20 s no longer drop the drone), hook names renamed, 12-segment HLS window, config folder mount | **About 5 s gap in every live stream and recording.** Do it when no drone is flying. |
 
 As in Stage A: do not run `git pull`, `git reset` or `git stash` on the server. Copy
@@ -21,7 +21,7 @@ only the files listed. Commands marked *workstation* run in the
 
 ```bash
 cd /opt/pushkaralu/app
-FILES="lite_server.py admin_dashboard.html lite_dashboard.html static/monitor/js/egdms-player.js src/recording_flights.py tests/test_recording_flights.py tests/test_recording_flights_api.py tests/test_video_playback_behavior.py tests/test_hls_playback_controller.py docs/DEPLOY_STAGE_B.md"
+FILES="lite_server.py admin_dashboard.html lite_dashboard.html static/monitor/js/egdms-player.js src/recording_flights.py src/abr_transcoder.py tests/test_recording_flights.py tests/test_recording_flights_api.py tests/test_video_playback_behavior.py tests/test_hls_playback_controller.py tests/test_stream_reliability.py docs/DEPLOY_STAGE_B.md"
 git archive stage-b/mediamtx $FILES | ssh -p 2222 drone@117.216.215.157 'rm -rf /tmp/stage-b1 && mkdir -p /tmp/stage-b1 && tar -xf - -C /tmp/stage-b1'
 ```
 
@@ -30,13 +30,13 @@ git archive stage-b/mediamtx $FILES | ssh -p 2222 drone@117.216.215.157 'rm -rf 
 ```bash
 cd /opt/pushkaralu/app
 B=/opt/pushkaralu/app/backups/stage-b1-$(date -u +%Y%m%dT%H%M%SZ)
-sudo mkdir -p "$B/static/monitor/js" "$B/tests"
+sudo mkdir -p "$B/static/monitor/js" "$B/tests" "$B/src"
 sudo cp -a lite_server.py admin_dashboard.html lite_dashboard.html "$B/"
+sudo cp -a src/abr_transcoder.py "$B/src/"
 sudo cp -a static/monitor/js/egdms-player.js "$B/static/monitor/js/"
-sudo cp -a tests/test_video_playback_behavior.py tests/test_hls_playback_controller.py "$B/tests/"
+sudo cp -a tests/test_video_playback_behavior.py tests/test_hls_playback_controller.py tests/test_stream_reliability.py "$B/tests/"
 docker image tag app-app:latest app-app:before-stage-b1
 echo "$B"
-df -h /opt/pushkaralu/app/data    # joined playback copies use up to 10 GB here
 sudo cp -a /tmp/stage-b1/. . && sudo chown root:root lite_dashboard.html admin_dashboard.html
 ```
 
@@ -53,11 +53,14 @@ docker ps --format '{{.Names}} {{.Status}}'
 
 ### 4. Check in the browser
 
-- **Recorded Videos**: cards are now flights ("🧩 N parts" when joined); times are
-  local time (they were UTC before); open a long flight, wait for
-  "Preparing video…", then seek: the time bar should be steady.
-- **Active Hub**: video plays about 5 s behind; switch to Recorded Videos and
-  back within a minute: the video must not restart.
+- **Recorded Videos**: one card per flight ("🧩 N parts" when MediaMTX split it),
+  page numbers at the bottom, times in local time (they were UTC before). Open a
+  long flight: it starts at once with its full length; seeking is instant and
+  the time bar is steady. Download gives one MP4 of the whole flight.
+- **Active Hub**: red badge with the number of drones flying (also in the browser
+  tab title); video about 5 s behind; the quality menu offers the original plus
+  lower levels; switch to Recorded Videos and back within a minute: the video
+  must not restart.
 
 ### Roll back B1 (about 1 minute)
 
@@ -67,8 +70,9 @@ docker image tag app-app:before-stage-b1 app-app:latest
 docker compose -f docker-compose.yml -f docker-compose.override.yml up -d --no-deps app
 ```
 
-The joined copies live in `data/outputs/recording_cache/` and can be deleted at
-any time (`sudo rm -rf data/outputs/recording_cache`). Originals are never changed.
+`data/outputs/recording_cache/` holds only small fragment indexes and thumbnails
+(a few KB per file) and can be deleted at any time. Original recordings are
+never changed or copied.
 
 ---
 
@@ -171,6 +175,13 @@ ffmpeg "drones" over RTMP.
 | Live delay, 3 tiles, 30 s | steady 3.9–4.3 s behind the live edge (≈5 s end to end) |
 | Switch to Recorded Videos for 25 s and back | same players, no restart |
 | Off-screen tiles | no player until scrolled into view; stopped 15 s after leaving view |
-| Archive of 88 files | 48 flight cards, 24 rendered at a time, thumbnails load as you scroll, no `<video>` elements |
-| Flight of 30 fragments (2 min 16 s) | joined in ~1 s, duration known at once, seeks in 0.1–0.2 s, download is one MP4 |
-| Test suite | 157 passed; 1 pre-existing failure (needs real recordings on disk) |
+| Archive of 92 files | 52 flights, 3 server pages (24/24/4), thumbnails load as you scroll, no `<video>` elements |
+| Flight of 30 fragments (2 min 16 s) | starts in ~0.1 s with full duration, plays across all 30 files, seeks in 0.03–0.3 s, download is one 30 MB MP4, nothing stored |
+| Real MediaMTX recording (7.5 min) | starts in 0.6 s, normal speed |
+| Fragment index vs ffprobe | identical durations; a 2-min MediaMTX file indexes in 5 ms, once |
+| Search "2026-10-19 14:30" | finds the flight by local time |
+| Flying badge | "4" on Active Hub and Active Feeds, "(4)" in the tab title |
+| Adaptive quality, 720p drone, 800 kbit/s network | Auto drops to 360p, **0 stalls**, delay 5.2 s; climbs back when the network recovers |
+| Manual 720p on the slow network | back to Auto after 3 stalls, with a "Slow network" notice |
+| Before this change | the original-quality level was missing from adaptive quality (FFmpeg drops a copied stream without a bitrate) |
+| Test suite | 165 passed; 1 pre-existing failure (needs real recordings on disk) |

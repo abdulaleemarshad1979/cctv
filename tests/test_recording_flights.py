@@ -5,7 +5,7 @@ import time
 
 import pytest
 
-from src.recording_flights import FlightPlayback, group_flights
+from src.recording_flights import FlightPlayback, build_vod_playlist, flight_summary, group_flights, read_fmp4_layout
 
 
 def _item(drone, name, duration, size=1000, codec="H264", width=1280, height=720):
@@ -56,17 +56,23 @@ def test_source_paths_cannot_escape_recordings(tmp_path):
         playback._source("../secret.mp4")
 
 
-def test_eviction_removes_oldest_copies_only(tmp_path):
-    cache = tmp_path / "cache"
-    cache.mkdir()
-    playback = FlightPlayback(str(tmp_path), str(cache), max_cache_bytes=250)
-    for index, name in enumerate(["old.mp4", "mid.mp4", "new.mp4"]):
-        path = cache / name
-        path.write_bytes(b"x" * 100)
-        os.utime(path, (1000 + index, 1000 + index))
-    (cache / "notes.txt").write_bytes(b"y" * 500)
-    playback._evict(keep=str(cache / "new.mp4"))
-    assert sorted(p.name for p in cache.iterdir()) == ["mid.mp4", "new.mp4", "notes.txt"]
+def test_summary_leaves_out_the_file_list():
+    flight = group_flights([_item("drone-1", "2026-10-19_11-00-00-000000", 10)])[0]
+    summary = flight_summary(flight)
+    assert "segments" not in summary
+    assert summary["segment_count"] == 1 and summary["id"] == flight["id"]
+
+
+def test_playlist_has_one_discontinuity_per_file():
+    layout_a = {"init": [0, 700], "segments": [[700, 5000, 4.0], [5700, 3000, 2.5]]}
+    layout_b = {"init": [0, 650], "segments": [[650, 4000, 3.2]]}
+    text = build_vod_playlist([("/recordings/a.mp4", layout_a), ("/recordings/b.mp4", layout_b)])
+    lines = text.splitlines()
+    assert lines[0] == "#EXTM3U" and lines[-1] == "#EXT-X-ENDLIST"
+    assert "#EXT-X-TARGETDURATION:4" in lines and "#EXT-X-PLAYLIST-TYPE:VOD" in lines
+    assert lines.count("#EXT-X-DISCONTINUITY") == 1
+    assert '#EXT-X-MAP:URI="/recordings/b.mp4",BYTERANGE="650@0"' in lines
+    assert lines[lines.index("#EXTINF:2.500,") + 1] == "#EXT-X-BYTERANGE:3000@5700"
 
 
 needs_ffmpeg = pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg not installed")
@@ -83,8 +89,43 @@ def _make_segment(path, seconds):
     )
 
 
+def _ffprobe_duration(path):
+    out = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(path)],
+                         capture_output=True, text=True, check=True).stdout
+    return float(out)
+
+
 @needs_ffmpeg
-def test_flight_is_copied_into_one_seekable_mp4(tmp_path):
+def test_layout_matches_the_file_and_starts_segments_on_keyframes(tmp_path):
+    path = tmp_path / "live" / "drone1" / "2026-10-19_11-00-00-000000.mp4"
+    _make_segment(path, 9)  # 1 s GOP -> 1 s fragments
+    layout = read_fmp4_layout(str(path))
+    assert layout["init"][0] == 0
+    durations = [seg[2] for seg in layout["segments"]]
+    assert sum(durations) == pytest.approx(_ffprobe_duration(path), abs=0.05)
+    assert durations[:2] == [4.0, 4.0]
+    # Byte ranges are contiguous and end at the end of the file.
+    end = layout["init"][1]
+    for offset, length, _seconds in layout["segments"]:
+        assert offset == end
+        end = offset + length
+    with open(path, "rb") as f:
+        # Anything after the last fragment is index data, not video.
+        f.seek(end + 4)
+        assert end == os.path.getsize(path) or f.read(4) == b"mfra"
+        for offset, _length, _seconds in layout["segments"]:
+            f.seek(offset + 4)
+            assert f.read(4) == b"moof"
+
+
+def test_non_fragmented_files_have_no_layout(tmp_path):
+    path = tmp_path / "plain.mp4"
+    path.write_bytes(b"\x00\x00\x00\x10ftypisom\x00\x00\x00\x00")
+    assert read_fmp4_layout(str(path)) is None
+
+
+@needs_ffmpeg
+def test_flight_playlist_and_streamed_download(tmp_path):
     rec = tmp_path / "rec"
     names = ["2026-10-19_11-00-00-000000", "2026-10-19_11-00-03-000000"]
     for name in names:
@@ -92,27 +133,17 @@ def test_flight_is_copied_into_one_seekable_mp4(tmp_path):
     flight = group_flights([_item("drone-1", n, 2) for n in names])[0]
     playback = FlightPlayback(str(rec), str(tmp_path / "cache"))
 
-    status = playback.status(flight)
-    deadline = time.time() + 30
-    while status["state"] == "preparing" and time.time() < deadline:
-        time.sleep(0.1)
-        status = playback.status(flight)
-    assert status["state"] == "ready", status
+    text = playback.playlist(flight)
+    assert text.count("#EXT-X-MAP:") == 2 and "#EXT-X-DISCONTINUITY" in text
+    assert len(os.listdir(tmp_path / "cache" / "layouts")) == 2  # indexed once, tiny
+    assert playback.playlist(flight) == text
 
-    target = playback.video_path(flight)
-    probe = subprocess.run(
-        ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", target],
-        capture_output=True, text=True, check=True,
-    )
-    assert float(probe.stdout) == pytest.approx(4, abs=0.2)
-    with open(target, "rb") as f:
-        head = f.read(4096)
-    assert b"moov" in head and b"moof" not in head  # index first, not fragmented
-    assert sorted(os.listdir(tmp_path / "cache")) == [os.path.basename(target)]
-
-    # A segment that changes on disk invalidates the cached copy.
-    _make_segment(rec / "live" / "drone1" / f"{names[1]}.mp4", 3)
-    assert playback.video_path(flight) != target
+    out = tmp_path / "joined.mp4"
+    with open(out, "wb") as f:
+        for chunk in playback.stream_download(flight):
+            f.write(chunk)
+    assert _ffprobe_duration(out) == pytest.approx(4, abs=0.2)
+    assert os.listdir(tmp_path / "cache") == ["layouts"]  # no stored copy, list file removed
 
 
 @needs_ffmpeg

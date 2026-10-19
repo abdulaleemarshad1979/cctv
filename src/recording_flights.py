@@ -6,24 +6,27 @@ resets after timestamp drift (slow 4G uplinks), so one flight can be dozens of
 short segments.  A flight is every segment of one drone, with the same video
 format, separated by gaps of at most RECORDING_FLIGHT_GAP_SECONDS.
 
-For playback the flight's segments are copied (no re-encode, identical
-quality) into one regular MP4 with its index at the front, so browsers know
-the duration and can seek instantly.  Copies live in a size-capped cache under
-outputs/; original segments are never modified, and the cache is safe to
-delete at any time.
+A flight plays as one video without copying anything: its files are
+fragmented MP4, so an HLS VOD playlist can point at their fragments by byte
+range (EXT-X-BYTERANGE), with a discontinuity between files.  Players get the
+full duration at once, start instantly and seek anywhere; the only stored
+extra is a small per-file fragment index.  Downloads of multi-file flights
+are joined on the fly (stream copy) and never stored.  Originals are never
+modified.
 """
 
 from __future__ import annotations
 
 import hashlib
+import json
+import math
 import os
-import re
+import struct
 import subprocess
 import tempfile
 import threading
-import time
-from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Dict, List, Optional
+from collections import OrderedDict
+from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 from src.recording_continuity import parse_segment_start
 
@@ -36,8 +39,9 @@ def _env_float(name: str, default: float) -> float:
 
 
 FLIGHT_GAP_SECONDS = _env_float("RECORDING_FLIGHT_GAP_SECONDS", 120)
-CACHE_MAX_BYTES = int(_env_float("RECORDING_PLAYBACK_CACHE_GB", 10) * 1024 ** 3)
-PROGRESS_RE = re.compile(r"^out_time_us=(\d+)$")
+# Playlist segments are cut at keyframes once at least this long.
+VOD_SEGMENT_SECONDS = 4.0
+NON_SYNC_SAMPLE = 0x00010000
 
 
 def _short_hash(text: str) -> str:
@@ -110,19 +114,214 @@ def group_flights(items: List[Dict[str, Any]], gap_seconds: float = FLIGHT_GAP_S
     return flights
 
 
-class FlightPlayback:
-    """Build and cache single-file MP4 copies of flights and segment thumbnails."""
 
-    def __init__(self, recordings_dir: str, cache_dir: str, max_cache_bytes: int = CACHE_MAX_BYTES,
-                 ffmpeg: str = "ffmpeg"):
+
+SUMMARY_FIELDS = ("id", "drone_id", "location", "codec", "width", "height", "resolution", "start_epoch",
+                  "end_epoch", "duration_seconds", "gap_seconds", "size_bytes", "segment_count",
+                  "thumbnail_path")
+
+
+def flight_summary(flight: Dict[str, Any]) -> Dict[str, Any]:
+    """A flight without its per-file list (for paged listings)."""
+    return {key: flight.get(key) for key in SUMMARY_FIELDS}
+
+
+# --- Fragmented MP4 layout -------------------------------------------------
+
+def _boxes(data: bytes, start: int = 0, end: Optional[int] = None) -> Iterator[Tuple[bytes, int, int]]:
+    """Yield (type, payload_start, box_end) for boxes inside data[start:end]."""
+    end = len(data) if end is None else end
+    pos = start
+    while pos + 8 <= end:
+        size, kind = struct.unpack_from(">I4s", data, pos)
+        header = 8
+        if size == 1:
+            if pos + 16 > end:
+                return
+            size = struct.unpack_from(">Q", data, pos + 8)[0]
+            header = 16
+        elif size == 0:
+            size = end - pos
+        if size < header or pos + size > end:
+            return
+        yield kind, pos + header, pos + size
+        pos += size
+
+
+def _child(data: bytes, start: int, end: int, kind: bytes) -> Optional[Tuple[int, int]]:
+    for found, payload, box_end in _boxes(data, start, end):
+        if found == kind:
+            return payload, box_end
+    return None
+
+
+def _parse_moov(moov: bytes) -> Dict[int, Dict[str, Any]]:
+    """Track id -> {timescale, video, default_duration, default_flags}."""
+    tracks: Dict[int, Dict[str, Any]] = {}
+    for kind, payload, end in _boxes(moov):
+        if kind != b"trak":
+            continue
+        tkhd = _child(moov, payload, end, b"tkhd")
+        mdia = _child(moov, payload, end, b"mdia")
+        if not tkhd or not mdia:
+            continue
+        version = moov[tkhd[0]]
+        track_id = struct.unpack_from(">I", moov, tkhd[0] + (20 if version == 1 else 12))[0]
+        mdhd = _child(moov, mdia[0], mdia[1], b"mdhd")
+        hdlr = _child(moov, mdia[0], mdia[1], b"hdlr")
+        if not mdhd:
+            continue
+        version = moov[mdhd[0]]
+        timescale = struct.unpack_from(">I", moov, mdhd[0] + (20 if version == 1 else 12))[0]
+        handler = moov[hdlr[0] + 8:hdlr[0] + 12] if hdlr else b""
+        tracks[track_id] = {"timescale": timescale or 1, "video": handler == b"vide",
+                            "default_duration": 0, "default_flags": 0}
+    mvex = _child(moov, 0, len(moov), b"mvex")
+    if mvex:
+        for kind, payload, _end in _boxes(moov, mvex[0], mvex[1]):
+            if kind == b"trex":
+                track_id, _desc, duration, _size, flags = struct.unpack_from(">IIIII", moov, payload + 4)
+                if track_id in tracks:
+                    tracks[track_id]["default_duration"] = duration
+                    tracks[track_id]["default_flags"] = flags
+    return tracks
+
+
+def _parse_moof(moof: bytes, tracks: Dict[int, Dict[str, Any]], track_id: int) -> Optional[Tuple[float, bool]]:
+    """(duration seconds, starts with keyframe) of one track in a fragment."""
+    track = tracks[track_id]
+    for kind, payload, end in _boxes(moof):
+        if kind != b"traf":
+            continue
+        tfhd = _child(moof, payload, end, b"tfhd")
+        if not tfhd:
+            continue
+        flags = struct.unpack_from(">I", moof, tfhd[0])[0] & 0xFFFFFF
+        if struct.unpack_from(">I", moof, tfhd[0] + 4)[0] != track_id:
+            continue
+        pos = tfhd[0] + 8
+        if flags & 0x01:
+            pos += 8
+        if flags & 0x02:
+            pos += 4
+        default_duration = track["default_duration"]
+        default_flags = track["default_flags"]
+        if flags & 0x08:
+            default_duration = struct.unpack_from(">I", moof, pos)[0]
+            pos += 4
+        if flags & 0x10:
+            pos += 4
+        if flags & 0x20:
+            default_flags = struct.unpack_from(">I", moof, pos)[0]
+        total = 0
+        first_flags = None
+        for kind2, run, _run_end in _boxes(moof, payload, end):
+            if kind2 != b"trun":
+                continue
+            run_flags = struct.unpack_from(">I", moof, run)[0] & 0xFFFFFF
+            count = struct.unpack_from(">I", moof, run + 4)[0]
+            pos = run + 8
+            if run_flags & 0x001:
+                pos += 4
+            run_first = None
+            if run_flags & 0x004:
+                run_first = struct.unpack_from(">I", moof, pos)[0]
+                pos += 4
+            fields = [bit for bit in (0x100, 0x200, 0x400, 0x800) if run_flags & bit]
+            for index in range(count):
+                values = dict(zip(fields, struct.unpack_from(">" + "I" * len(fields), moof, pos)))
+                pos += 4 * len(fields)
+                total += values.get(0x100, default_duration)
+                if first_flags is None:
+                    first_flags = run_first if (index == 0 and run_first is not None) else values.get(0x400, default_flags)
+        sync = first_flags is not None and not (first_flags & NON_SYNC_SAMPLE)
+        return total / track["timescale"], sync
+    return None
+
+
+def read_fmp4_layout(path: str, segment_seconds: float = VOD_SEGMENT_SECONDS) -> Optional[Dict[str, Any]]:
+    """Byte layout of a fragmented MP4 for HLS byte-range playback.
+
+    Returns {"init": [offset, length], "segments": [[offset, length, seconds], ...]}
+    with segments starting at keyframes, or None if the file is not fragmented
+    MP4.  Only box headers and the small moov/moof boxes are read.
+    """
+    with open(path, "rb") as handle:
+        size = os.fstat(handle.fileno()).st_size
+        pos = 0
+        tracks: Dict[int, Dict[str, Any]] = {}
+        track_id = None
+        init_end = None
+        segments: List[List[float]] = []
+        current: Optional[List[float]] = None
+        pending: Optional[Tuple[int, float, bool]] = None  # moof start, duration, sync
+        while pos + 8 <= size:
+            handle.seek(pos)
+            head = handle.read(16)
+            box_size, kind = struct.unpack_from(">I4s", head)
+            header = 8
+            if box_size == 1:
+                box_size, header = struct.unpack_from(">Q", head, 8)[0], 16
+            elif box_size == 0:
+                box_size = size - pos
+            if box_size < header or pos + box_size > size:
+                break  # truncated (file still being written)
+            if kind == b"moov":
+                handle.seek(pos + header)
+                tracks = _parse_moov(handle.read(box_size - header))
+                video = [tid for tid, t in tracks.items() if t["video"]]
+                track_id = (video or sorted(tracks) or [None])[0]
+                init_end = pos + box_size
+            elif kind == b"moof" and track_id is not None:
+                handle.seek(pos + header)
+                parsed = _parse_moof(handle.read(box_size - header), tracks, track_id)
+                pending = (pos, parsed[0], parsed[1]) if parsed else None
+            elif kind == b"mdat" and pending is not None:
+                moof_start, duration, sync = pending
+                pending = None
+                end = pos + box_size
+                if current is None or (sync and current[2] >= segment_seconds):
+                    current = [moof_start, end - moof_start, duration]
+                    segments.append(current)
+                else:
+                    current[1] = end - current[0]
+                    current[2] += duration
+            pos += box_size
+    if init_end is None or not segments:
+        return None
+    for segment in segments:
+        segment[2] = round(segment[2], 3)
+    return {"init": [0, init_end], "segments": segments}
+
+
+def build_vod_playlist(parts: List[Tuple[str, Dict[str, Any]]]) -> str:
+    """HLS VOD playlist over (url, layout) pairs, one discontinuity per file."""
+    longest = max(seg[2] for _url, layout in parts for seg in layout["segments"])
+    lines = ["#EXTM3U", "#EXT-X-VERSION:7", f"#EXT-X-TARGETDURATION:{max(1, math.ceil(longest))}",
+             "#EXT-X-PLAYLIST-TYPE:VOD", "#EXT-X-MEDIA-SEQUENCE:0", "#EXT-X-INDEPENDENT-SEGMENTS"]
+    for index, (url, layout) in enumerate(parts):
+        if index:
+            lines.append("#EXT-X-DISCONTINUITY")
+        init_offset, init_length = layout["init"]
+        lines.append(f'#EXT-X-MAP:URI="{url}",BYTERANGE="{init_length}@{init_offset}"')
+        for offset, length, seconds in layout["segments"]:
+            lines += [f"#EXTINF:{seconds:.3f},", f"#EXT-X-BYTERANGE:{int(length)}@{int(offset)}", url]
+    lines.append("#EXT-X-ENDLIST")
+    return "\n".join(lines) + "\n"
+
+
+class FlightPlayback:
+    """Per-file fragment indexes, flight playlists, streamed downloads, thumbnails."""
+
+    def __init__(self, recordings_dir: str, cache_dir: str, ffmpeg: str = "ffmpeg", memory_items: int = 512):
         self.recordings_dir = os.path.abspath(recordings_dir)
         self.cache_dir = cache_dir
+        self.layout_dir = os.path.join(cache_dir, "layouts")
         self.thumb_dir = os.path.join(cache_dir, "thumbs")
-        self.max_cache_bytes = max_cache_bytes
         self.ffmpeg = ffmpeg
+        self.memory_items = memory_items
+        self._layouts: "OrderedDict[str, Optional[Dict[str, Any]]]" = OrderedDict()
         self._lock = threading.Lock()
-        self._jobs: Dict[str, Dict[str, Any]] = {}
-        self._pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="flight-remux")
         self._thumb_slots = threading.BoundedSemaphore(2)
 
     def _source(self, relative_path: str) -> str:
@@ -131,105 +330,80 @@ class FlightPlayback:
             raise ValueError("path outside recordings")
         return path
 
-    def _cache_key(self, flight: Dict[str, Any]) -> str:
+    def layout(self, relative_path: str) -> Optional[Dict[str, Any]]:
+        """Fragment index of one file: memory LRU, then disk, then parse once."""
+        source = self._source(relative_path)
+        try:
+            stat = os.stat(source)
+        except OSError:
+            return None
+        key = _short_hash(f"{relative_path}:{stat.st_size}:{stat.st_mtime_ns}")
+        with self._lock:
+            if key in self._layouts:
+                self._layouts.move_to_end(key)
+                return self._layouts[key]
+        cached = os.path.join(self.layout_dir, key + ".json")
+        layout = None
+        try:
+            with open(cached, "r", encoding="utf-8") as handle:
+                layout = json.load(handle)
+        except (OSError, ValueError):
+            try:
+                layout = read_fmp4_layout(source)
+            except (OSError, struct.error, KeyError, IndexError) as exc:
+                print(f"[RECORDINGS] cannot index {relative_path}: {exc}")
+                layout = None
+            if layout is not None:
+                os.makedirs(self.layout_dir, exist_ok=True)
+                fd, temp = tempfile.mkstemp(dir=self.layout_dir, suffix=".tmp")
+                with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                    json.dump(layout, handle, separators=(",", ":"))
+                os.replace(temp, cached)
+        with self._lock:
+            self._layouts[key] = layout
+            while len(self._layouts) > self.memory_items:
+                self._layouts.popitem(last=False)
+        return layout
+
+    def playlist(self, flight: Dict[str, Any]) -> Optional[str]:
         parts = []
         for seg in flight["segments"]:
-            try:
-                stat = os.stat(self._source(seg["relative_path"]))
-                parts.append(f"{seg['relative_path']}:{stat.st_size}:{stat.st_mtime_ns}")
-            except (OSError, ValueError):
-                parts.append(f"{seg['relative_path']}:missing")
-        return hashlib.sha1("\n".join(parts).encode("utf-8")).hexdigest()
+            layout = self.layout(seg["relative_path"])
+            if layout:
+                parts.append((seg["url"], layout))
+        return build_vod_playlist(parts) if parts else None
 
-    def video_path(self, flight: Dict[str, Any]) -> str:
-        return os.path.join(self.cache_dir, f"{self._cache_key(flight)}.mp4")
-
-    def status(self, flight: Dict[str, Any], start: bool = True) -> Dict[str, Any]:
-        """Return {state: ready|preparing|error, progress}; start a build if needed."""
-        target = self.video_path(flight)
-        if os.path.exists(target):
-            return {"state": "ready", "progress": 1.0}
-        key = os.path.basename(target)
-        with self._lock:
-            job = self._jobs.get(key)
-            if job and job["state"] == "error" and time.time() - job["finished_at"] > 60:
-                job = None
-            if job is None and start:
-                job = {"state": "preparing", "progress": 0.0, "error": None, "finished_at": 0.0}
-                self._jobs[key] = job
-                self._pool.submit(self._build, flight, target, job)
-        if job is None:
-            return {"state": "missing", "progress": 0.0}
-        return {"state": job["state"], "progress": round(job["progress"], 3), "error": job["error"]}
-
-    def _build(self, flight: Dict[str, Any], target: str, job: Dict[str, Any]) -> None:
-        os.makedirs(self.cache_dir, exist_ok=True)
-        total = max(1.0, float(flight.get("duration_seconds") or 0))
-        list_fd, list_path = tempfile.mkstemp(suffix=".txt", dir=self.cache_dir)
-        partial = target + ".part"
-        try:
-            with os.fdopen(list_fd, "w", encoding="utf-8") as listing:
-                for seg in flight["segments"]:
-                    escaped = self._source(seg["relative_path"]).replace("'", "'\\''")
-                    listing.write(f"file '{escaped}'\n")
-            cmd = [
-                self.ffmpeg, "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
+    def download_command(self, flight: Dict[str, Any], list_path: str) -> List[str]:
+        """FFmpeg command joining a flight (stream copy) into fragmented MP4 on stdout."""
+        with open(list_path, "w", encoding="utf-8") as listing:
+            for seg in flight["segments"]:
+                escaped = self._source(seg["relative_path"]).replace("'", "'\\''")
+                listing.write(f"file '{escaped}'\n")
+        return [self.ffmpeg, "-nostdin", "-hide_banner", "-loglevel", "error",
                 "-f", "concat", "-safe", "0", "-i", list_path,
                 "-map", "0:v:0", "-map", "0:a:0?", "-c", "copy",
-                "-movflags", "+faststart", "-f", "mp4",
-                "-progress", "pipe:1", "-nostats", partial,
-            ]
-            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-            for line in proc.stdout:
-                match = PROGRESS_RE.match(line.strip())
-                if match:
-                    # Copying is ~95% of the work; faststart rewrites the rest.
-                    job["progress"] = min(0.95, int(match.group(1)) / 1e6 / total * 0.95)
-            stderr = proc.stderr.read()
-            if proc.wait() != 0 or not os.path.exists(partial):
-                raise RuntimeError((stderr or "ffmpeg failed").strip()[-300:])
-            os.replace(partial, target)
-            job["progress"] = 1.0
-            job["state"] = "ready"
-            self._evict(keep=target)
-        except Exception as exc:
-            job["state"] = "error"
-            job["error"] = str(exc)[:300]
-            print(f"[RECORDINGS] flight {flight.get('id')} could not be prepared: {exc}")
+                "-movflags", "frag_keyframe+empty_moov+default_base_moof", "-f", "mp4", "pipe:1"]
+
+    def stream_download(self, flight: Dict[str, Any], chunk_size: int = 256 * 1024) -> Iterator[bytes]:
+        os.makedirs(self.cache_dir, exist_ok=True)
+        fd, list_path = tempfile.mkstemp(suffix=".txt", dir=self.cache_dir)
+        os.close(fd)
+        proc = None
+        try:
+            proc = subprocess.Popen(self.download_command(flight, list_path),
+                                    stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            while True:
+                chunk = proc.stdout.read(chunk_size)
+                if not chunk:
+                    break
+                yield chunk
         finally:
-            job["finished_at"] = time.time()
-            for leftover in (list_path, partial):
-                try:
-                    os.remove(leftover)
-                except OSError:
-                    pass
-
-    def touch(self, path: str) -> None:
-        try:
-            os.utime(path)
-        except OSError:
-            pass
-
-    def _evict(self, keep: str) -> None:
-        """Delete least recently used cached copies above the size cap (never originals)."""
-        try:
-            entries = []
-            for name in os.listdir(self.cache_dir):
-                path = os.path.join(self.cache_dir, name)
-                if name.endswith(".mp4") and os.path.isfile(path):
-                    stat = os.stat(path)
-                    entries.append((stat.st_mtime, stat.st_size, path))
-        except OSError:
-            return
-        total = sum(size for _mtime, size, _path in entries)
-        for _mtime, size, path in sorted(entries):
-            if total <= self.max_cache_bytes:
-                break
-            if path == keep:
-                continue
+            if proc and proc.poll() is None:
+                proc.kill()
+            if proc:
+                proc.wait()
             try:
-                os.remove(path)
-                total -= size
+                os.remove(list_path)
             except OSError:
                 pass
 

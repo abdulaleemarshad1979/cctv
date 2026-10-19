@@ -219,16 +219,22 @@
     return Boolean(container && container.querySelector(".egdms-freeze"));
   };
 
+  // A manual quality choice lasts for this browser session only; Auto is
+  // the default every time, because network conditions change.
   function prefKey(camId) { return `egdms.quality.${camId}`; }
   function readPref(camId) {
-    try { return window.localStorage.getItem(prefKey(camId)); } catch (e) { return null; }
+    try { return window.sessionStorage.getItem(prefKey(camId)); } catch (e) { return null; }
   }
   function writePref(camId, value) {
     try {
-      if (value === "auto") window.localStorage.removeItem(prefKey(camId));
-      else window.localStorage.setItem(prefKey(camId), value);
+      window.localStorage.removeItem(prefKey(camId));  // older builds kept it forever
+      if (value === "auto") window.sessionStorage.removeItem(prefKey(camId));
+      else window.sessionStorage.setItem(prefKey(camId), value);
     } catch (e) { /* storage unavailable: preference lasts for this page only */ }
   }
+  try {
+    Object.keys(window.localStorage).filter(k => k.startsWith("egdms.quality.")).forEach(k => window.localStorage.removeItem(k));
+  } catch (e) { /* storage unavailable */ }
 
   function levelLabel(level, index, levels) {
     const height = level.height || 0;
@@ -277,6 +283,25 @@
     };
     select.addEventListener("change", () => apply(select.value, true));
     select.addEventListener("click", e => e.stopPropagation());
+    // A manually chosen quality that keeps stalling (the network got worse)
+    // goes back to Auto so the video does not stop.
+    const video = container.querySelector("video");
+    let stalls = [];
+    if (video) {
+      video.addEventListener("waiting", () => {
+        if (select.value === "auto" || video.seeking) return;
+        const now = Date.now();
+        stalls = stalls.filter(t => now - t < 30000).concat(now);
+        if (stalls.length < 3) return;
+        stalls = [];
+        apply("auto", true);
+        P.setOverlay(container, "Slow network — switched to Auto quality");
+        setTimeout(() => {
+          const text = container.querySelector(".egdms-overlay__text");
+          if (text && text.textContent.startsWith("Slow network")) P.clearOverlay(container);
+        }, 4000);
+      });
+    }
     hls.on(Hls.Events.LEVEL_SWITCHED, refreshAutoLabel);
     container.appendChild(select);
     const saved = readPref(camId);

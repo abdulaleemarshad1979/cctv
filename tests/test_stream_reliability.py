@@ -296,21 +296,22 @@ def test_disk_level_transitions_are_logged(tmp_path):
 # ---------------------------------------------------------------- ABR
 
 def test_ladder_depends_on_source_height():
-    assert [v["name"] for v in build_ladder(720)] == ["src", "480p"]
-    assert [v["name"] for v in build_ladder(1296)] == ["src", "720p", "480p"]
-    assert [v["name"] for v in build_ladder(1296, encode_720=False)] == ["src", "480p"]
-    assert [v["name"] for v in build_ladder(None)] == ["src", "480p"]
+    assert [v["name"] for v in build_ladder(720)] == ["src", "480p", "360p"]
+    assert [v["name"] for v in build_ladder(1296)] == ["src", "720p", "480p", "360p"]
+    assert [v["name"] for v in build_ladder(1296, encode_720=False)] == ["src", "480p", "360p"]
+    assert [v["name"] for v in build_ladder(None)] == ["src", "480p", "360p"]
+    assert [v["name"] for v in build_ladder(480)] == ["src", "360p"]
 
 
 def test_ffmpeg_command_aligns_variants_and_never_touches_audio_or_recordings():
     cmd = build_ffmpeg_command("ffmpeg", "rtsp://mediamtx:8554/live/drone1", "/tmp/abr/drone-1", build_ladder(1080))
     joined = " ".join(cmd)
-    assert "-c:v:0 copy" in joined
-    assert joined.count("-force_key_frames") == 2 and "source" in cmd
+    assert "-c:v:0 copy -b:v:0 4000k" in joined  # without it FFmpeg drops "src" from the master
+    assert joined.count("-force_key_frames") == 3 and "source" in cmd
     assert "select='if(isnan(prev_selected_n),key,1)'" in joined
     assert "-an" in cmd
     assert "omit_endlist" in joined and "program_date_time" in joined
-    assert cmd[cmd.index("-var_stream_map") + 1] == "v:0,name:src v:1,name:720p v:2,name:480p"
+    assert cmd[cmd.index("-var_stream_map") + 1] == "v:0,name:src v:1,name:720p v:2,name:480p v:3,name:360p"
     assert "/recordings" not in joined
 
 
@@ -412,3 +413,9 @@ def test_abr_file_resolution_rejects_traversal(tmp_path):
     assert manager.resolve_file("drone-1", ["..", "index.m3u8"]) is None
     assert manager.resolve_file("drone-1", ["480p", "ffmpeg.log"]) is None
     assert manager.resolve_file("../etc", ["passwd.m3u8"]) is None
+
+
+def test_source_rung_advertises_measured_or_estimated_bitrate():
+    assert build_ladder(720)[0]["bitrate_k"] == 2500
+    assert build_ladder(1080, source_bitrate_k=3100.4)[0]["bitrate_k"] == 3100
+    assert build_ladder(1080, source_bitrate_k=0)[0]["bitrate_k"] == 4000

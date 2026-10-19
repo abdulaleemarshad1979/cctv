@@ -10,13 +10,16 @@ import ipaddress
 import threading
 import hashlib
 import hmac
+import math
+import re
 from datetime import datetime, timezone
 from functools import lru_cache
 from contextlib import asynccontextmanager
 from typing import Optional
 from fastapi import FastAPI, HTTPException, Request, Response
-from fastapi.responses import FileResponse, RedirectResponse, JSONResponse
+from fastapi.responses import FileResponse, RedirectResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.gzip import GZipMiddleware
 from pydantic import BaseModel, Field
 import config
 import numpy as np
@@ -34,7 +37,7 @@ from src import stream_events as stream_ev
 from src.stream_events import StreamEventLog
 from src.stream_telemetry import StreamTelemetry
 from src.recording_continuity import RecordingContinuity
-from src.recording_flights import FlightPlayback, group_flights
+from src.recording_flights import FlightPlayback, flight_summary, group_flights
 from src.abr_transcoder import AbrManager, AbrUnavailable
 
 def _sanitize_for_json(obj):
@@ -116,6 +119,58 @@ async def lifespan(app: FastAPI):
         running_processes.clear()
 
 app = FastAPI(title="East Godavari Drone Monitoring System (EGDMS)", lifespan=lifespan)
+
+
+class TextGZipMiddleware:
+    """Gzip pages, scripts and JSON only (about 5-10x smaller on slow links).
+
+    Video, images, live streams and downloads pass through untouched, so
+    range requests and streaming keep working with any Starlette version.
+    """
+
+    SKIP_PREFIXES = ("/recordings/", "/hls/", "/abr/", "/webrtc/", "/Videos/", "/api/recordings/thumbnail")
+    SKIP_SUFFIXES = ("/download", ".mp4", ".ts", ".jpg", ".png")
+
+    def __init__(self, app):
+        self.app = app
+        self.gzip = GZipMiddleware(app, minimum_size=1024, compresslevel=6)
+
+    async def __call__(self, scope, receive, send):
+        path = scope.get("path", "") if scope["type"] == "http" else ""
+        if path and not path.startswith(self.SKIP_PREFIXES) and not path.endswith(self.SKIP_SUFFIXES):
+            await self.gzip(scope, receive, send)
+        else:
+            await self.app(scope, receive, send)
+
+
+class RevalidateUiMiddleware:
+    """Pages and scripts must be revalidated on every load ("no-cache" still
+    allows a cheap 304), so after a deploy no browser keeps an old page with
+    a new script or the other way round."""
+
+    PAGE_PATHS = ("/", "/admin", "/login", "/commercial")
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        path = scope.get("path", "") if scope["type"] == "http" else ""
+        if not (path in self.PAGE_PATHS or path.startswith(("/static/", "/admin/")) or path.endswith(".html")):
+            await self.app(scope, receive, send)
+            return
+
+        async def send_with_header(message):
+            if message["type"] == "http.response.start":
+                headers = [(k, v) for k, v in message.get("headers", []) if k.lower() != b"cache-control"]
+                headers.append((b"cache-control", b"no-cache"))
+                message = dict(message, headers=headers)
+            await send(message)
+
+        await self.app(scope, receive, send_with_header)
+
+
+app.add_middleware(TextGZipMiddleware)
+app.add_middleware(RevalidateUiMiddleware)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 if os.path.exists("Videos"):
     app.mount("/Videos", StaticFiles(directory="Videos"), name="videos")
@@ -1325,65 +1380,115 @@ flight_playback = FlightPlayback(
     video_recordings_manager.recordings_dir,
     os.path.join("outputs", "recording_cache"),
 )
-_flight_lookup = {"at": 0.0, "by_id": {}}
-_flight_lookup_lock = threading.Lock()
+# Scanning the archive stats every file; share one scan between requests.
+RECORDINGS_SCAN_TTL_SECONDS = max(1.0, _env_float("RECORDINGS_SCAN_TTL_SECONDS", 15))
+_flight_cache = {"at": 0.0, "flights": [], "by_id": {}, "summary": {}}
+_flight_cache_lock = threading.Lock()
 
 
-def _remember_flights(flights):
-    with _flight_lookup_lock:
-        _flight_lookup["by_id"] = {flight["id"]: flight for flight in flights}
-        _flight_lookup["at"] = time.time()
+def _flight_snapshot(refresh: bool = False):
+    with _flight_cache_lock:
+        if refresh or time.time() - _flight_cache["at"] > RECORDINGS_SCAN_TTL_SECONDS:
+            data = video_recordings_manager.list_recordings()
+            flights = group_flights(data["recordings"])
+            _flight_cache.update(
+                at=time.time(),
+                flights=flights,
+                by_id={flight["id"]: flight for flight in flights},
+                summary=dict(data["summary"], total_flights=len(flights)),
+            )
+        return _flight_cache
 
 
 def _find_flight(flight_id: str):
-    # Players send many range requests; reuse the last listing for a while.
-    with _flight_lookup_lock:
-        fresh = time.time() - _flight_lookup["at"] < 300
-        flight = _flight_lookup["by_id"].get(flight_id)
-    if flight is None or not fresh:
-        flights = group_flights(video_recordings_manager.list_recordings()["recordings"])
-        _remember_flights(flights)
-        flight = next((f for f in flights if f["id"] == flight_id), None)
+    flight = _flight_snapshot()["by_id"].get(flight_id)
+    if flight is None:
+        flight = _flight_snapshot(refresh=True)["by_id"].get(flight_id)
     if flight is None:
         raise HTTPException(status_code=404, detail="Unknown flight")
     return flight
 
 
+def _flight_matches(flight, drone: Optional[str], words: list, tz_offset_minutes: int) -> bool:
+    if drone and flight["drone_id"].lower() != drone:
+        return False
+    if not words:
+        return True
+    # Dates are matched in the viewer's local time (tz = JS getTimezoneOffset()).
+    local = datetime.fromtimestamp(flight["start_epoch"] - tz_offset_minutes * 60, timezone.utc)
+    text = " ".join([flight["location"], flight["drone_id"], local.strftime("%Y-%m-%d %H:%M")]).lower()
+    return all(word in text for word in words)
+
+
 @app.get("/api/recordings")
-def get_recordings(drone: Optional[str] = None, q: Optional[str] = None, view: Optional[str] = None):
-    data = video_recordings_manager.list_recordings(
-        drone_filter=drone, search=q
-    )
-    if view == "flights":
-        flights = group_flights(data.pop("recordings"))
-        if not drone and not q:
-            _remember_flights(flights)
-        data["flights"] = flights
-        data["summary"]["total_flights"] = len(flights)
-    return FastJSONResponse(content=_sanitize_for_json(data))
+def get_recordings(
+    drone: Optional[str] = None,
+    q: Optional[str] = None,
+    view: Optional[str] = None,
+    page: int = 1,
+    page_size: int = 24,
+    tz: int = 0,
+    refresh: bool = False,
+):
+    if view != "flights":
+        data = video_recordings_manager.list_recordings(drone_filter=drone, search=q)
+        return FastJSONResponse(content=_sanitize_for_json(data))
+    # Flights, one page at a time and without per-file lists.
+    snapshot = _flight_snapshot(refresh=refresh)
+    words = (q or "").lower().split()
+    wanted = (drone or "").lower().strip() or None
+    flights = snapshot["flights"]
+    if wanted or words:
+        flights = [f for f in flights if _flight_matches(f, wanted, words, tz)]
+    page_size = min(max(page_size, 1), 100)
+    total_pages = max(1, math.ceil(len(flights) / page_size))
+    page = min(max(page, 1), total_pages)
+    drones = {}
+    for flight in snapshot["flights"]:
+        drones.setdefault(flight["drone_id"], flight["location"])
+    return FastJSONResponse(content=_sanitize_for_json({
+        "summary": snapshot["summary"],
+        "page": page,
+        "page_size": page_size,
+        "total": len(flights),
+        "total_pages": total_pages,
+        "drones": [{"id": d, "location": loc} for d, loc in sorted(drones.items(), key=lambda x: _natural_key(x[0]))],
+        "flights": [flight_summary(f) for f in flights[(page - 1) * page_size:page * page_size]],
+    }))
 
 
-@app.get("/api/recordings/flights/{flight_id}/prepare")
-def prepare_flight_video(flight_id: str):
-    """Start (or report) building the single-file playback copy of a flight."""
-    status = flight_playback.status(_find_flight(flight_id))
-    status["video_url"] = f"/api/recordings/flights/{flight_id}/video.mp4"
-    return status
+def _natural_key(text: str):
+    return [int(part) if part.isdigit() else part for part in re.split(r"(\d+)", text)]
 
 
-@app.get("/api/recordings/flights/{flight_id}/video.mp4")
-def flight_video(flight_id: str, download: bool = False):
+@app.get("/api/recordings/flights/{flight_id}")
+def get_flight(flight_id: str):
+    return FastJSONResponse(content=_sanitize_for_json(_find_flight(flight_id)))
+
+
+@app.get("/api/recordings/flights/{flight_id}/playlist.m3u8")
+def flight_playlist(flight_id: str):
+    """The whole flight as one seekable HLS video over the original files."""
+    playlist = flight_playback.playlist(_find_flight(flight_id))
+    if playlist is None:
+        raise HTTPException(status_code=415, detail="These recordings cannot be played as one video")
+    return Response(playlist, media_type="application/vnd.apple.mpegurl",
+                    headers={"Cache-Control": "private, max-age=60"})
+
+
+@app.get("/api/recordings/flights/{flight_id}/download")
+def flight_download(flight_id: str):
     flight = _find_flight(flight_id)
-    path = flight_playback.video_path(flight)
-    if not os.path.exists(path):
-        raise HTTPException(status_code=409, detail="Flight video is not prepared yet")
-    flight_playback.touch(path)
     started = datetime.fromtimestamp(flight["start_epoch"], timezone.utc).strftime("%Y-%m-%d_%H-%M-%S")
-    return FileResponse(
-        path,
+    filename = f"{flight['drone_id']}_{started}Z.mp4"
+    if flight["segment_count"] == 1:
+        source = os.path.join(video_recordings_manager.recordings_dir, flight["segments"][0]["relative_path"])
+        return FileResponse(source, media_type="video/mp4", filename=filename)
+    # Joined on the fly (stream copy); nothing is stored.
+    return StreamingResponse(
+        flight_playback.stream_download(flight),
         media_type="video/mp4",
-        filename=f"{flight['drone_id']}_{started}Z.mp4",
-        content_disposition_type="attachment" if download else "inline",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 
@@ -1559,7 +1664,8 @@ async def abr_master_playlist(camera_id: str):
         return _abr_unavailable(camera, "source_offline", "The camera is not publishing")
     try:
         abr_manager.ensure(camera["id"], camera["source_stream_path"],
-                           stream_telemetry.source_height(camera["id"]))
+                           stream_telemetry.source_height(camera["id"]),
+                           stream_telemetry.snapshot(camera["id"]).get("bitrate_kbps"))
     except AbrUnavailable as exc:
         return _abr_unavailable(camera, exc.reason, str(exc))
     deadline = time.time() + ABR_STARTUP_TIMEOUT_SECONDS

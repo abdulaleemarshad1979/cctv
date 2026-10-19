@@ -5,7 +5,9 @@ writes a multi-variant HLS ladder:
 
 * the original stream, copied without re-encoding (top quality);
 * a 720p encode when the source is taller than 720 lines (optional);
-* a 480p encode.
+* a 480p encode;
+* a 360p encode (~450 kbit/s) so weak 4G viewers step down instead of
+  stalling.
 
 Encoded variants force a keyframe exactly where the source has one, so every
 variant is cut into segments at the same instants and hls.js can switch
@@ -40,14 +42,22 @@ class AbrUnavailable(Exception):
         self.reason = reason
 
 
-def build_ladder(source_height: Optional[int], encode_720: bool = True) -> List[dict]:
+def build_ladder(source_height: Optional[int], encode_720: bool = True,
+                 source_bitrate_k: Optional[float] = None) -> List[dict]:
     """Return the variant list for a source, top quality first."""
     height = int(source_height or 720)
-    ladder = [{"name": "src", "copy": True, "height": height}]
+    # The copied stream's bitrate is only advertised in the master playlist:
+    # FFmpeg leaves a variant without one out of it, so viewers would never
+    # get the original quality.  Measured rate if known, else an estimate.
+    estimate = 4000 if height >= 1080 else 2500 if height >= 720 else 1200
+    src_rate = int(source_bitrate_k) if source_bitrate_k and source_bitrate_k > 100 else estimate
+    ladder = [{"name": "src", "copy": True, "height": height, "bitrate_k": src_rate}]
     if height > 720 and encode_720:
         ladder.append({"name": "720p", "copy": False, "height": 720, "bitrate_k": 2000})
     if height > 480:
         ladder.append({"name": "480p", "copy": False, "height": 480, "bitrate_k": 900})
+    if height > 360:
+        ladder.append({"name": "360p", "copy": False, "height": 360, "bitrate_k": 450})
     return ladder
 
 
@@ -61,7 +71,7 @@ def build_ffmpeg_command(ffmpeg: str, source_url: str, out_dir: str, ladder: Lis
     for index, variant in enumerate(ladder):
         spec = f"v:{index}"
         if variant["copy"]:
-            cmd += [f"-c:{spec}", "copy"]
+            cmd += [f"-c:{spec}", "copy", f"-b:{spec}", f"{variant['bitrate_k']}k"]
         else:
             rate = variant["bitrate_k"]
             cmd += [
@@ -137,10 +147,11 @@ class AbrManager:
     def _running(self, session: Optional[dict]) -> bool:
         return bool(session) and session.get("process") is not None and session["process"].poll() is None
 
-    def _start_locked(self, camera_id: str, source_path: str, source_height: Optional[int]) -> dict:
+    def _start_locked(self, camera_id: str, source_path: str, source_height: Optional[int],
+                      source_bitrate_k: Optional[float] = None) -> dict:
         directory = self._session_dir(camera_id)
         shutil.rmtree(directory, ignore_errors=True)
-        ladder = build_ladder(source_height, self.encode_720)
+        ladder = build_ladder(source_height, self.encode_720, source_bitrate_k)
         for variant in ladder:
             os.makedirs(os.path.join(directory, variant["name"]), exist_ok=True)
         cmd = build_ffmpeg_command(self.ffmpeg, f"{self.rtsp_base}/{source_path.strip('/')}", directory, ladder)
@@ -169,11 +180,12 @@ class AbrManager:
                                 variants=[v["name"] for v in ladder])
         return session
 
-    def ensure(self, camera_id: str, source_path: str, source_height: Optional[int]) -> dict:
+    def ensure(self, camera_id: str, source_path: str, source_height: Optional[int],
+               source_bitrate_k: Optional[float] = None) -> dict:
         if not self.enabled:
             raise AbrUnavailable("disabled", "Adaptive quality is disabled on this server")
-        if source_height is not None and int(source_height) <= 480:
-            raise AbrUnavailable("source_small", "Source is already 480p or smaller")
+        if source_height is not None and int(source_height) <= 360:
+            raise AbrUnavailable("source_small", "Source is already 360p or smaller")
         with self._lock:
             session = self._sessions.get(camera_id)
             if self._running(session):
@@ -184,7 +196,7 @@ class AbrManager:
             active = sum(1 for s in self._sessions.values() if self._running(s))
             if active >= self.max_sessions:
                 raise AbrUnavailable("capacity", f"All {self.max_sessions} adaptive-quality slots are in use")
-            return self._start_locked(camera_id, source_path, source_height)
+            return self._start_locked(camera_id, source_path, source_height, source_bitrate_k)
 
     def touch(self, camera_id: str) -> None:
         with self._lock:
