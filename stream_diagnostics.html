@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Stream Diagnostics — EGDMS</title>
+  <style>
+    :root {
+      --bg: #0b1120; --panel: #111a2e; --line: #1f2a44; --text: #e6ebf5; --muted: #8b97b0;
+      --ok: #22c55e; --warn: #f59e0b; --bad: #ef4444; --info: #60a5fa;
+      --c-camera: #a78bfa; --c-network: #f59e0b; --c-ingest: #60a5fa; --c-recorder: #22d3ee;
+      --c-disk: #f472b6; --c-browser: #94a3b8; --c-analyzer: #84cc16;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+    header { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; padding: 14px 16px; border-bottom: 1px solid var(--line); }
+    h1 { font-size: 17px; margin: 0; }
+    h2 { font-size: 14px; margin: 0 0 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+    main { padding: 16px; display: grid; gap: 16px; max-width: 1400px; margin: 0 auto; }
+    .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    select, button, a.btn { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; font: inherit; text-decoration: none; cursor: pointer; }
+    section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; overflow: hidden; }
+    .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; }
+    .stat { border: 1px solid var(--line); border-radius: 8px; padding: 10px; }
+    .stat b { display: block; font-size: 18px; font-variant-numeric: tabular-nums; }
+    .stat span { color: var(--muted); font-size: 12px; }
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+    th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; white-space: nowrap; }
+    td.wrap { white-space: normal; min-width: 260px; }
+    th { color: var(--muted); font-weight: 600; font-size: 12px; }
+    .pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; border: 1px solid currentColor; }
+    .s-online, .s-recording, .s-ok { color: var(--ok); }
+    .s-reconnecting, .s-low, .s-stalled-warn { color: var(--warn); }
+    .s-stalled, .s-critical, .s-offline { color: var(--bad); }
+    .s-connecting, .s-idle { color: var(--muted); }
+    .cat { font-weight: 700; }
+    .cat-camera { color: var(--c-camera); } .cat-network { color: var(--c-network); } .cat-ingest { color: var(--c-ingest); }
+    .cat-recorder { color: var(--c-recorder); } .cat-disk { color: var(--c-disk); } .cat-browser { color: var(--c-browser); }
+    .cat-analyzer { color: var(--c-analyzer); }
+    .legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+    .muted { color: var(--muted); }
+    .error { color: var(--bad); }
+    @media (max-width: 640px) { header { padding: 12px 16px; } main { padding: 12px 16px; } }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Stream &amp; Recording Diagnostics</h1>
+    <div class="controls">
+      <label for="camera">Camera</label>
+      <select id="camera"><option value="">All active</option></select>
+      <label for="hours">Window</label>
+      <select id="hours">
+        <option value="1">1 hour</option><option value="6" selected>6 hours</option>
+        <option value="24">24 hours</option><option value="168">7 days</option>
+      </select>
+      <button id="refresh" type="button">Refresh</button>
+      <a class="btn" href="/admin">← Admin dashboard</a>
+    </div>
+  </header>
+  <main>
+    <section aria-labelledby="sum-h"><h2 id="sum-h">System</h2><div class="summary" id="summary"></div></section>
+    <section aria-labelledby="cam-h">
+      <h2 id="cam-h">Cameras</h2>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Camera</th><th>Status</th><th>Source</th><th>Bitrate</th><th>Resolution</th><th>Last packet</th><th>Reconnects</th><th>Recorder</th><th>Viewer delay</th></tr></thead>
+        <tbody id="cameras"></tbody>
+      </table></div>
+    </section>
+    <section aria-labelledby="tl-h">
+      <h2 id="tl-h">Timeline — where each failure started</h2>
+      <div class="legend">
+        <span class="cat-camera">■ camera / drone app</span><span class="cat-network">■ uplink network</span>
+        <span class="cat-ingest">■ streaming server</span><span class="cat-recorder">■ recorder</span>
+        <span class="cat-disk">■ disk</span><span class="cat-browser">■ viewer browser</span><span class="cat-analyzer">■ AI analyzer</span>
+      </div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Time</th><th>Camera</th><th>Origin</th><th>Event</th><th>Detail</th></tr></thead>
+        <tbody id="timeline"></tbody>
+      </table></div>
+    </section>
+    <section aria-labelledby="rec-h">
+      <h2 id="rec-h">Recording continuity</h2>
+      <p class="muted">Measured from the recorded files with ffprobe. Gaps are periods inside a flight where no video reached the server; they are reported, never filled.</p>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Camera</th><th>Files</th><th>Recorded</th><th>Missing in flights</th><th>Gaps</th><th>Files &lt;30s</th><th>No video</th><th>Probe errors</th><th>Latest file</th></tr></thead>
+        <tbody id="continuity"></tbody>
+      </table></div>
+      <div class="table-wrap" style="margin-top:12px"><table>
+        <thead><tr><th>Camera</th><th>Gap from</th><th>Gap to</th><th>Length</th><th>Likely cause</th></tr></thead>
+        <tbody id="gaps"></tbody>
+      </table></div>
+    </section>
+  </main>
+  <script>
+    const $ = id => document.getElementById(id);
+    const esc = v => String(v ?? "").replace(/[&<>'"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[c]);
+    const localTime = iso => iso ? new Date(iso).toLocaleString() : "—";
+    const dur = s => s == null ? "—" : s >= 3600 ? `${(s / 3600).toFixed(1)} h` : s >= 60 ? `${(s / 60).toFixed(1)} min` : `${Number(s).toFixed(0)} s`;
+    const pill = (text, cls) => `<span class="pill s-${esc(cls || text)}">${esc(text)}</span>`;
+    let camerasLoaded = false;
+
+    async function getJson(url) {
+      const res = await fetch(url, { cache: "no-store", credentials: "same-origin" });
+      if (res.status === 401 || res.status === 403) { window.location.href = "/login?role=admin&redirect=/admin/diagnostics"; throw new Error("auth"); }
+      if (!res.ok) throw new Error(`${url}: HTTP ${res.status}`);
+      return res.json();
+    }
+
+    async function loadCameraList() {
+      if (camerasLoaded) return;
+      try {
+        const cams = await getJson("/cameras");
+        $("camera").insertAdjacentHTML("beforeend", cams.map(c => `<option value="${esc(c.id)}">${esc(c.name)} (${esc(c.id)})</option>`).join(""));
+        camerasLoaded = true;
+      } catch (e) { /* list stays "All active" */ }
+    }
+
+    function renderDiagnostics(d) {
+      const sync = d.server.mediamtx_state_sync || {};
+      const disk = d.disk || {};
+      const abr = d.abr || {};
+      $("summary").innerHTML = [
+        ["Streaming server API", d.server.api_reachable === false ? pill("unreachable", "offline") : pill("reachable", "ok")],
+        ["State sync age", sync.last_success_age_seconds != null ? `${sync.last_success_age_seconds}s` : "—"],
+        ["Recording disk free", disk.free_gb != null ? `${disk.free_gb} GB ${pill(disk.level, disk.level)}` : esc(disk.error || "—")],
+        ["Adaptive quality", `${Object.values(abr.sessions || {}).filter(s => s.running).length} / ${abr.max_sessions ?? 0} running`],
+        ["Grace period", `${d.settings.stream_grace_seconds}s`],
+        ["Delay target", `${d.settings.player_latency_target_seconds}s`],
+      ].map(([k, v]) => `<div class="stat"><span>${esc(k)}</span><b>${v}</b></div>`).join("");
+
+      $("cameras").innerHTML = d.cameras.length ? d.cameras.map(c => {
+        const s = c.source || {};
+        const v = c.viewer_playback;
+        return `<tr>
+          <td>${esc(c.name)}<div class="muted">${esc(c.camera_id)}</div></td>
+          <td>${pill(c.status)}${c.reconnecting_for_seconds != null ? ` <span class="muted">${c.reconnecting_for_seconds}s</span>` : ""}</td>
+          <td>${s.observed ? (s.stalled ? pill(`stalled ${s.stall_seconds}s`, "stalled-warn") : pill(s.online ? "receiving" : "offline", s.online ? "ok" : "idle")) : '<span class="muted">not seen</span>'}</td>
+          <td>${s.bitrate_kbps != null ? `${Math.round(s.bitrate_kbps)} kbps` : "—"}</td>
+          <td>${s.width ? `${esc(s.codec || "")} ${s.width}×${s.height}` : "—"}</td>
+          <td>${s.last_packet_at ? `${localTime(s.last_packet_at)}<div class="muted">${s.seconds_since_last_packet}s ago</div>` : "—"}</td>
+          <td>${s.reconnects ?? "—"}</td>
+          <td>${pill(c.recorder_state)}</td>
+          <td>${v ? `${v.latency_seconds}s <span class="muted">${esc(v.transport || "")}${v.level_height ? ` ${v.level_height}p` : ""}</span>` : "—"}</td>
+        </tr>`;
+      }).join("") : `<tr><td colspan="9" class="muted">No cameras are publishing and no events in this window.</td></tr>`;
+
+      const events = (d.timeline || []).slice().reverse();
+      $("timeline").innerHTML = events.length ? events.map(e => `<tr>
+          <td>${localTime(e.time)}</td><td>${esc(e.camera_id === "*" ? "system" : e.camera_id)}</td>
+          <td class="cat cat-${esc(e.category)}">${esc(e.category)}</td><td>${esc(e.event)}</td>
+          <td class="wrap">${esc(e.detail)}</td></tr>`).join("")
+        : `<tr><td colspan="5" class="muted">No events in this window.</td></tr>`;
+    }
+
+    function renderContinuity(r) {
+      const cams = r.cameras || [];
+      $("continuity").innerHTML = cams.length ? cams.map(c => `<tr>
+          <td>${esc(c.camera_id)}</td><td>${c.segments}</td><td>${dur(c.recorded_seconds)}</td>
+          <td>${dur(c.missing_seconds_within_flights)}</td><td>${c.gaps.length}</td>
+          <td>${c.short_segments_under_30s}</td><td>${c.segments_without_video}</td><td>${c.probe_errors}</td>
+          <td>${localTime(c.last_segment.start)} · ${dur(c.last_segment.duration_seconds)}${c.last_segment.growing ? ` ${pill("recording")}` : ""}</td></tr>`).join("")
+        : `<tr><td colspan="9" class="muted">${r.scan && r.scan.initialized ? "No recordings in this window." : "Recordings are still being indexed…"}</td></tr>`;
+      const gaps = cams.flatMap(c => c.gaps.map(g => ({ camera: c.camera_id, ...g }))).sort((a, b) => b.from.localeCompare(a.from)).slice(0, 200);
+      $("gaps").innerHTML = gaps.length ? gaps.map(g => `<tr>
+          <td>${esc(g.camera)}</td><td>${localTime(g.from)}</td><td>${localTime(g.to)}</td><td>${dur(g.seconds)}</td>
+          <td>${g.cause ? `<span class="cat cat-${esc(g.cause.category)}">${esc(g.cause.category)}</span> ${esc(g.cause.event)}` : '<span class="muted">no event recorded</span>'}</td></tr>`).join("")
+        : `<tr><td colspan="5" class="muted">No gaps inside flights in this window.</td></tr>`;
+    }
+
+    async function refresh(includeContinuity) {
+      const cam = $("camera").value;
+      const hours = $("hours").value;
+      const q = `hours=${encodeURIComponent(hours)}${cam ? `&camera=${encodeURIComponent(cam)}` : ""}`;
+      try { renderDiagnostics(await getJson(`/api/stream-diagnostics?${q}`)); }
+      catch (e) { if (e.message !== "auth") $("timeline").innerHTML = `<tr><td colspan="5" class="error">${esc(e.message)}</td></tr>`; }
+      if (includeContinuity) {
+        try { renderContinuity(await getJson(`/api/recordings/continuity?${q}`)); }
+        catch (e) { if (e.message !== "auth") $("continuity").innerHTML = `<tr><td colspan="9" class="error">${esc(e.message)}</td></tr>`; }
+      }
+    }
+
+    $("refresh").addEventListener("click", () => refresh(true));
+    $("camera").addEventListener("change", () => refresh(true));
+    $("hours").addEventListener("change", () => refresh(true));
+    loadCameraList();
+    refresh(true);
+    setInterval(() => { if (!document.hidden) refresh(false); }, 5000);
+    setInterval(() => { if (!document.hidden) refresh(true); }, 60000);
+  </script>
+</body>
+</html>

@@ -129,15 +129,18 @@ def test_fastapi_hls_proxy_supports_get_and_head():
     assert "/live/drone1/index.m3u8" in head_res.headers["location"]
 
 
-def test_dashboards_default_to_webrtc_and_have_latency_catchup():
-    """Verify that WebRTC is the default transport and latency catch-up is enforced."""
+def test_dashboards_default_to_hls_and_have_latency_catchup():
+    """HLS (adaptive when available) is the default; ?transport=webrtc opts in.
+
+    Latency is bounded by the shared hls.js config (live-sync target ~5 s,
+    hard ceiling target + 5 s) plus the watchdog/visibility catch-up jumps.
+    """
     for name in ["admin_dashboard.html", "lite_dashboard.html"]:
         content = _read(name)
-        assert 'let useWebRtc = urlParams.get("transport") !== "hls";' in content, (
-            f"WebRTC must be active by default (unless transport=hls) in {name}"
+        assert 'let useWebRtc = urlParams.get("transport") === "webrtc";' in content, (
+            f"HLS must be the default transport (WebRTC only with transport=webrtc) in {name}"
         )
-        assert "liveSyncDuration: 1.5" in content, f"liveSyncDuration missing in {name}"
-        assert "liveMaxLatencyDuration: 3.5" in content, f"liveMaxLatencyDuration missing in {name}"
+        assert "targetLatency: cam.player_latency_target_seconds || 5" in content
         assert "player.liveSyncPosition - video.currentTime > 4.0" in content, (
             f"Watchdog live-sync catchup missing in {name}"
         )

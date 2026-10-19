@@ -1337,6 +1337,7 @@
   </main>
 
   <script src="https://cdn.jsdelivr.net/npm/hls.js@1.7.1"></script>
+  <script src="/static/monitor/js/egdms-player.js"></script>
 
   <script>
     let cameras = [];
@@ -1349,10 +1350,18 @@
     const probeTokens = {};
     const probeRetryTimestamps = {};
     const webrtcUnavailable = {};
+    const playerBackoff = {};
+    const reconnectStartedAt = {};
+    const overlayTimers = {};
+    const abrFallbackUntil = {};
+    const latencyTimers = {};
     const CAMERA_POLL_INTERVAL_MS = 1000;
     let cameraPollInFlight = false;
     const urlParams = new URLSearchParams(window.location.search);
-    let useWebRtc = urlParams.get("transport") !== "hls";
+    // HLS (adaptive when available) is the default: it buffers through
+    // packet loss and supports quality switching. ?transport=webrtc opts in
+    // to sub-second WebRTC.
+    let useWebRtc = urlParams.get("transport") === "webrtc";
 
     function isCameraPlayable(cam) {
       if (cam.enabled === false) return false;
@@ -1659,10 +1668,15 @@
       const loader = document.getElementById(`loader-${cam.id}`);
       const liveBadge = document.getElementById(`live-${cam.id}`);
 
-      container?.classList.toggle("hidden", !isOnline);
-      placeholder?.classList.toggle("hidden", isOnline);
+      // A dropped source is reported as "reconnecting" for the grace
+      // period: keep the last frame and a badge instead of blanking.
+      const holding = !isOnline && cam.status === "reconnecting" &&
+        (Boolean(hlsPlayers[cam.id]) || EGDMSPlayer.hasHeldFrame(container));
+      const showVideo = isOnline || holding;
+      container?.classList.toggle("hidden", !showVideo);
+      placeholder?.classList.toggle("hidden", showVideo);
       liveBadge?.classList.toggle("hidden", !isOnline);
-      loader?.classList.toggle("hidden", isOnline);
+      loader?.classList.toggle("hidden", showVideo);
 
       if (placeholderText) {
         placeholderText.textContent = getConnectionMessage(cam);
@@ -1678,7 +1692,9 @@
           }
         }
         updateLiveStats(cam);
-      } else if (hlsPlayers[cam.id]) {
+      } else if (holding) {
+        holdLastFrame(cam, "Signal interrupted — reconnecting…");
+      } else if (hlsPlayers[cam.id] || EGDMSPlayer.hasHeldFrame(container)) {
         teardownVideoFeed(cam.id);
       }
       return true;
@@ -1777,7 +1793,17 @@
     }
 
     // Setup Video playback source (HLS live stream with overlays, or fallback direct MP4)
-    function teardownVideoFeed(id, showSwitchingState = false) {
+    function teardownVideoFeed(id, showSwitchingState = false, keepFrame = false) {
+      if (keepFrame) {
+        // Capture the picture before the player detaches and clears it.
+        const box = document.getElementById(`player-container-${id}`);
+        const shown = box && box.querySelector("video");
+        if (shown) EGDMSPlayer.freezeFrame(box, shown);
+      }
+      if (latencyTimers[id]) {
+        clearInterval(latencyTimers[id]);
+        delete latencyTimers[id];
+      }
       if (playerRetryTimers[id]) {
         clearTimeout(playerRetryTimers[id]);
         delete playerRetryTimers[id];
@@ -1814,10 +1840,73 @@
             existingVideo.remove();
           } catch (e) {}
         }
-        container.innerHTML = showSwitchingState
-          ? '<div class="tile__stream-switching">Switching video mode...</div>'
-          : '';
+        if (keepFrame) {
+          EGDMSPlayer.removeQualityMenu(container);
+          Array.from(container.children).forEach(child => {
+            if (!child.classList.contains("egdms-freeze") && !child.classList.contains("egdms-overlay")) child.remove();
+          });
+        } else {
+          container.innerHTML = showSwitchingState
+            ? '<div class="tile__stream-switching">Switching video mode...</div>'
+            : '';
+        }
       }
+      if (!keepFrame) clearReconnectState(id, false);
+    }
+
+    // Keep the last frame on screen with a reconnecting badge.  Display only:
+    // recordings are made server-side and never contain filler frames.
+    function holdLastFrame(cam, message) {
+      const container = document.getElementById(`player-container-${cam.id}`);
+      if (!container) return;
+      if (!reconnectStartedAt[cam.id]) {
+        reconnectStartedAt[cam.id] = Date.now();
+        EGDMSPlayer.report(cam.id, "reconnecting", {
+          detail: message,
+          transport: hlsPlayers[cam.id] && hlsPlayers[cam.id]._isWebRtc ? "webrtc" : "hls"
+        });
+      }
+      if (hlsPlayers[cam.id]) teardownVideoFeed(cam.id, false, true);
+      const elapsed = Math.round((Date.now() - reconnectStartedAt[cam.id]) / 1000);
+      EGDMSPlayer.setOverlay(container, message, elapsed > 0 ? `${elapsed}s` : "");
+      if (!overlayTimers[cam.id]) {
+        overlayTimers[cam.id] = setInterval(() => {
+          const started = reconnectStartedAt[cam.id];
+          const box = document.getElementById(`player-container-${cam.id}`);
+          const sub = box && box.querySelector(".egdms-overlay__sub");
+          if (!started || !sub) return;
+          const seconds = Math.round((Date.now() - started) / 1000);
+          sub.textContent = `${seconds}s`;
+          const grace = Number(cam.stream_grace_seconds) || 20;
+          const label = box.querySelector(".egdms-overlay__text");
+          if (label && seconds > grace) label.textContent = "Connection lost — still retrying";
+        }, 1000);
+      }
+    }
+
+    function clearReconnectState(camId, recovered) {
+      if (recovered && reconnectStartedAt[camId]) {
+        EGDMSPlayer.report(camId, "recovered", {
+          stall_seconds: Number(((Date.now() - reconnectStartedAt[camId]) / 1000).toFixed(1))
+        });
+      }
+      delete reconnectStartedAt[camId];
+      if (overlayTimers[camId]) {
+        clearInterval(overlayTimers[camId]);
+        delete overlayTimers[camId];
+      }
+      if (playerBackoff[camId]) playerBackoff[camId].reset();
+      const container = document.getElementById(`player-container-${camId}`);
+      EGDMSPlayer.clearOverlay(container);
+      EGDMSPlayer.clearFreeze(container);
+    }
+
+    // Retry a failed player with bounded exponential backoff (1s, 2s, 4s,
+    // 8s, then every 15s), one pending attempt per camera.
+    function scheduleReconnect(cam, reason) {
+      holdLastFrame(cam, "Reconnecting…");
+      const backoff = playerBackoff[cam.id] || (playerBackoff[cam.id] = new EGDMSPlayer.Backoff(1000, 15000));
+      schedulePlayerRetry(cam, backoff.next());
     }
 
     function schedulePlayerRetry(cam, delay = 1000) {
@@ -1843,7 +1932,7 @@
           iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
         });
       } catch (e) {
-        webrtcUnavailable[cam.id] = true;
+        webrtcUnavailable[cam.id] = Date.now() + 60000;
         fallbackToHls();
         return;
       }
@@ -1875,7 +1964,7 @@
       const fallbackTimeout = setTimeout(() => {
         if (!webrtcEstablished && !webrtcPlayer._destroyed) {
           console.warn(`[WebRTC] Camera ${cam.id} media timeout, falling back to HLS`);
-          webrtcUnavailable[cam.id] = true;
+          webrtcUnavailable[cam.id] = Date.now() + 60000;
           webrtcPlayer.destroy();
           fallbackToHls();
         }
@@ -1898,47 +1987,33 @@
         clearTimeout(fallbackTimeout);
         if (!webrtcPlayer._destroyed) {
           console.warn(`[WebRTC] Camera ${cam.id} WHEP negotiation failed, falling back to HLS:`, err);
-          webrtcUnavailable[cam.id] = true;
+          webrtcUnavailable[cam.id] = Date.now() + 60000;
           webrtcPlayer.destroy();
           fallbackToHls();
         }
       });
     }
 
-    function setupHlsPlayback(cam, video, playbackPath, getMediaRecoveries) {
-      const streamUrl = `${window.location.origin}/hls/${playbackPath}/index.m3u8`;
+function setupHlsPlayback(cam, video, playbackPath, getMediaRecoveries) {
+      const directUrl = `${window.location.origin}/hls/${playbackPath}/index.m3u8`;
+      // Adaptive quality (server-side 480p/720p ladder) when the server offers
+      // it; otherwise, or after a failed attempt, the direct MediaMTX stream.
+      const useAbr = Boolean(cam.abr_available) && !(abrFallbackUntil[cam.id] > Date.now());
+      const transport = useAbr ? "hls-abr" : "hls";
+      const container = video.parentElement;
 
       if (typeof Hls !== "undefined" && Hls.isSupported()) {
-        const hls = new Hls({
-          enableWorker: true,
-          lowLatencyMode: true,
-          liveSyncDuration: 1.5,
-          liveMaxLatencyDuration: 3.5,
-          backBufferLength: 4,
-          maxBufferLength: 5,
-          maxMaxBufferLength: 10,
-          liveSyncDurationCount: 3,
-          liveMaxLatencyDurationCount: 5,
-          maxLiveSyncPlaybackRate: 1.1,
-          liveDurationInfinity: true,
-          startPosition: -1,
-          manifestLoadingMaxRetry: 20,
-          manifestLoadingRetryDelay: 500,
-          levelLoadingMaxRetry: 10,
-          levelLoadingRetryDelay: 500,
-          fragLoadingMaxRetry: 10,
-          fragLoadingRetryDelay: 500,
-          highBufferWatchdogPeriod: 2,
-          xhrSetup: function (xhr) {
-            xhr.withCredentials = true;
-          }
-        });
+        const hls = new Hls(EGDMSPlayer.hlsConfig({
+          targetLatency: cam.player_latency_target_seconds || 5,
+          abr: useAbr
+        }));
 
         hls._egdmsPath = playbackPath;
         hls._destroyed = false;
+        hls._mediaRecoveries = 0;
         hlsPlayers[cam.id] = hls;
 
-        hls.loadSource(streamUrl);
+        hls.loadSource(useAbr ? `${window.location.origin}/abr/${encodeURIComponent(cam.id)}/master.m3u8` : directUrl);
         hls.attachMedia(video);
 
         hls.on(Hls.Events.MEDIA_ATTACHED, () => {
@@ -1947,41 +2022,59 @@
 
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
           safePlay(video);
+          EGDMSPlayer.attachQualityMenu(container, hls, cam.id, value => {
+            EGDMSPlayer.report(cam.id, "quality_switch", { detail: `viewer selected ${value}`, transport });
+          });
         });
+
+        latencyTimers[cam.id] = setInterval(() => {
+          if (hls._destroyed || document.hidden || video.paused) return;
+          const latency = EGDMSPlayer.measureLatency(hls);
+          const level = hls.levels && hls.levels[hls.currentLevel];
+          if (latency != null) {
+            EGDMSPlayer.report(cam.id, "latency_sample", {
+              latency_seconds: Number(latency.toFixed(2)),
+              level_height: level && level.height ? level.height : null,
+              transport
+            });
+          }
+        }, 30000);
 
         hls.on(Hls.Events.ERROR, function (event, data) {
-          if (hls._destroyed || hlsPlayers[cam.id] !== hls) return;
+          if (hls._destroyed || hlsPlayers[cam.id] !== hls || !data.fatal) return;
 
-          if (data.fatal) {
-            switch (data.type) {
-              case Hls.ErrorTypes.NETWORK_ERROR:
-                teardownVideoFeed(cam.id);
-                schedulePlayerRetry(cam, 1000);
-                break;
-              case Hls.ErrorTypes.MEDIA_ERROR:
-                const recoveries = typeof getMediaRecoveries === "function" ? getMediaRecoveries() : 0;
-                if (recoveries < 2) {
-                  video._recovering = true;
-                  try {
-                    hls.recoverMediaError();
-                    safePlay(video);
-                  } finally {
-                    setTimeout(() => { video._recovering = false; }, 500);
-                  }
-                } else {
-                  teardownVideoFeed(cam.id);
-                  schedulePlayerRetry(cam, 1000);
-                }
-                break;
-              default:
-                teardownVideoFeed(cam.id);
-                schedulePlayerRetry(cam, 1000);
-                break;
-            }
+          if (useAbr && data.type === Hls.ErrorTypes.NETWORK_ERROR &&
+              (data.details === Hls.ErrorDetails.MANIFEST_LOAD_ERROR ||
+               data.details === Hls.ErrorDetails.MANIFEST_LOAD_TIMEOUT)) {
+            // Adaptive stream unavailable (all slots busy, still starting,
+            // source offline): fall back to the direct stream for a minute.
+            abrFallbackUntil[cam.id] = Date.now() + 60000;
+            EGDMSPlayer.report(cam.id, "abr_fallback", {
+              detail: `${data.details} ${data.response && data.response.code ? data.response.code : ""}`.trim(),
+              transport
+            });
+            teardownVideoFeed(cam.id, false, true);
+            schedulePlayerRetry(cam, 0);
+            return;
           }
+
+          if (data.type === Hls.ErrorTypes.MEDIA_ERROR && hls._mediaRecoveries < 2) {
+            hls._mediaRecoveries += 1;
+            video._recovering = true;
+            try {
+              hls.recoverMediaError();
+              safePlay(video);
+            } finally {
+              setTimeout(() => { video._recovering = false; }, 500);
+            }
+            return;
+          }
+
+          EGDMSPlayer.report(cam.id, "playback_error", { detail: `${data.type}/${data.details}`, transport });
+          scheduleReconnect(cam, data.details);
         });
       } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-        video.src = streamUrl;
+        video.src = directUrl;
         const fallbackPlayer = {
           _egdmsPath: playbackPath,
           egdmsPath: playbackPath,
@@ -1996,8 +2089,8 @@
         };
         video.onerror = () => {
           if (fallbackPlayer._destroyed || hlsPlayers[cam.id] !== fallbackPlayer) return;
-          teardownVideoFeed(cam.id);
-          schedulePlayerRetry(cam, 1000);
+          EGDMSPlayer.report(cam.id, "playback_error", { detail: "native HLS error", transport: "hls-native" });
+          scheduleReconnect(cam, "native-error");
         };
         safePlay(video);
         hlsPlayers[cam.id] = fallbackPlayer;
@@ -2007,7 +2100,8 @@
     function setupVideoFeed(cam) {
       const container = document.getElementById(`player-container-${cam.id}`);
       if (!container) return;
-      teardownVideoFeed(cam.id);
+      // Keep any held frame visible until the new stream shows a frame.
+      teardownVideoFeed(cam.id, false, true);
       if (playerRetryTimers[cam.id]) {
         clearTimeout(playerRetryTimers[cam.id]);
         delete playerRetryTimers[cam.id];
@@ -2038,6 +2132,14 @@
       });
 
       container.appendChild(video);
+      const markRecovered = () => {
+        if (video.parentElement) clearReconnectState(cam.id, true);
+      };
+      if ("requestVideoFrameCallback" in HTMLVideoElement.prototype) {
+        video.requestVideoFrameCallback(markRecovered);
+      } else {
+        video.addEventListener("playing", markRecovered, { once: true });
+      }
 
       let egdmsLastTime = -1;
       let egdmsLastProgressAt = Date.now();
@@ -2049,8 +2151,13 @@
         if (egdmsReconnecting) return;
         egdmsReconnecting = true;
         const currentCam = (cameras || []).find(c => c.id === cam.id) || cam;
-        teardownVideoFeed(cam.id);
-        if (isCameraPlayable(currentCam)) setupVideoFeed(currentCam);
+        const stalledPlayer = hlsPlayers[cam.id];
+        if (stalledPlayer && stalledPlayer._isWebRtc) webrtcUnavailable[cam.id] = Date.now() + 60000;
+        EGDMSPlayer.report(cam.id, "stall", {
+          detail: "no video progress",
+          transport: stalledPlayer && stalledPlayer._isWebRtc ? "webrtc" : "hls"
+        });
+        if (isCameraPlayable(currentCam)) scheduleReconnect(currentCam, "stall");
       };
 
       video.addEventListener("ended", egdmsReconnect);
@@ -2119,7 +2226,7 @@
         }
       }, 2000);
 
-      const tryWebRtc = useWebRtc && !webrtcUnavailable[cam.id] && typeof RTCPeerConnection !== "undefined";
+      const tryWebRtc = useWebRtc && !(webrtcUnavailable[cam.id] > Date.now()) && typeof RTCPeerConnection !== "undefined";
 
       const setupHlsFallback = () => {
         setupHlsPlayback(cam, video, playbackPath, () => mediaRecoveries);
@@ -2148,6 +2255,16 @@
           }
         });
       }
+    });
+
+    window.addEventListener("online", () => {
+      Object.keys(reconnectStartedAt).forEach(id => {
+        const cam = (cameras || []).find(c => c.id === id);
+        if (cam && isCameraPlayable(cam) && !hlsPlayers[id]) {
+          if (playerBackoff[id]) playerBackoff[id].reset();
+          schedulePlayerRetry(cam, 0);
+        }
+      });
     });
 
     window.setPlaybackTransport = function(transport) {

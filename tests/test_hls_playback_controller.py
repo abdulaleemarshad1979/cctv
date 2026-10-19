@@ -29,27 +29,33 @@ def test_lite_server_generates_correct_mediamtx_config():
 
 
 def test_dashboards_have_low_latency_hls_configuration():
-    admin = _read("admin_dashboard.html")
-    lite = _read("lite_dashboard.html")
-
-    required_hls_settings = [
-        "lowLatencyMode: true",
-        "liveSyncDuration: 1.5",
-        "liveMaxLatencyDuration: 3.5",
-        "liveSyncDurationCount: 3",
-        "liveMaxLatencyDurationCount: 5",
-        "maxLiveSyncPlaybackRate: 1.1",
-        "backBufferLength: 4",
-        "maxBufferLength: 5",
-        "maxMaxBufferLength: 10",
+    # hls.js throws "Illegal hls.js config" when liveSyncDuration/liveMaxLatencyDuration
+    # are combined with liveSyncDurationCount/liveMaxLatencyDurationCount, which left
+    # every HLS fallback with a black tile.  The config now lives in one shared file.
+    player = _read("static/monitor/js/egdms-player.js")
+    for setting in [
+        "lowLatencyMode: false",
+        "liveSyncDuration: Math.max(1.5, target - 1.5)",
+        "liveMaxLatencyDuration: target + 5",
+        "maxLiveSyncPlaybackRate: 1.15",
+        "maxBufferLength: 6",
+        "maxMaxBufferLength: 12",
         "startPosition: -1",
         "enableWorker: true",
         "liveDurationInfinity: true",
-    ]
+        "capLevelToPlayerSize: true",
+    ]:
+        assert setting in player, f"Setting '{setting}' missing in egdms-player.js"
+    assert "liveSyncDurationCount" not in player
+    assert "liveMaxLatencyDurationCount" not in player
 
-    for setting in required_hls_settings:
-        assert setting in admin, f"Setting '{setting}' missing in admin_dashboard.html"
-        assert setting in lite, f"Setting '{setting}' missing in lite_dashboard.html"
+    for name in ["admin_dashboard.html", "lite_dashboard.html"]:
+        content = _read(name)
+        assert '<script src="/static/monitor/js/egdms-player.js"></script>' in content
+        assert "new Hls(EGDMSPlayer.hlsConfig(" in content
+        assert not ("liveSyncDurationCount" in content and "liveSyncDuration:" in content), (
+            f"{name} mixes count- and second-based live sync options (hls.js rejects this)"
+        )
 
 
 def test_dashboards_have_immediate_autoplay_without_stalling():

@@ -38,6 +38,8 @@ class MediaMTXStateMonitor:
         request_timeout_seconds: float = 2.0,
         offline_confirmations: int = 2,
         fetch_json: Callable[[str, float], dict[str, Any]] | None = None,
+        on_payload: Callable[[dict[str, Any]], Any] | None = None,
+        on_error: Callable[[str], Any] | None = None,
     ) -> None:
         self.api_url = api_url
         self._list_cameras = list_cameras
@@ -47,6 +49,9 @@ class MediaMTXStateMonitor:
         self.request_timeout_seconds = max(0.25, float(request_timeout_seconds))
         self.offline_confirmations = max(1, int(offline_confirmations))
         self._fetch_json = fetch_json or self._default_fetch_json
+        # Optional observers (telemetry); their failures never affect state sync.
+        self._on_payload = on_payload
+        self._on_error = on_error
 
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
@@ -63,6 +68,15 @@ class MediaMTXStateMonitor:
             if response.status != 200:
                 raise RuntimeError(f"MediaMTX API returned HTTP {response.status}")
             return json.loads(response.read().decode("utf-8"))
+
+    @staticmethod
+    def _notify(callback: Callable[..., Any] | None, value: Any) -> None:
+        if callback is None:
+            return
+        try:
+            callback(value)
+        except Exception:  # observer boundary
+            LOGGER.exception("MediaMTX state observer failed")
 
     @staticmethod
     def _ready_paths(payload: dict[str, Any]) -> set[str]:
@@ -99,7 +113,10 @@ class MediaMTXStateMonitor:
             except Exception as exc:  # network/runtime boundary
                 self._last_error = f"{type(exc).__name__}: {exc}"
                 LOGGER.warning("MediaMTX state synchronization failed: %s", exc)
+                self._notify(self._on_error, self._last_error)
                 return None
+
+            self._notify(self._on_payload, payload)
 
             ready_camera_ids: set[str] = set()
             for path in ready_paths:
