@@ -1355,7 +1355,9 @@
   </main>
 
   <script src="https://cdn.jsdelivr.net/npm/hls.js@1.7.1"></script>
-  <script src="/static/monitor/js/egdms-player.js"></script>
+  <!-- ?v= is the script's content hash (tests enforce it): a new URL on every
+       change, so the CDN and browsers can never serve an older copy. -->
+  <script src="/static/monitor/js/egdms-player.js?v=958c3a8c05"></script>
 
   <script>
     let cameras = [];
@@ -1474,7 +1476,11 @@
     function pauseLiveTile(camId) {
       if (hlsPlayers[camId] && !liveTileWanted(camId)) teardownVideoFeed(camId, false, true);
     }
-    const liveTileGate = new EGDMSPlayer.LiveTileGate({ onShow: resumeLiveTile, onHide: pauseLiveTile });
+    // If an older cached player script lacks the gate, play every tile
+    // rather than failing to draw the page.
+    const liveTileGate = EGDMSPlayer.LiveTileGate
+      ? new EGDMSPlayer.LiveTileGate({ onShow: resumeLiveTile, onHide: pauseLiveTile })
+      : { observe() {}, unobserve() {}, isVisible: () => true };
 
     window.openFullViewModal = function(camId) {
       const cam = cameras.find(c => c.id === camId);
@@ -2252,7 +2258,7 @@ function setupHlsPlayback(cam, video, playbackPath, getMediaRecoveries) {
         if (!video.seeking && video.readyState >= 2 && video.currentTime > egdmsLastTime) {
           egdmsLastTime = video.currentTime;
           egdmsLastProgressAt = now;
-          EGDMSPlayer.keepLiveDelay(hlsPlayers[cam.id], video);
+          if (EGDMSPlayer.keepLiveDelay) EGDMSPlayer.keepLiveDelay(hlsPlayers[cam.id], video);
           return;
         }
 

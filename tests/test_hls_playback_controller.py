@@ -51,7 +51,7 @@ def test_dashboards_have_low_latency_hls_configuration():
 
     for name in ["admin_dashboard.html", "lite_dashboard.html"]:
         content = _read(name)
-        assert '<script src="/static/monitor/js/egdms-player.js"></script>' in content
+        assert "<script src=\"/static/monitor/js/egdms-player.js?v=" in content
         assert "new Hls(EGDMSPlayer.hlsConfig(" in content
         assert not ("liveSyncDurationCount" in content and "liveSyncDuration:" in content), (
             f"{name} mixes count- and second-based live sync options (hls.js rejects this)"

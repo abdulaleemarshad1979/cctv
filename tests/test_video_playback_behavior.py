@@ -216,3 +216,25 @@ def test_manual_quality_falls_back_to_auto_and_is_not_kept_forever():
     assert "window.localStorage.getItem(prefKey" not in player
     assert 'apply("auto", true);' in player
     assert "Slow network — switched to Auto quality" in player
+
+
+def test_player_script_url_changes_whenever_the_script_changes():
+    """The site is behind a CDN that caches /static for hours.  A page that
+    needs a newer egdms-player.js than the cached one stopped before drawing
+    any tile, so the script URL carries its content hash."""
+    import hashlib
+    version = hashlib.sha1((ROOT / "static/monitor/js/egdms-player.js").read_bytes()).hexdigest()[:10]
+    for name in ["admin_dashboard.html", "lite_dashboard.html"]:
+        content = _read(name)
+        assert f'<script src="/static/monitor/js/egdms-player.js?v={version}"></script>' in content, (
+            f"{name}: update ?v= to {version} (sha1 of egdms-player.js, first 10 hex digits)"
+        )
+        # Pages still work if an older cached script turns up anyway.
+        assert "EGDMSPlayer.LiveTileGate\n      ? new EGDMSPlayer.LiveTileGate(" in content
+        assert "if (EGDMSPlayer.keepLiveDelay) EGDMSPlayer.keepLiveDelay(" in content
+
+
+def test_tile_gate_fails_open_without_visibility_reports():
+    player = _read("static/monitor/js/egdms-player.js")
+    assert "this.failOpen = true;" in player
+    assert "return !this.observer || this.failOpen || this.visible.has(id);" in player
