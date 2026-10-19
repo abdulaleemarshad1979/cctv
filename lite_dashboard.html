@@ -196,8 +196,6 @@
       position: absolute;
       inset: 0;
       background: rgba(15, 23, 42, 0.85);
-      backdrop-filter: blur(8px);
-      -webkit-backdrop-filter: blur(8px);
     }
 
     .full-view-content {
@@ -1247,6 +1245,26 @@
       margin-bottom: 16px;
       color: var(--border-hover);
     }
+    /* Number of drones flying now, like an app notification count. */
+    .flying-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 20px;
+      height: 20px;
+      padding: 0 6px;
+      margin-left: 6px;
+      border-radius: 10px;
+      background: #dc2626;
+      color: #ffffff;
+      font-size: 11px;
+      font-weight: 800;
+      line-height: 1;
+      box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.9);
+    }
+    .flying-badge[hidden] {
+      display: none;
+    }
   </style>
 </head>
 
@@ -1290,7 +1308,7 @@
     <div class="nav-control-bar">
       <div class="filter-group">
         <button class="pill active" data-filter="All">All Streams</button>
-        <button class="pill" data-filter="Active">Active Feeds</button>
+        <button class="pill" data-filter="Active">Active Feeds<span class="flying-badge" data-flying-badge hidden aria-live="polite"></span></button>
         <button class="pill" data-filter="Pushkaralu">Pushkaralu</button>
         <button class="pill" data-filter="Rjy">Rjy</button>
       </div>
@@ -1363,6 +1381,19 @@
     // to sub-second WebRTC.
     let useWebRtc = urlParams.get("transport") === "webrtc";
 
+    // Count of drones flying now: badge on the Active Hub tab and the
+    // Active Feeds filter, and in the browser tab title.
+    const baseDocumentTitle = document.title;
+    function updateFlyingCount() {
+      const flying = cameras.filter(isCameraPlayable).length;
+      document.querySelectorAll("[data-flying-badge]").forEach(badge => {
+        badge.textContent = flying > 99 ? "99+" : String(flying);
+        badge.hidden = flying === 0;
+        badge.title = `${flying} drone${flying === 1 ? "" : "s"} flying now`;
+      });
+      document.title = flying ? `(${flying}) ${baseDocumentTitle}` : baseDocumentTitle;
+    }
+
     function isCameraPlayable(cam) {
       if (cam.enabled === false) return false;
       return cam.status === "online" ||
@@ -1430,6 +1461,21 @@
     // Full View Modal system
     let activeFullViewCamId = null;
 
+    // Lazy live playback: a stream runs only while its tile is on screen (or
+    // open in full view).  Off-screen players stop and keep their last frame,
+    // which frees bandwidth for the streams being watched.
+    function liveTileWanted(camId) {
+      return activeFullViewCamId === camId || liveTileGate.isVisible(camId);
+    }
+    function resumeLiveTile(camId) {
+      const cam = cameras.find(c => c.id === camId);
+      if (cam && isCameraPlayable(cam) && !hlsPlayers[camId] && !playerRetryTimers[camId]) setupVideoFeed(cam);
+    }
+    function pauseLiveTile(camId) {
+      if (hlsPlayers[camId] && !liveTileWanted(camId)) teardownVideoFeed(camId, false, true);
+    }
+    const liveTileGate = new EGDMSPlayer.LiveTileGate({ onShow: resumeLiveTile, onHide: pauseLiveTile });
+
     window.openFullViewModal = function(camId) {
       const cam = cameras.find(c => c.id === camId);
       if (!cam) return;
@@ -1446,6 +1492,7 @@
         activeFullViewCamId = camId;
         const video = container.querySelector("video");
         if (video && !video._userPaused) safePlay(video);
+        else if (!video) resumeLiveTile(camId);
       }
     };
 
@@ -1465,6 +1512,7 @@
       activeFullViewCamId = null;
       const video = container?.querySelector("video");
       if (video && !video._userPaused) safePlay(video);
+      if (!liveTileWanted(camId)) pauseLiveTile(camId);
     };
 
     window.toggleNativeFullscreen = function() {
@@ -1486,6 +1534,7 @@
           return;
         }
         cameras = await res.json();
+        updateFlyingCount();
         renderGrid();
       } catch (e) {
         console.error("[EGDMS] Failed to load cameras from backend:", e);
@@ -1607,6 +1656,7 @@
       existingCards.forEach((card, id) => {
         if (!currentCamMap.has(id)) {
           if (activeFullViewCamId === id) closeFullViewModal();
+          liveTileGate.unobserve(card);
           card.remove();
           teardownVideoFeed(id);
         }
@@ -1635,6 +1685,7 @@
         if (!card) {
           card = createTileCard(cam);
           grid.appendChild(card);
+          liveTileGate.observe(card);
           if (isOnline) {
             setupVideoFeed(cam);
             updateLiveStats(cam);
@@ -2100,6 +2151,8 @@ function setupHlsPlayback(cam, video, playbackPath, getMediaRecoveries) {
     function setupVideoFeed(cam) {
       const container = document.getElementById(`player-container-${cam.id}`);
       if (!container) return;
+      // Started later by liveTileGate when the tile comes on screen.
+      if (!liveTileWanted(cam.id)) return;
       // Keep any held frame visible until the new stream shows a frame.
       teardownVideoFeed(cam.id, false, true);
       if (playerRetryTimers[cam.id]) {
@@ -2199,12 +2252,7 @@ function setupHlsPlayback(cam, video, playbackPath, getMediaRecoveries) {
         if (!video.seeking && video.readyState >= 2 && video.currentTime > egdmsLastTime) {
           egdmsLastTime = video.currentTime;
           egdmsLastProgressAt = now;
-          const player = hlsPlayers[cam.id];
-          if (player && typeof player.liveSyncPosition === "number" && player.liveSyncPosition > 0) {
-            if (player.liveSyncPosition - video.currentTime > 4.0) {
-              video.currentTime = player.liveSyncPosition;
-            }
-          }
+          EGDMSPlayer.keepLiveDelay(hlsPlayers[cam.id], video);
           return;
         }
 
@@ -2274,8 +2322,12 @@ function setupHlsPlayback(cam, video, playbackPath, getMediaRecoveries) {
     };
 
     // Dynamic Polling for real-time camera updates
+    // Background tabs poll every 5 s instead of every second.
+    let lastCameraPollAt = 0;
     async function pollCameras() {
       if (cameraPollInFlight) return;
+      if (document.hidden && Date.now() - lastCameraPollAt < 5000) return;
+      lastCameraPollAt = Date.now();
       cameraPollInFlight = true;
       try {
         const res = await fetch("/cameras", { cache: "no-store" });
@@ -2339,6 +2391,7 @@ function setupHlsPlayback(cam, video, playbackPath, getMediaRecoveries) {
         });
 
         cameras = newCameras;
+        updateFlyingCount();
         if (needsRerender) {
           renderGrid();
         }

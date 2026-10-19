@@ -20,11 +20,26 @@ def test_mediamtx_webhooks_are_backend_only_and_have_a_fallback_api():
     config = _read("deployment/mediamtx.yml")
     assert "api: yes" in config
     assert "apiAddress: :9997" in config
-    # runOnReady/runOnNotReady are MediaMTX's deprecated aliases (still
-    # supported in 1.19 and used by the live server until the Stage B rename).
-    assert "runOnAvailable:" in config or "runOnReady:" in config
-    assert "runOnUnavailable:" in config or "runOnNotReady:" in config
+    assert "runOnAvailable:" in config
+    assert "runOnUnavailable:" in config
+    # Deprecated aliases of the two hooks above.
+    assert "runOnReady:" not in config
+    assert "runOnNotReady:" not in config
     assert "http://app:8000/cameras/state" in config
+
+
+def test_mediamtx_keeps_publishers_through_short_uplink_stalls():
+    config = _read("deployment/mediamtx.yml")
+    env_example = _read(".env.example")
+    assert "\nreadTimeout: 20s\n" in config
+    assert "MEDIAMTX_READ_TIMEOUT_SECONDS=20" in env_example
+
+
+def test_mediamtx_config_folder_is_mounted_not_the_single_file():
+    compose = _read("docker-compose.yml")
+    assert "./deployment:/config:ro" in compose
+    assert 'command: ["/config/mediamtx.yml"]' in compose
+    assert "./deployment/mediamtx.yml:/mediamtx.yml" not in compose
 
 
 def test_mediamtx_runtime_contains_curl_for_webhooks():

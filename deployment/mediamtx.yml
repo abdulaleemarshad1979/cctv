@@ -19,6 +19,12 @@ authInternalUsers:
       - action: api
 
 
+# Drone 4G uplinks can stall for 10-20 s and then resume. Keep the publisher
+# session (and its recording file) open through such stalls instead of
+# dropping it at the 10 s default. Keep MEDIAMTX_READ_TIMEOUT_SECONDS in .env
+# equal to this value.
+readTimeout: 20s
+
 rtsp: yes
 rtspAddress: :8554
 
@@ -28,7 +34,7 @@ rtmpAddress: :1935
 hls: yes
 hlsAddress: :8888
 hlsVariant: lowLatency
-hlsSegmentCount: 7
+hlsSegmentCount: 12
 hlsSegmentDuration: 1s
 hlsPartDuration: 200ms
 
@@ -74,12 +80,12 @@ paths:
     # Do not auto-delete police archives.
     recordDeleteAfter: 0s
 
-    runOnReady: 'curl --fail --silent --show-error --max-time 3 -X POST http://app:8000/cameras/state -H "Content-Type: application/json" -d "{\"path\":\"$MTX_PATH\", \"status\":\"online\"}"'
-    runOnNotReady: 'curl --fail --silent --show-error --max-time 3 -X POST http://app:8000/cameras/state -H "Content-Type: application/json" -d "{\"path\":\"$MTX_PATH\", \"status\":\"offline\"}"'
+    runOnAvailable: 'curl --fail --silent --show-error --max-time 3 -X POST http://app:8000/cameras/state -H "Content-Type: application/json" -d "{\"path\":\"$MTX_PATH\", \"status\":\"online\"}"'
+    runOnUnavailable: 'curl --fail --silent --show-error --max-time 3 -X POST http://app:8000/cameras/state -H "Content-Type: application/json" -d "{\"path\":\"$MTX_PATH\", \"status\":\"offline\"}"'
 
   # Other MediaMTX paths still report state but are NOT recorded, preventing
   # duplicate recordings of the AI/analyzed stream.
   all_others:
     record: false
-    runOnReady: 'curl --fail --silent --show-error --max-time 3 -X POST http://app:8000/cameras/state -H "Content-Type: application/json" -d "{\"path\":\"$MTX_PATH\", \"status\":\"online\"}"'
-    runOnNotReady: 'curl --fail --silent --show-error --max-time 3 -X POST http://app:8000/cameras/state -H "Content-Type: application/json" -d "{\"path\":\"$MTX_PATH\", \"status\":\"offline\"}"'
+    runOnAvailable: 'curl --fail --silent --show-error --max-time 3 -X POST http://app:8000/cameras/state -H "Content-Type: application/json" -d "{\"path\":\"$MTX_PATH\", \"status\":\"online\"}"'
+    runOnUnavailable: 'curl --fail --silent --show-error --max-time 3 -X POST http://app:8000/cameras/state -H "Content-Type: application/json" -d "{\"path\":\"$MTX_PATH\", \"status\":\"offline\"}"'

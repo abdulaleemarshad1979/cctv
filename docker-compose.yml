@@ -28,6 +28,10 @@ services:
     image: pushkaralu-mediamtx-curl:1.19.3
     container_name: pushkaralu-mediamtx
     restart: unless-stopped
+    # The config folder is mounted (not the single file) so that replacing
+    # mediamtx.yml on the host is always seen. MediaMTX reloads it on save:
+    # write a complete new file and `mv` it into place, never edit in place.
+    command: ["/config/mediamtx.yml"]
     ports:
       - "8554:8554"   # RTSP
       - "1935:1935"   # RTMP
@@ -35,7 +39,7 @@ services:
       - "8889:8889"   # WebRTC Signalling
       - "8189:8189/udp" # WebRTC Media
     volumes:
-      - ./deployment/mediamtx.yml:/mediamtx.yml:ro
+      - ./deployment:/config:ro
       - ./data/recordings:/recordings
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9997/v3/paths/list"]

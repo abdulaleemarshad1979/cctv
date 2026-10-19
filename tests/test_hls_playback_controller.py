@@ -13,7 +13,8 @@ def test_mediamtx_configs_have_exact_hls_low_latency_settings():
         content = _read(rel_path)
         assert "hls: yes" in content, f"hls: yes missing in {rel_path}"
         assert "hlsVariant: lowLatency" in content, f"hlsVariant: lowLatency missing in {rel_path}"
-        assert "hlsSegmentCount: 6" in content, f"hlsSegmentCount: 6 missing in {rel_path}"
+        # 12 x 1 s keeps the playlist longer than the player's maximum delay.
+        assert "hlsSegmentCount: 12" in content, f"hlsSegmentCount: 12 missing in {rel_path}"
         assert "hlsSegmentDuration: 1s" in content, f"hlsSegmentDuration: 1s missing in {rel_path}"
         assert "hlsPartDuration: 200ms" in content, f"hlsPartDuration: 200ms missing in {rel_path}"
         assert "webrtcLocalUDPAddress: :8189" in content, f"webrtcLocalUDPAddress: :8189 missing in {rel_path}"
@@ -22,7 +23,7 @@ def test_mediamtx_configs_have_exact_hls_low_latency_settings():
 def test_lite_server_generates_correct_mediamtx_config():
     server_code = _read("lite_server.py")
     assert "hlsVariant: lowLatency" in server_code
-    assert "hlsSegmentCount: 6" in server_code
+    assert "hlsSegmentCount: 12" in server_code
     assert "hlsSegmentDuration: 1s" in server_code
     assert "hlsPartDuration: 200ms" in server_code
     assert "webrtcLocalUDPAddress: :8189" in server_code
@@ -35,11 +36,10 @@ def test_dashboards_have_low_latency_hls_configuration():
     player = _read("static/monitor/js/egdms-player.js")
     for setting in [
         "lowLatencyMode: false",
-        "liveSyncDuration: Math.max(1.5, target - 1.5)",
-        "liveMaxLatencyDuration: target + 5",
-        "maxLiveSyncPlaybackRate: 1.15",
-        "maxBufferLength: 6",
-        "maxMaxBufferLength: 12",
+        "liveSyncDuration: Math.max(2, target - 1)",
+        "liveMaxLatencyDuration: target + 7",
+        "maxBufferLength: target + 5",
+        "maxMaxBufferLength: 20",
         "startPosition: -1",
         "enableWorker: true",
         "liveDurationInfinity: true",
