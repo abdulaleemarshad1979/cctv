@@ -129,16 +129,16 @@ def test_fastapi_hls_proxy_supports_get_and_head():
     assert "/live/drone1/index.m3u8" in head_res.headers["location"]
 
 
-def test_dashboards_default_to_webrtc_and_resume_at_live_edge():
-    """A hidden tab releases decoders and reconnects at the live edge on return."""
+def test_dashboards_default_to_buffered_hls_and_resume_at_live_edge():
+    """Prefer steady playback; a hidden tab releases decoders and reconnects on return."""
     for name in ["admin_dashboard.html", "lite_dashboard.html"]:
         content = _read(name)
-        assert 'let useWebRtc = urlParams.get("transport") !== "hls";' in content, (
-            f"WebRTC must be active by default (unless transport=hls) in {name}"
+        assert 'let useWebRtc = urlParams.get("transport") === "webrtc";' in content, (
+            f"Buffered HLS must be active by default in {name}"
         )
-        assert "liveSyncDuration: 3" in content, f"liveSyncDuration missing in {name}"
-        assert "liveMaxLatencyDuration: 8" in content, f"liveMaxLatencyDuration missing in {name}"
-        assert "player.liveSyncPosition - video.currentTime > 8.0" in content, (
+        assert "liveSyncDuration: 6" in content, f"liveSyncDuration missing in {name}"
+        assert "liveMaxLatencyDuration: 12" in content, f"liveMaxLatencyDuration missing in {name}"
+        assert "player.liveSyncPosition - video.currentTime > 12.0" in content, (
             f"Watchdog live-sync catchup missing in {name}"
         )
         assert 'if (document.hidden) {' in content

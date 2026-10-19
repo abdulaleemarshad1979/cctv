@@ -28,9 +28,23 @@ rtmpAddress: :1935
 hls: yes
 hlsAddress: :8888
 hlsVariant: lowLatency
-hlsSegmentCount: 6
+hlsSegmentCount: 12
 hlsSegmentDuration: 1s
 hlsPartDuration: 200ms
+
+# The playback server stays on the private Docker network. The app validates
+# camera paths and authorizes archive requests before proxying them.
+playback: yes
+playbackAddress: :9996
+
+pathDefaults:
+  recordPath: /recordings/%path/%Y-%m-%d_%H-%M-%S-%f
+  recordFormat: fmp4
+  recordPartDuration: 1s
+  recordSegmentDuration: 5m
+  recordDeleteAfter: 720h
+  runOnAvailable: 'curl --fail --silent --show-error --max-time 3 -X POST http://app:8000/cameras/state -H "Content-Type: application/json" -d "{\"path\":\"$MTX_PATH\", \"status\":\"online\"}"'
+  runOnUnavailable: 'curl --fail --silent --show-error --max-time 3 -X POST http://app:8000/cameras/state -H "Content-Type: application/json" -d "{\"path\":\"$MTX_PATH\", \"status\":\"offline\"}"'
 
 webrtc: yes
 webrtcAddress: :8889
@@ -43,6 +57,7 @@ webrtcAdditionalHosts:
   - stream.dmsegpolice.in
 
 paths:
+  # Archive raw drone/CCTV uploads; analyzed copies can restart independently.
+  '~^live/':
+    record: yes
   all_others:
-    runOnAvailable: 'curl --fail --silent --show-error --max-time 3 -X POST http://app:8000/cameras/state -H "Content-Type: application/json" -d "{\"path\":\"$MTX_PATH\", \"status\":\"online\"}"'
-    runOnUnavailable: 'curl --fail --silent --show-error --max-time 3 -X POST http://app:8000/cameras/state -H "Content-Type: application/json" -d "{\"path\":\"$MTX_PATH\", \"status\":\"offline\"}"'

@@ -2409,7 +2409,7 @@
       <div class="recordings-header">
         <div class="recordings-title-group">
           <h2>Surveillance Video Recordings & Mission Archives</h2>
-          <p>Browse, watch high-definition video archives, and download recorded drone patrol missions.</p>
+          <p>Watch and download drone and CCTV recordings from the past 30 days.</p>
         </div>
       </div>
 
@@ -2558,8 +2558,23 @@
     const CAMERA_POLL_INTERVAL_MS = 1000;
     let cameraPollInFlight = false;
     let activeFullViewCamId = null;
+    const visibleTileIds = new Set();
+    const tileObserver = typeof IntersectionObserver === "undefined" ? null : new IntersectionObserver(entries => {
+      entries.forEach(entry => {
+        const id = entry.target.dataset.id;
+        if (!id) return;
+        if (entry.isIntersecting && !entry.target.classList.contains("hidden")) {
+          visibleTileIds.add(id);
+          const cam = cameras.find(camera => camera.id === id);
+          if (cam && isCameraPlayable(cam) && !hlsPlayers[id] && !document.hidden) setupVideoFeed(cam);
+        } else {
+          visibleTileIds.delete(id);
+          if (id !== activeFullViewCamId) teardownVideoFeed(id);
+        }
+      });
+    }, { rootMargin: "100px 0px", threshold: 0.01 });
     const urlParams = new URLSearchParams(window.location.search);
-    let useWebRtc = urlParams.get("transport") !== "hls";
+    let useWebRtc = urlParams.get("transport") === "webrtc";
 
     // Verify Admin Authentication on load
     async function verifyAdminAuth() {
@@ -2682,6 +2697,7 @@
         fullViewBody.appendChild(container);
         fullViewModal.classList.remove("hidden");
         activeFullViewCamId = camId;
+        if (!hlsPlayers[camId]) setupVideoFeed(cam);
         const video = container.querySelector("video");
         if (video && !video._userPaused) safePlay(video);
       }
@@ -2701,6 +2717,7 @@
         fullViewModal.classList.add("hidden");
       }
       activeFullViewCamId = null;
+      if (tileObserver && !visibleTileIds.has(camId)) teardownVideoFeed(camId);
       const video = container?.querySelector("video");
       if (video && !video._userPaused) safePlay(video);
     };
@@ -2883,6 +2900,8 @@
       existingCards.forEach((card, id) => {
         if (!currentCamMap.has(id)) {
           if (activeFullViewCamId === id) closeFullViewModal();
+          tileObserver?.unobserve(card);
+          visibleTileIds.delete(id);
           card.remove();
           teardownVideoFeed(id);
         }
@@ -2914,6 +2933,7 @@
         const isOnline = isCameraPlayable(cam);
 
         if (!isVisible) {
+          visibleTileIds.delete(cam.id);
           if (hlsPlayers[cam.id]) teardownVideoFeed(cam.id);
           if (card) card.classList.add("hidden");
           return;
@@ -2924,7 +2944,9 @@
         if (!card) {
           card = createTileCard(cam);
           grid.appendChild(card);
-          if (isOnline && currentDashboardSection === "active-hub" && !document.hidden) {
+          if (tileObserver) tileObserver.observe(card);
+          else visibleTileIds.add(cam.id);
+          if (isOnline && !tileObserver && currentDashboardSection === "active-hub" && !document.hidden) {
             setupVideoFeed(cam);
             updateLiveStats(cam);
           }
@@ -3247,13 +3269,13 @@
       if (typeof Hls !== "undefined" && Hls.isSupported()) {
         const hls = new Hls({
           enableWorker: true,
-          lowLatencyMode: true,
+          lowLatencyMode: false,
           // hls.js rejects mixing these second-based settings with durationCount options.
-          liveSyncDuration: 3,
-          liveMaxLatencyDuration: 8,
-          backBufferLength: 6,
-          maxBufferLength: 10,
-          maxMaxBufferLength: 20,
+          liveSyncDuration: 6,
+          liveMaxLatencyDuration: 12,
+          backBufferLength: 15,
+          maxBufferLength: 20,
+          maxMaxBufferLength: 30,
           maxLiveSyncPlaybackRate: 1.1,
           liveDurationInfinity: true,
           startPosition: -1,
@@ -3342,7 +3364,7 @@
     function setupVideoFeed(cam) {
       const container = document.getElementById(`player-container-${cam.id}`);
       const card = container?.closest(".tile");
-      if (!container || currentDashboardSection !== "active-hub" || document.hidden || card?.classList.contains("hidden")) return;
+      if (!container || currentDashboardSection !== "active-hub" || document.hidden || card?.classList.contains("hidden") || (tileObserver && !visibleTileIds.has(cam.id) && activeFullViewCamId !== cam.id)) return;
       teardownVideoFeed(cam.id);
       if (playerRetryTimers[cam.id]) {
         clearTimeout(playerRetryTimers[cam.id]);
@@ -3377,7 +3399,7 @@
 
       let egdmsLastTime = -1;
       let egdmsLastProgressAt = Date.now();
-      let startupGraceUntil = Date.now() + 8000;
+      let startupGraceUntil = Date.now() + 12000;
       let egdmsReconnecting = false;
       let mediaRecoveries = 0;
 
@@ -3420,7 +3442,7 @@
 
         if (video.paused) {
           safePlay(video);
-          if (now > startupGraceUntil && now - egdmsLastProgressAt > 7000) {
+          if (now > startupGraceUntil && now - egdmsLastProgressAt > 12000) {
             egdmsReconnect();
           }
           return;
@@ -3431,14 +3453,14 @@
           egdmsLastProgressAt = now;
           const player = hlsPlayers[cam.id];
           if (player && typeof player.liveSyncPosition === "number" && player.liveSyncPosition > 0) {
-            if (player.liveSyncPosition - video.currentTime > 8.0) {
+            if (player.liveSyncPosition - video.currentTime > 12.0) {
               video.currentTime = player.liveSyncPosition;
             }
           }
           return;
         }
 
-        if (now > startupGraceUntil && now - egdmsLastProgressAt > 7000) {
+        if (now > startupGraceUntil && now - egdmsLastProgressAt > 12000) {
           const player = hlsPlayers[cam.id];
           if (player && typeof player.recoverMediaError === "function" && mediaRecoveries < 2) {
             mediaRecoveries++;
@@ -4047,7 +4069,7 @@
         const badge = document.getElementById("recordings-count-badge");
         if (badge) badge.textContent = "Loading...";
 
-        const res = await fetch("/api/recordings");
+        const res = await fetch("/api/recordings", { cache: "no-store" });
         if (!res.ok) throw new Error("Failed to load recordings");
         const data = await res.json();
         cachedRecordings = data.recordings || [];
@@ -4056,6 +4078,10 @@
         renderRecordings(cachedRecordings);
       } catch (err) {
         console.error("Error loading recordings:", err);
+        const badge = document.getElementById("recordings-count-badge");
+        if (badge) badge.textContent = "Recordings unavailable";
+        const grid = document.getElementById("recordings-cards-grid");
+        if (grid) grid.textContent = "Could not reach the recording server. Please refresh again.";
       }
     }
 
@@ -4091,35 +4117,34 @@
         card.className = "recording-card";
 
         card.innerHTML = `
-          <div class="recording-thumb" onclick="playRecordedVideo('${rec.video_url}', '${escapeHtml(rec.title)}', '${escapeHtml(rec.location)} • ${escapeHtml(rec.recorded_at)}')">
+          <div class="recording-thumb">
             <div class="recording-play-overlay">
               <svg style="width: 22px; height: 22px; margin-left: 2px;" fill="currentColor" viewBox="0 0 24 24">
                 <path d="M8 5v14l11-7z"/>
               </svg>
             </div>
-            <span class="recording-duration-badge">⏱ ${rec.duration_formatted}</span>
+            <span class="recording-duration-badge">⏱ ${escapeHtml(rec.duration_formatted)}</span>
           </div>
           <div class="recording-info">
             <h4 class="recording-title">${escapeHtml(rec.title)}</h4>
             <div class="recording-meta-tags">
               <span class="recording-tag recording-tag-drone">📍 ${escapeHtml(rec.location)}</span>
-              <span class="recording-tag">📦 ${rec.size_formatted}</span>
-              <span class="recording-tag">🎞 1080p MP4</span>
+              <span class="recording-tag">🎞 ${escapeHtml(rec.size_formatted)}</span>
             </div>
             <div style="font-size: 12px; color: #64748b; display: flex; align-items: center; gap: 4px;">
               <span>📅 Recorded:</span>
-              <span style="font-weight: 600; color: #334155;">${rec.recorded_at}</span>
+              <span style="font-weight: 600; color: #334155;">${escapeHtml(rec.recorded_at)}</span>
             </div>
             <div style="font-size: 11.5px; color: #10b981; font-weight: 600;">
               ✓ ${escapeHtml(rec.ai_status || "Analyzed & Verified")}
             </div>
           </div>
           <div class="recording-card-footer">
-            <button type="button" class="btn-watch-video" onclick="playRecordedVideo('${rec.video_url}', '${escapeHtml(rec.title)}', '${escapeHtml(rec.location)} • ${escapeHtml(rec.recorded_at)}')">
+            <button type="button" class="btn-watch-video">
               <svg style="width: 14px; height: 14px;" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
               <span>Watch Video</span>
             </button>
-            <a href="${rec.download_url}" download class="btn-download-video">
+            <a href="${escapeHtml(rec.download_url)}" download class="btn-download-video">
               <svg style="width: 13px; height: 13px;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
               </svg>
@@ -4127,6 +4152,11 @@
             </a>
           </div>
         `;
+        const openRecording = () => playRecordedVideo(
+          rec.video_url, rec.title, `${rec.location} • ${rec.recorded_at}`, rec.download_url
+        );
+        card.querySelector(".recording-thumb")?.addEventListener("click", openRecording);
+        card.querySelector(".btn-watch-video")?.addEventListener("click", openRecording);
         grid.appendChild(card);
       });
     }
@@ -4149,7 +4179,7 @@
       renderRecordings(filtered);
     };
 
-    window.playRecordedVideo = function(videoUrl, title, meta) {
+    window.playRecordedVideo = function(videoUrl, title, meta, downloadUrl) {
       const modal = document.getElementById("recording-player-modal");
       const player = document.getElementById("recording-video-player");
       const titleEl = document.getElementById("modal-video-title");
@@ -4158,7 +4188,7 @@
 
       if (titleEl) titleEl.textContent = title;
       if (metaEl) metaEl.textContent = meta;
-      if (downloadBtn) downloadBtn.href = videoUrl;
+      if (downloadBtn) downloadBtn.href = downloadUrl || videoUrl;
 
       if (player) {
         player.src = videoUrl;

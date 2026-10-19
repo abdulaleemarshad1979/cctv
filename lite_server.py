@@ -9,13 +9,14 @@ import ipaddress
 import threading
 import hashlib
 import hmac
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from contextlib import asynccontextmanager
 from typing import Optional
 from fastapi import FastAPI, HTTPException, Request, Response
-from fastapi.responses import FileResponse, RedirectResponse, JSONResponse
+from fastapi.responses import FileResponse, RedirectResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.background import BackgroundTask
 from pydantic import BaseModel, Field
 import config
 import numpy as np
@@ -28,7 +29,11 @@ from src.mission_control import (
 )
 from src.stream_state_monitor import MediaMTXStateMonitor
 from src.drone_analytics import drone_flight_analytics_store
-from src.video_recordings import video_recordings_manager
+from src.mediamtx_recordings import (
+    RETENTION_DAYS,
+    RecordingIndexUnavailable,
+    list_mediamtx_recordings,
+)
 
 def _sanitize_for_json(obj):
     if isinstance(obj, dict):
@@ -118,6 +123,9 @@ MEDIAMTX_RTMP_PORT = int(os.getenv("MEDIAMTX_RTMP_PORT", "1935"))
 MEDIAMTX_HLS_PORT = int(os.getenv("MEDIAMTX_HLS_PORT", "8888"))
 MEDIAMTX_WEBRTC_PORT = int(os.getenv("MEDIAMTX_WEBRTC_PORT", "8889"))
 MEDIAMTX_API_PORT = int(os.getenv("MEDIAMTX_API_PORT", "9997"))
+MEDIAMTX_PLAYBACK_URL = os.getenv(
+    "MEDIAMTX_PLAYBACK_URL", f"http://{MEDIAMTX_HOST}:9996"
+).rstrip("/")
 MEDIAMTX_STATE_POLL_SECONDS = float(
     os.getenv("MEDIAMTX_STATE_POLL_SECONDS", "2")
 )
@@ -678,7 +686,7 @@ webrtcAdditionalHosts:
 hls: yes
 hlsAddress: :{MEDIAMTX_HLS_PORT}
 hlsVariant: lowLatency
-hlsSegmentCount: 6
+hlsSegmentCount: 12
 hlsSegmentDuration: 1s
 hlsPartDuration: 200ms
 
@@ -1218,11 +1226,62 @@ def get_drone_analytics(from_date: Optional[str] = None, to_date: Optional[str] 
 
 
 @app.get("/api/recordings")
-def get_recordings(drone: Optional[str] = None, q: Optional[str] = None):
-    data = video_recordings_manager.list_recordings(
-        drone_filter=drone, search=q
+async def get_recordings(drone: Optional[str] = None, q: Optional[str] = None):
+    try:
+        data = await list_mediamtx_recordings(
+            cameras_db, MEDIAMTX_PLAYBACK_URL, drone=drone, search=q
+        )
+    except RecordingIndexUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return FastJSONResponse(content=data, headers={"Cache-Control": "no-store"})
+
+
+@app.get("/api/recordings/play")
+async def play_recording(path: str, start: str, duration: float, download: bool = False):
+    """Stream a known camera's archive through the admin-authenticated API."""
+    import httpx
+
+    camera = next(
+        (cam for cam in cameras_db if cam.get("source_stream_path") == path), None
     )
-    return FastJSONResponse(content=_sanitize_for_json(data))
+    if camera is None:
+        raise HTTPException(status_code=404, detail="Unknown recording path")
+    try:
+        start_time = datetime.fromisoformat(start.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid recording start") from exc
+    now = datetime.now(timezone.utc)
+    if (start_time.tzinfo is None or start_time < now - timedelta(days=RETENTION_DAYS)
+            or start_time > now + timedelta(minutes=1)
+            or not 1 <= duration <= 600):
+        raise HTTPException(status_code=400, detail="Recording outside the available range")
+
+    client = httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=3.0, read=30.0))
+    params = {"path": path, "start": start, "duration": duration, "format": "mp4"}
+    try:
+        upstream_request = client.build_request("GET", f"{MEDIAMTX_PLAYBACK_URL}/get", params=params)
+        upstream = await client.send(upstream_request, stream=True)
+    except httpx.HTTPError as exc:
+        await client.aclose()
+        raise HTTPException(status_code=503, detail="Recording playback is unavailable") from exc
+    if upstream.status_code != 200:
+        status = 404 if upstream.status_code == 404 else 502
+        await upstream.aclose()
+        await client.aclose()
+        raise HTTPException(status_code=status, detail="Recording not found")
+
+    async def close_upstream():
+        await upstream.aclose()
+        await client.aclose()
+
+    headers = {"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"}
+    if download:
+        filename = f"{camera['id']}_{start_time.astimezone(timezone.utc):%Y-%m-%d_%H-%M-%S}.mp4"
+        headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return StreamingResponse(
+        upstream.aiter_bytes(), media_type="video/mp4", headers=headers,
+        background=BackgroundTask(close_upstream),
+    )
 
 
 @app.get("/api/mission-control/overview")

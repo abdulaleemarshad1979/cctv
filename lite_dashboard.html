@@ -1352,7 +1352,7 @@
     const CAMERA_POLL_INTERVAL_MS = 1000;
     let cameraPollInFlight = false;
     const urlParams = new URLSearchParams(window.location.search);
-    let useWebRtc = urlParams.get("transport") !== "hls";
+    let useWebRtc = urlParams.get("transport") === "webrtc";
 
     function isCameraPlayable(cam) {
       if (cam.enabled === false) return false;
@@ -1420,6 +1420,21 @@
 
     // Full View Modal system
     let activeFullViewCamId = null;
+    const visibleTileIds = new Set();
+    const tileObserver = typeof IntersectionObserver === "undefined" ? null : new IntersectionObserver(entries => {
+      entries.forEach(entry => {
+        const id = entry.target.dataset.id;
+        if (!id) return;
+        if (entry.isIntersecting && !entry.target.classList.contains("hidden")) {
+          visibleTileIds.add(id);
+          const cam = cameras.find(camera => camera.id === id);
+          if (cam && isCameraPlayable(cam) && !hlsPlayers[id] && !document.hidden) setupVideoFeed(cam);
+        } else {
+          visibleTileIds.delete(id);
+          if (id !== activeFullViewCamId) teardownVideoFeed(id);
+        }
+      });
+    }, { rootMargin: "100px 0px", threshold: 0.01 });
 
     window.openFullViewModal = function(camId) {
       const cam = cameras.find(c => c.id === camId);
@@ -1435,6 +1450,7 @@
         fullViewBody.appendChild(container);
         fullViewModal.classList.remove("hidden");
         activeFullViewCamId = camId;
+        if (!hlsPlayers[camId]) setupVideoFeed(cam);
         const video = container.querySelector("video");
         if (video && !video._userPaused) safePlay(video);
       }
@@ -1454,6 +1470,7 @@
         fullViewModal.classList.add("hidden");
       }
       activeFullViewCamId = null;
+      if (tileObserver && !visibleTileIds.has(camId)) teardownVideoFeed(camId);
       const video = container?.querySelector("video");
       if (video && !video._userPaused) safePlay(video);
     };
@@ -1598,6 +1615,8 @@
       existingCards.forEach((card, id) => {
         if (!currentCamMap.has(id)) {
           if (activeFullViewCamId === id) closeFullViewModal();
+          tileObserver?.unobserve(card);
+          visibleTileIds.delete(id);
           card.remove();
           teardownVideoFeed(id);
         }
@@ -1617,6 +1636,7 @@
         const isOnline = isCameraPlayable(cam);
 
         if (!matchesFilter) {
+          visibleTileIds.delete(cam.id);
           if (hlsPlayers[cam.id]) teardownVideoFeed(cam.id);
           if (card) card.classList.add("hidden");
           return;
@@ -1627,7 +1647,9 @@
         if (!card) {
           card = createTileCard(cam);
           grid.appendChild(card);
-          if (isOnline && !document.hidden) {
+          if (tileObserver) tileObserver.observe(card);
+          else visibleTileIds.add(cam.id);
+          if (isOnline && !tileObserver && !document.hidden) {
             setupVideoFeed(cam);
             updateLiveStats(cam);
           }
@@ -1936,13 +1958,13 @@
       if (typeof Hls !== "undefined" && Hls.isSupported()) {
         const hls = new Hls({
           enableWorker: true,
-          lowLatencyMode: true,
+          lowLatencyMode: false,
           // hls.js rejects mixing these second-based settings with durationCount options.
-          liveSyncDuration: 3,
-          liveMaxLatencyDuration: 8,
-          backBufferLength: 6,
-          maxBufferLength: 10,
-          maxMaxBufferLength: 20,
+          liveSyncDuration: 6,
+          liveMaxLatencyDuration: 12,
+          backBufferLength: 15,
+          maxBufferLength: 20,
+          maxMaxBufferLength: 30,
           maxLiveSyncPlaybackRate: 1.1,
           liveDurationInfinity: true,
           startPosition: -1,
@@ -2031,7 +2053,7 @@
     function setupVideoFeed(cam) {
       const container = document.getElementById(`player-container-${cam.id}`);
       const card = container?.closest(".tile");
-      if (!container || document.hidden || card?.classList.contains("hidden")) return;
+      if (!container || document.hidden || card?.classList.contains("hidden") || (tileObserver && !visibleTileIds.has(cam.id) && activeFullViewCamId !== cam.id)) return;
       teardownVideoFeed(cam.id);
       if (playerRetryTimers[cam.id]) {
         clearTimeout(playerRetryTimers[cam.id]);
@@ -2066,7 +2088,7 @@
 
       let egdmsLastTime = -1;
       let egdmsLastProgressAt = Date.now();
-      let startupGraceUntil = Date.now() + 8000;
+      let startupGraceUntil = Date.now() + 12000;
       let egdmsReconnecting = false;
       let mediaRecoveries = 0;
 
@@ -2109,7 +2131,7 @@
 
         if (video.paused) {
           safePlay(video);
-          if (now > startupGraceUntil && now - egdmsLastProgressAt > 7000) {
+          if (now > startupGraceUntil && now - egdmsLastProgressAt > 12000) {
             egdmsReconnect();
           }
           return;
@@ -2120,14 +2142,14 @@
           egdmsLastProgressAt = now;
           const player = hlsPlayers[cam.id];
           if (player && typeof player.liveSyncPosition === "number" && player.liveSyncPosition > 0) {
-            if (player.liveSyncPosition - video.currentTime > 8.0) {
+            if (player.liveSyncPosition - video.currentTime > 12.0) {
               video.currentTime = player.liveSyncPosition;
             }
           }
           return;
         }
 
-        if (now > startupGraceUntil && now - egdmsLastProgressAt > 7000) {
+        if (now > startupGraceUntil && now - egdmsLastProgressAt > 12000) {
           const player = hlsPlayers[cam.id];
           if (player && typeof player.recoverMediaError === "function" && mediaRecoveries < 2) {
             mediaRecoveries++;
