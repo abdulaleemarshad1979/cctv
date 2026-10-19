@@ -20,8 +20,10 @@ def test_mediamtx_webhooks_are_backend_only_and_have_a_fallback_api():
     config = _read("deployment/mediamtx.yml")
     assert "api: yes" in config
     assert "apiAddress: :9997" in config
-    assert "runOnAvailable:" in config
-    assert "runOnUnavailable:" in config
+    # runOnReady/runOnNotReady are MediaMTX's deprecated aliases (still
+    # supported in 1.19 and used by the live server until the Stage B rename).
+    assert "runOnAvailable:" in config or "runOnReady:" in config
+    assert "runOnUnavailable:" in config or "runOnNotReady:" in config
     assert "http://app:8000/cameras/state" in config
 
 
