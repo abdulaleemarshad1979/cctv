@@ -61,33 +61,54 @@
 
   // Runs live players only for tiles on screen.  A tile that leaves the
   // screen stops after stopDelayMs, so scrolling past briefly does not
-  // restart its stream.  Cards need a data-id attribute.
+  // restart its stream.  Cards need a data-id attribute.  Fails open: if the
+  // browser reports no visibility within 3 s (throttled or embedded views),
+  // every tile counts as visible until it does.
   P.LiveTileGate = class {
     constructor(options) {
       this.onShow = options.onShow;
       this.onHide = options.onHide;
       this.stopDelayMs = options.stopDelayMs == null ? 15000 : options.stopDelayMs;
       this.visible = new Set();
+      this.observed = new Set();
       this.timers = {};
+      this.reported = false;
+      this.failOpen = false;
+      this.failOpenTimer = null;
       this.observer = typeof IntersectionObserver === "undefined" ? null
         : new IntersectionObserver(entries => entries.forEach(e => this.update(e)),
           { rootMargin: options.rootMargin || "200px 0px" });
     }
     observe(card) {
-      if (this.observer) this.observer.observe(card);
-      else this.visible.add(card.getAttribute("data-id"));
+      const id = card.getAttribute("data-id");
+      this.observed.add(id);
+      if (!this.observer) {
+        this.visible.add(id);
+        return;
+      }
+      this.observer.observe(card);
+      if (!this.reported && !this.failOpenTimer) {
+        this.failOpenTimer = setTimeout(() => {
+          if (this.reported) return;
+          this.failOpen = true;
+          this.observed.forEach(tileId => this.onShow(tileId));
+        }, 3000);
+      }
     }
     unobserve(card) {
       const id = card.getAttribute("data-id");
       if (this.observer) this.observer.unobserve(card);
+      this.observed.delete(id);
       this.visible.delete(id);
       clearTimeout(this.timers[id]);
       delete this.timers[id];
     }
     isVisible(id) {
-      return !this.observer || this.visible.has(id);
+      return !this.observer || this.failOpen || this.visible.has(id);
     }
     update(entry) {
+      this.reported = true;
+      this.failOpen = false;
       const id = entry.target.getAttribute("data-id");
       clearTimeout(this.timers[id]);
       delete this.timers[id];
