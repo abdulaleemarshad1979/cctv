@@ -35,11 +35,17 @@ class StreamTelemetry:
         *,
         stall_after_seconds: float = 4.0,
         server_read_timeout_seconds: float = 10.0,
+        degraded_ratio: float = 0.5,
+        degraded_after_seconds: float = 6.0,
+        baseline_samples: int = 3,
         clock: Callable[[], float] = time.time,
     ) -> None:
         self._events = events
         self._resolve = resolve_camera_id
         self.stall_after_seconds = max(1.0, float(stall_after_seconds))
+        self.degraded_ratio = float(degraded_ratio)
+        self.degraded_after_seconds = float(degraded_after_seconds)
+        self.baseline_samples = max(1, int(baseline_samples))
         self.server_read_timeout_seconds = max(1.0, float(server_read_timeout_seconds))
         self._clock = clock
         self._lock = threading.Lock()
@@ -71,6 +77,7 @@ class StreamTelemetry:
 
     def observe(self, payload: dict, now: Optional[float] = None) -> None:
         now = self._clock() if now is None else now
+        server_was_down = self._api_ok is False
         self.api_ok(now)
         ready: Dict[str, dict] = {}
         for item in payload.get("items", []) or []:
@@ -124,6 +131,8 @@ class StreamTelemetry:
                                 ts=now, path=name, stall_seconds=round(stalled_for, 1),
                             )
                             state["stall_since"] = None
+                        else:
+                            self._track_bitrate(state, camera_id, name, now)
                         state["last_packet_at"] = now
                     elif delta < 0:
                         self._events.record(
@@ -150,7 +159,13 @@ class StreamTelemetry:
                     continue
                 state["online"] = False
                 silent_for = now - state["last_packet_at"]
-                if state["stall_since"] is not None and silent_for >= 0.6 * self.server_read_timeout_seconds:
+                if server_was_down:
+                    self._events.record(
+                        state["camera_id"], ev.INGEST, "publisher_lost_in_server_restart",
+                        "The stream dropped while MediaMTX was unreachable (server crash or restart)",
+                        ts=now, path=name, silent_seconds=round(silent_for, 1),
+                    )
+                elif state["stall_since"] is not None and silent_for >= 0.6 * self.server_read_timeout_seconds:
                     self._events.record(
                         state["camera_id"], ev.NETWORK, "publisher_timed_out",
                         f"Uplink delivered no media for {silent_for:.0f}s; the server dropped the stream",
@@ -164,6 +179,39 @@ class StreamTelemetry:
                     )
                 state["stall_since"] = None
                 state["bitrate_kbps"] = None
+
+    def _track_bitrate(self, state: dict, camera_id: str, name: str, now: float) -> None:
+        """Flag a slow uplink: media still trickles in, so no stall is ever seen."""
+        rate = state["bitrate_kbps"]
+        state["rate_samples"] = state.get("rate_samples", 0) + 1
+        baseline = state.get("baseline_kbps")
+        if baseline is None:
+            if state["rate_samples"] >= self.baseline_samples:
+                state["baseline_kbps"] = rate
+            return
+        if rate < self.degraded_ratio * baseline:
+            state.setdefault("low_since", now)
+            if state.get("degraded_since") is None and now - state["low_since"] >= self.degraded_after_seconds:
+                state["degraded_since"] = state["low_since"]
+                self._events.record(
+                    camera_id, ev.NETWORK, "uplink_degraded",
+                    f"Source bitrate fell to {rate:.0f} kbps ({100 * rate / baseline:.0f}% of this "
+                    f"session's normal {baseline:.0f} kbps): weak uplink or the drone app lowered quality",
+                    ts=now, path=name, bitrate_kbps=round(rate, 1), baseline_kbps=round(baseline, 1),
+                )
+            return
+        if state.get("degraded_since") is None:
+            state.pop("low_since", None)
+        if rate >= 0.75 * baseline:
+            if state.get("degraded_since") is not None:
+                degraded_for = now - state.pop("degraded_since")
+                state.pop("low_since", None)
+                self._events.record(
+                    camera_id, ev.NETWORK, "uplink_restored",
+                    f"Source bitrate back to {rate:.0f} kbps after {degraded_for:.0f}s degraded",
+                    ts=now, path=name, degraded_seconds=round(degraded_for, 1),
+                )
+            state["baseline_kbps"] = 0.9 * baseline + 0.1 * rate
 
     def api_ok(self, now: Optional[float] = None) -> None:
         now = self._clock() if now is None else now
@@ -204,6 +252,8 @@ class StreamTelemetry:
                 "seconds_since_last_packet": round(now - last_packet, 1) if last_packet else None,
                 "stalled": state.get("stall_since") is not None,
                 "stall_seconds": round(now - state["stall_since"], 1) if state.get("stall_since") else 0.0,
+                "degraded": state.get("degraded_since") is not None,
+                "baseline_kbps": round(state["baseline_kbps"], 1) if state.get("baseline_kbps") is not None else None,
                 "session_started_at": _iso(state.get("session_started_at")),
                 "reconnects": state.get("reconnects", 0),
                 "sessions": state.get("sessions", 0),

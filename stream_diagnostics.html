@@ -136,8 +136,8 @@
         return `<tr>
           <td>${esc(c.name)}<div class="muted">${esc(c.camera_id)}</div></td>
           <td>${pill(c.status)}${c.reconnecting_for_seconds != null ? ` <span class="muted">${c.reconnecting_for_seconds}s</span>` : ""}</td>
-          <td>${s.observed ? (s.stalled ? pill(`stalled ${s.stall_seconds}s`, "stalled-warn") : pill(s.online ? "receiving" : "offline", s.online ? "ok" : "idle")) : '<span class="muted">not seen</span>'}</td>
-          <td>${s.bitrate_kbps != null ? `${Math.round(s.bitrate_kbps)} kbps` : "—"}</td>
+          <td>${s.observed ? (s.stalled ? pill(`stalled ${s.stall_seconds}s`, "stalled-warn") : s.degraded ? pill("slow uplink", "low") : pill(s.online ? "receiving" : "offline", s.online ? "ok" : "idle")) : '<span class="muted">not seen</span>'}</td>
+          <td>${s.bitrate_kbps != null ? `${Math.round(s.bitrate_kbps)} kbps` : "—"}${s.baseline_kbps != null ? `<div class="muted">normal ${Math.round(s.baseline_kbps)}</div>` : ""}</td>
           <td>${s.width ? `${esc(s.codec || "")} ${s.width}×${s.height}` : "—"}</td>
           <td>${s.last_packet_at ? `${localTime(s.last_packet_at)}<div class="muted">${s.seconds_since_last_packet}s ago</div>` : "—"}</td>
           <td>${s.reconnects ?? "—"}</td>

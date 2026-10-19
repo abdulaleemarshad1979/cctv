@@ -14,7 +14,7 @@ tree has hand edits and stashes. Copy only the files listed below.
 | `lite_server.py` | grace period, raw-feed playback, diagnostics/continuity/ABR endpoints, health watcher |
 | `src/stream_state_monitor.py` | optional observer callbacks (no behaviour change) |
 | `src/stream_events.py` *(new)* | rotating per-camera event log (`data/logs/stream_events.jsonl`) |
-| `src/stream_telemetry.py` *(new)* | bitrate, last packet, uplink stall vs app-close classification |
+| `src/stream_telemetry.py` *(new)* | bitrate, last packet, uplink stall / slow uplink / app close / server restart classification |
 | `src/recording_continuity.py` *(new)* | recording gaps, integrity, recorder stall, disk checks (read-only) |
 | `src/abr_transcoder.py` *(new)* | on-demand adaptive quality (source copy + 480p/720p) |
 | `static/monitor/js/egdms-player.js` *(new)* | shared player helpers (valid hls.js config, backoff, held frame, quality menu) |
@@ -93,6 +93,39 @@ docker compose -f docker-compose.yml -f docker-compose.override.yml up -d --no-d
 | `DISK_WARN_FREE_GB` / `DISK_CRITICAL_FREE_GB` | 50 / 10 | disk alerts |
 
 WebRTC is still available per browser with `?transport=webrtc`.
+
+## Pre-deploy test results (2026-10-19, local copy of the stack)
+
+Full test suite: 135 passed, 1 skipped, 3 failed. The same 3 fail on the
+untouched live baseline (`4075b9c`): `hlsSegmentCount: 6` vs live 7,
+`runOnAvailable` vs live `runOnReady`, and a recordings fixture. No regressions.
+
+Local stack: MediaMTX 1.19.3 with `deployment/mediamtx.yml`, this branch's app,
+and an ffmpeg "drone" publishing 720p/2.5 Mbit/s RTMP, with its network cut or
+throttled using `tc`.
+
+| Scenario | App state | Recording | Viewer |
+|---|---|---|---|
+| 5 s drop | stays online; `uplink_stalled` → `uplink_recovered` | one file, no gap | no interruption |
+| 10 s drop | reconnecting → online (`recovered_within_grace`) | new file, gap = outage + reconnect | — |
+| 15 s drop (browser) | reconnecting → online | new file | last frame held with "Signal interrupted — reconnecting…", plays again ~8 s after the drone returns |
+| 20 s drop | reconnecting → online at 19.3 s, inside grace | new file, gap reported, cause "uplink" | — |
+| 25 s / 40 s drop | reconnecting → waiting screen after 20 s grace → online | new file, gap reported | recovered by itself |
+| 1 Mbit/s uplink for a 2.5 Mbit/s stream | stays online; `uplink_degraded` → `uplink_restored` | **MediaMTX restarts the file every 10–15 s with ~2 s gaps** ("drift between recording duration and absolute time") | — |
+| app container killed | back in ~5 s, state re-synced from MediaMTX | unaffected | HLS unaffected |
+| drone encoder killed | reconnecting 3 s → online | new file | — |
+| MediaMTX killed | `server_unreachable` → `publisher_lost_in_server_restart` → back in ~6 s | new file | — |
+
+Notes:
+- After a long outage the reconnect time is mostly the publisher's own TCP
+  retry backoff (up to ~13 s for ffmpeg). Real drone apps may differ.
+- A slow uplink splits recordings (MediaMTX behaviour). Keep the drone's stream
+  bitrate well under its worst-case uplink. `/admin/diagnostics` now shows
+  "slow uplink".
+- The AI counting worker exited with SIGSEGV (-11) after some reconnects in the
+  local stack. The local stack had no DM-Count weights, and this branch doesn't
+  change the worker. Video is unaffected; it restarts on the next source online.
+  Worth checking in production logs.
 
 ## Stage B (needs approval: restarts MediaMTX, ~5 s gap in all streams and recordings)
 

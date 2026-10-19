@@ -126,6 +126,60 @@ def test_stall_recovery_is_logged(tmp_path):
     assert tel.snapshot("drone-1")["stalled"] is False
 
 
+def test_slow_uplink_is_flagged_as_degraded_then_restored(tmp_path):
+    clock = Clock()
+    log, tel = _telemetry(tmp_path, clock)
+    received = 0
+    tel.observe(_payload(received=received))
+
+    def run(seconds, kbps):
+        nonlocal received
+        for _ in range(int(seconds / 2)):
+            clock.now += 2
+            received += int(kbps * 1000 / 8 * 2)
+            tel.observe(_payload(received=received))
+
+    run(20, 2500)                 # normal flight learns a ~2500 kbps baseline
+    assert tel.snapshot("drone-1")["baseline_kbps"] > 2000
+    run(30, 1000)                 # throttled uplink: bytes still flow, so no stall
+    events = [e["event"] for e in log.recent("drone-1")]
+    assert "uplink_stalled" not in events
+    assert events[-1] == "uplink_degraded"
+    assert tel.snapshot("drone-1")["degraded"] is True
+    assert tel.snapshot("drone-1")["baseline_kbps"] > 2000   # throttle did not drag the baseline down
+
+    run(10, 2500)
+    assert log.recent("drone-1")[-1]["event"] == "uplink_restored"
+    assert tel.snapshot("drone-1")["degraded"] is False
+
+
+def test_brief_bitrate_dip_is_not_reported(tmp_path):
+    clock = Clock()
+    log, tel = _telemetry(tmp_path, clock)
+    received = 0
+    tel.observe(_payload(received=received))
+    for kbps in [2500] * 10 + [600] + [2500] * 5:
+        clock.now += 2
+        received += int(kbps * 1000 / 8 * 2)
+        tel.observe(_payload(received=received))
+    assert "uplink_degraded" not in [e["event"] for e in log.recent("drone-1")]
+
+
+def test_stream_lost_during_server_outage_is_blamed_on_ingest(tmp_path):
+    clock = Clock()
+    log, tel = _telemetry(tmp_path, clock)
+    tel.observe(_payload(received=100))
+    clock.now += 2
+    tel.observe(_payload(received=900))
+    clock.now += 2
+    tel.api_failed("Connection refused")
+    clock.now += 4
+    tel.observe(_payload(ready=False))      # MediaMTX back, publisher not yet
+    events = [(e["category"], e["event"]) for e in log.recent("drone-1")]
+    assert (ev.INGEST, "publisher_lost_in_server_restart") in events
+    assert (ev.CAMERA, "publisher_disconnected") not in events
+
+
 def test_api_outage_logged_once_and_recovery(tmp_path):
     clock = Clock()
     log, tel = _telemetry(tmp_path, clock)
