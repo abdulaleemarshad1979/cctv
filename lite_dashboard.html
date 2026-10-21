@@ -1439,6 +1439,32 @@
       `).join("");
     }
 
+    // The 3x3 head-count grid is polled every second for every camera. Its
+    // nine cells are created once; later polls rewrite only the cells whose
+    // count changed instead of re-parsing and replacing the grid's HTML.
+    function updateZoneCells(cellsEl, zoneScores) {
+      if (cellsEl.childElementCount !== 9) {
+        cellsEl.innerHTML = Array.from({ length: 9 }, (_, i) =>
+          `<div class="zone-cell"><div class="zone-cell-label">${"ABC"[Math.floor(i / 3)]}${(i % 3) + 1}</div><div class="zone-cell-count safe">0</div></div>`
+        ).join("");
+      }
+      const countEls = cellsEl.getElementsByClassName("zone-cell-count");
+      for (let i = 0; i < 9; i++) {
+        const count = Math.round(zoneScores[Math.floor(i / 3)]?.[i % 3] || 0);
+        const text = String(count);
+        const el = countEls[i];
+        if (el.textContent === text) continue;
+        el.textContent = text;
+        el.className = `zone-cell-count ${count >= 300 ? "critical" : count >= 200 ? "high" : count >= 100 ? "warning" : "safe"}`;
+      }
+    }
+
+    function setHtmlIfChanged(el, html) {
+      if (el._renderedHtml === html) return;
+      el.innerHTML = html;
+      el._renderedHtml = html;
+    }
+
     function forecastAccuracyText(forecast) {
       if (forecast?.status === "ready") {
         const lstm = forecast.lstm_status === "active"
@@ -2481,7 +2507,7 @@ function setupHlsPlayback(cam, video, playbackPath, getMediaRecoveries) {
       const forecastValues = document.getElementById(`forecast-values-${cam.id}`);
       const forecastAccuracy = document.getElementById(`forecast-accuracy-${cam.id}`);
       const forecastStatus = document.getElementById(`forecast-status-${cam.id}`);
-      if (forecastValues) forecastValues.innerHTML = forecastItemsMarkup(forecast);
+      if (forecastValues) setHtmlIfChanged(forecastValues, forecastItemsMarkup(forecast));
       if (forecastAccuracy) forecastAccuracy.textContent = forecastAccuracyText(forecast);
       if (forecastStatus) {
         forecastStatus.textContent = forecastStatusText(forecast);
@@ -2502,36 +2528,15 @@ function setupHlsPlayback(cam, video, playbackPath, getMediaRecoveries) {
           }
         }
         if (hudEl && !document.getElementById(`zone-grid-${cam.id}`)) {
-          const zoneGridHtml = `
+          hudEl.insertAdjacentHTML('beforeend', `
             <div class="tile__zone-grid" id="zone-grid-${cam.id}">
               <div class="zone-grid-header">PER-ZONE HEAD COUNT</div>
-              <div class="zone-grid-cells">
-                ${cam.zone_scores.map((row, r) => row.map((val, c) => {
-            const label = `ABC`[r] + (c + 1);
-            const count = Math.round(val);
-            const cls = count >= 300 ? 'critical' : (count >= 200 ? 'high' : (count >= 100 ? 'warning' : 'safe'));
-            return `<div class="zone-cell"><div class="zone-cell-label">${label}</div><div class="zone-cell-count ${cls}">${count}</div></div>`;
-          }).join('')).join('')}
-              </div>
+              <div class="zone-grid-cells"></div>
             </div>
-          `;
-          hudEl.insertAdjacentHTML('beforeend', zoneGridHtml);
-        } else if (document.getElementById(`zone-grid-${cam.id}`)) {
-          const zoneGridEl = document.getElementById(`zone-grid-${cam.id}`);
-          if (zoneGridEl) {
-            zoneGridEl.innerHTML = `
-              <div class="zone-grid-header">PER-ZONE HEAD COUNT</div>
-              <div class="zone-grid-cells">
-                ${cam.zone_scores.map((row, r) => row.map((val, c) => {
-              const label = `ABC`[r] + (c + 1);
-              const count = Math.round(val);
-              const cls = count >= 300 ? 'critical' : (count >= 200 ? 'high' : (count >= 100 ? 'warning' : 'safe'));
-              return `<div class="zone-cell"><div class="zone-cell-label">${label}</div><div class="zone-cell-count ${cls}">${count}</div></div>`;
-            }).join('')).join('')}
-              </div>
-            `;
-          }
+          `);
         }
+        const zoneCellsEl = document.querySelector(`#zone-grid-${cam.id} .zone-grid-cells`);
+        if (zoneCellsEl) updateZoneCells(zoneCellsEl, cam.zone_scores);
       }
 
       // 7. Warnings and Alerts

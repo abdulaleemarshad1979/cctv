@@ -44,8 +44,10 @@ from src.crowd_risk_estimator   import CrowdRiskEstimator
 from src.counting_accuracy      import (
     TemporalCountStabilizer,
     allocate_zone_counts,
-    detection_zone_counts,
+    box_head_points,
     detections_to_density_map,
+    locate_heads,
+    point_zone_counts,
 )
 from src.stream_output          import LatestFrameEncoder, resolve_ffmpeg_path
 
@@ -165,7 +167,12 @@ def _load_model():
 
 
 def _detect_people(frame):
-    """Detect people and return ``(box, confidence)`` pairs."""
+    """Return an ``(N, 4)`` float32 array of counted person boxes (xyxy).
+
+    NMS only lets a box be suppressed by a higher-scoring box, so running it
+    at the counting threshold yields exactly the boxes a post-NMS filter
+    would keep, with far fewer candidates to sort and compare.
+    """
     yolo = model["yolo"]
     yolo_imgsz = (
         getattr(config, "YOLO_IMG_SIZE", 960)
@@ -176,21 +183,16 @@ def _detect_people(frame):
         frame,
         classes=[0],
         imgsz=yolo_imgsz,
-        conf=getattr(config, "YOLO_CONFIDENCE", 0.20),
+        conf=getattr(config, "YOLO_COUNT_CONFIDENCE", 0.30),
         iou=getattr(config, "YOLO_IOU", 0.55),
         max_det=getattr(config, "YOLO_MAX_DETECTIONS", 3000),
         agnostic_nms=True,
         verbose=False,
     )
 
-    if not results or results[0].boxes is None:
-        return []
-
-    return [
-        (box.xyxy[0].detach().cpu().tolist(), float(box.conf[0]))
-        for box in results[0].boxes
-        if int(box.cls[0]) == 0
-    ]
+    if not results or results[0].boxes is None or len(results[0].boxes) == 0:
+        return np.empty((0, 4), dtype=np.float32)
+    return results[0].boxes.xyxy.detach().cpu().numpy().astype(np.float32)
 
 
 model = None
@@ -327,7 +329,7 @@ _stride        = config.INITIAL_INFERENCE_STRIDE
 _proc_fps      = 0.0
 _zone_scores   = None          # np (3,3)
 _is_live       = False
-_yolo_boxes    = []
+_head_points   = np.empty((0, 2), dtype=np.float32)  # frame pixels
 _is_simulation = False
 _counting_mode_active = os.environ.get("COUNTING_MODE_ACTIVE", "1").lower() in (
     "1", "true", "yes", "on"
@@ -546,7 +548,7 @@ def _inference_worker():
     global _speed_grid, _motion_speed, _turbulence, _opp_result, _comp_risk
     global _comp_zone, _comp_color, _pressure_smooth, _sp_result, _hs_result, _analytics_ts
     global _analytics_seq
-    global _yolo_boxes
+    global _head_points
 
     # Wait for the asynchronously loaded model to be ready
     model_loaded.wait()
@@ -590,22 +592,14 @@ def _inference_worker():
         t0       = time.perf_counter()
         if is_yolo_mode:
             # CCTV feeds use YOLO person detection as their count source.
-            tracked_people = _detect_people(frame)
-            yolo_boxes_val = [
-                box for box, confidence in tracked_people
-                if confidence >= getattr(config, "YOLO_DOT_CONFIDENCE", 0.10)
-            ]
-            count_boxes_val = [
-                box for box, confidence in tracked_people
-                if confidence >= getattr(config, "YOLO_COUNT_CONFIDENCE", 0.30)
-            ]
+            count_boxes_val = _detect_people(frame)
             dmap_np = detections_to_density_map(
                 count_boxes_val,
                 (config.INFER_HEIGHT, config.INFER_WIDTH),
                 frame.shape[:2],
             )
         else:
-            # 1) Fusion density map (kept for risk visualization)
+            # 1) Density map: its integral is the count, its peaks are heads.
             dmap_np = _infer_density_map(frame)
             dmap_np  = density_filter.clean_density_map(
                 dmap_np,
@@ -615,23 +609,15 @@ def _inference_worker():
                 speckle_ratio=getattr(config, "DENSITY_SPECKLE_RATIO", 0.015),
             )
 
-            # 2) YOLOv11 for human detections (used for counting + per-zone headcounts)
-            tracked_people = (
-                _detect_people(frame) if model["yolo"] is not None else []
+            # 2) YOLOv11 person boxes (GPU / hybrid only) give exact head
+            #    positions and a hard floor for the count.
+            count_boxes_val = (
+                _detect_people(frame) if model["yolo"] is not None
+                else np.empty((0, 4), dtype=np.float32)
             )
-            yolo_boxes_val = [
-                box for box, confidence in tracked_people
-                if confidence >= getattr(config, "YOLO_DOT_CONFIDENCE", 0.10)
-            ]
-            count_boxes_val = [
-                box for box, confidence in tracked_people
-                if confidence >= getattr(config, "YOLO_COUNT_CONFIDENCE", 0.30)
-            ]
 
-        # Only high-confidence detections influence the numeric count. The
-        # lower threshold is visual-only so tiny aerial people still get dots.
-        people_count = float(len(count_boxes_val))
-
+        detected_heads = box_head_points(count_boxes_val)
+        people_count = float(detected_heads.shape[0])
 
         with _lock:
             is_live_val = _is_live
@@ -654,19 +640,27 @@ def _inference_worker():
         )
         scores, _      = zm.analyze_zones(dmap_np)
 
-        # ── Per-zone headcount from YOLO dots (always) ──
-        zone_headcounts = detection_zone_counts(
-            count_boxes_val,
-            frame.shape[:2],
-        )
-
         # The trained density model counts occluded people; YOLO supplies a
         # hard detected-person floor. Stabilization removes one-frame spikes.
         if not is_yolo_mode:
             ds = count_stabilizer.update(float(ds_metrics), people_count)
-            scores = allocate_zone_counts(scores, zone_headcounts, ds)
+            # One dot per counted person: detected heads first, then density
+            # peaks for everyone YOLO could not see. len(head_points) equals
+            # round(ds), so the dots, the zone grid and the count all agree.
+            head_points = locate_heads(
+                dmap_np, ds, frame.shape[:2], detected_heads=detected_heads
+            )
+            if head_points.shape[0] == int(round(ds)):
+                scores = point_zone_counts(head_points, frame.shape[:2])
+            else:
+                # Calibration bias can ask for people on an empty map.
+                scores = allocate_zone_counts(
+                    scores, point_zone_counts(detected_heads, frame.shape[:2]), ds
+                )
         else:
             ds = count_stabilizer.update(people_count, people_count)
+            head_points = detected_heads
+            zone_headcounts = point_zone_counts(detected_heads, frame.shape[:2])
             scores = allocate_zone_counts(zone_headcounts, zone_headcounts, ds)
 
 
@@ -812,7 +806,7 @@ def _inference_worker():
             _pressure_smooth = pressure_smooth
             _sp_result       = sp_result
             _hs_result       = hs_result
-            _yolo_boxes      = yolo_boxes_val
+            _head_points     = head_points
             _analytics_ts    = time.monotonic()
             _analytics_seq  += 1
 
@@ -845,6 +839,7 @@ show_grid        = True
 show_heatmap     = False
 recording        = False
 
+head_dots   = overlay.HeadDotLayer()
 crowd_log   = logger.CrowdLogger(config.CSV_LOG_PATH, enabled=config.WRITE_CSV_LOG)
 video_writer = None
 rtmp_target = os.environ.get("RTMP_TARGET")
@@ -893,7 +888,7 @@ while not _stop.is_set():
         health_stats  = _health_stats
         is_live_val   = _is_live
         is_simulation_val = _is_simulation
-        yolo_boxes    = _yolo_boxes
+        head_points   = _head_points
         counting_mode_active = _counting_mode_active
         
         # Grab decoupled analytics state
@@ -989,22 +984,9 @@ while not _stop.is_set():
     if counting_mode_active and RENDER_VIDEO_OVERLAYS:
         overlay.draw_top_banner(disp, comp_zone, comp_color, pressure_smooth)
         
-        # ── draw YOLO dots (mapping humans) ──
-        if yolo_boxes:
-            h_orig, w_orig = frame.shape[:2]
-            h_disp, w_disp = disp.shape[:2]
-            scale_y = h_disp / h_orig
-            scale_x = w_disp / w_orig
-            for box in yolo_boxes:
-                x1 = int(box[0] * scale_x)
-                y1 = int(box[1] * scale_y)
-                x2 = int(box[2] * scale_x)
-                y2 = int(box[3] * scale_y)
-                cx = (x1 + x2) // 2
-                cy = (y1 + y2) // 2
-                # Draw a solid green dot with a black border to map the human
-                cv2.circle(disp, (cx, cy), 6, (0, 255, 0), -1)
-                cv2.circle(disp, (cx, cy), 7, (0, 0, 0), 1)
+        # ── one dot per counted head (rasterised once per result) ──
+        head_dots.update(head_points, frame.shape[:2], disp.shape[:2], analytics_seq)
+        head_dots.draw(disp)
 
         # Draw model indicator below banner
         counter_label = model.get("counter_label", "Density Counter") if isinstance(model, dict) else "Density Counter"

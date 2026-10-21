@@ -207,8 +207,8 @@ COUNT_CALIBRATION_BIAS = float(
 
 YOLO_HIGH_ACCURACY = os.environ.get("YOLO_HIGH_ACCURACY", "1").lower() in ("1", "true", "yes", "on")
 YOLO_IMG_SIZE = int(os.environ.get("YOLO_IMG_SIZE", "1280" if is_cuda_available() else "640"))
-YOLO_CONFIDENCE = float(os.environ.get("YOLO_CONFIDENCE", "0.10"))
-YOLO_DOT_CONFIDENCE = float(os.environ.get("YOLO_DOT_CONFIDENCE", "0.10"))
+# Every counted detection gets exactly one head dot, so a single threshold
+# governs both the dots and the count.
 YOLO_COUNT_CONFIDENCE = float(os.environ.get("YOLO_COUNT_CONFIDENCE", "0.30"))
 YOLO_IOU = float(os.environ.get("YOLO_IOU", "0.55"))
 YOLO_MAX_DETECTIONS = int(os.environ.get("YOLO_MAX_DETECTIONS", "3000"))
