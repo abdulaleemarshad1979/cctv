@@ -425,3 +425,71 @@ def draw_alert_ticker(frame, alerts: list, alert_first_shown_times: dict = None,
     cv2.rectangle(frame, (0, h - 30), (w, h), bg, -1)
     cv2.putText(frame, chosen, (10, h - 8),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.50, fg, 1, cv2.LINE_AA)
+
+
+class HeadDotLayer:
+    """Draw one dot per counted head, cached between inference results.
+
+    Head points only change when a new count is published (every 6-24
+    frames), while the display loop draws every frame. The dot and outline
+    pixels are rasterised once per result into flat pixel-index arrays, so
+    each frame costs a single vectorised write proportional to the number of
+    dot pixels rather than two ``cv2.circle`` calls per person.
+    """
+
+    def __init__(self, fill=C_GREEN, edge=C_BLACK):
+        self._fill_color = np.array(fill, dtype=np.uint8)
+        self._edge_color = np.array(edge, dtype=np.uint8)
+        self._key = None
+        self._fill_idx = np.empty(0, dtype=np.intp)
+        self._edge_idx = np.empty(0, dtype=np.intp)
+
+    @staticmethod
+    def dot_radius(n_points, width, height):
+        """Shrink dots as the crowd gets denser so neighbours stay distinct."""
+        if n_points <= 0:
+            return 0
+        spacing = np.sqrt(width * height / n_points)
+        return int(np.clip(round(spacing * 0.18), 2, 6))
+
+    def update(self, points, src_shape, dst_shape, key):
+        if key == self._key:
+            return
+        self._key = key
+        dst_h, dst_w = int(dst_shape[0]), int(dst_shape[1])
+        pts = np.asarray(points, dtype=np.float32).reshape(-1, 2)
+        if pts.size == 0:
+            self._fill_idx = self._edge_idx = np.empty(0, dtype=np.intp)
+            return
+        src_h, src_w = int(src_shape[0]), int(src_shape[1])
+        xs = np.clip((pts[:, 0] * (dst_w / src_w)).astype(np.intp), 0, dst_w - 1)
+        ys = np.clip((pts[:, 1] * (dst_h / src_h)).astype(np.intp), 0, dst_h - 1)
+        radius = self.dot_radius(pts.shape[0], dst_w, dst_h)
+        fill = self._stamp(xs, ys, radius, dst_w, dst_h)
+        edge = self._stamp(xs, ys, radius + 1, dst_w, dst_h)
+        edge &= ~fill
+        self._fill_idx = np.flatnonzero(fill)
+        self._edge_idx = np.flatnonzero(edge)
+
+    @staticmethod
+    def _stamp(xs, ys, radius, width, height):
+        """Boolean mask of a filled disk at every point, O(n * r^2) writes."""
+        dy, dx = np.mgrid[-radius:radius + 1, -radius:radius + 1]
+        inside = dx * dx + dy * dy <= radius * radius + radius
+        dx, dy = dx[inside], dy[inside]
+        px = xs[:, None] + dx[None, :]
+        py = ys[:, None] + dy[None, :]
+        valid = (px >= 0) & (px < width) & (py >= 0) & (py < height)
+        mask = np.zeros(width * height, dtype=bool)
+        mask[py[valid] * width + px[valid]] = True
+        return mask
+
+    def draw(self, img):
+        if self._fill_idx.size == 0:
+            return img
+        if not img.flags.c_contiguous:
+            raise ValueError("HeadDotLayer.draw needs a C-contiguous image")
+        flat = img.reshape(-1, img.shape[2])
+        flat[self._edge_idx] = self._edge_color
+        flat[self._fill_idx] = self._fill_color
+        return img
