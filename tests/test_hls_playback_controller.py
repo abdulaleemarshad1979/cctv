@@ -43,7 +43,8 @@ def test_dashboards_have_low_latency_hls_configuration():
         "startPosition: -1",
         "enableWorker: true",
         "liveDurationInfinity: true",
-        "capLevelToPlayerSize: true",
+        # hls.js caps to the player size unless a QualityGovernor sets the cap
+        "capLevelToPlayerSize: !governed",
     ]:
         assert setting in player, f"Setting '{setting}' missing in egdms-player.js"
     assert "liveSyncDurationCount" not in player

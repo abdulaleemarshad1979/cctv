@@ -5,8 +5,11 @@
  * (GET /cameras/<id>/heads: records of uint32 seq, uint32 count, float64
  * capture time, then uint16 x/y pairs spanning the frame). The dots are drawn
  * here on a canvas over the video instead of being burned into the stream, so
- * the video stays the untouched raw feed (no re-encode, no extra delay) and
- * the dots can be switched off.
+ * the video stays the untouched raw feed (no re-encode, no extra delay).
+ *
+ * Dots belong to Counting mode only: they appear by themselves once a camera
+ * is counted and vanish (canvas, observers and requests released) the moment
+ * the page is in Viewing mode or the tile is off screen. There is no switch.
  *
  * Viewers watch several seconds behind live, so a short history of results is
  * kept and the dots recorded for the frame on screen are drawn (matched by the
@@ -14,7 +17,7 @@
  *
  * Cost: one request per camera per new result (not per poll), only for tiles
  * on screen; one canvas redraw whenever the matching result, the box size or
- * the video size changes.
+ * the video size changes; no canvas, timer or request at all in Viewing mode.
  */
 (function () {
   "use strict";
@@ -89,24 +92,16 @@
     return Math.min(4.5, Math.max(1.3, 0.28 * Math.sqrt(areaPerHead)));
   };
 
-  const STORAGE_KEY = "egdms.headDots";
-  D.readEnabled = function () {
-    try { return window.localStorage.getItem(STORAGE_KEY) !== "off"; } catch (e) { return true; }
-  };
-  D.writeEnabled = function (on) {
-    try { window.localStorage.setItem(STORAGE_KEY, on ? "on" : "off"); } catch (e) { /* session only */ }
-  };
+  // Older builds had an on/off button whose choice was remembered; a stored
+  // "off" must not hide the dots in Counting mode any more.
+  try { window.localStorage.removeItem("egdms.headDots"); } catch (e) { /* storage unavailable */ }
 
   function ensureStyles() {
     if (document.getElementById("egdms-dots-styles")) return;
     const style = document.createElement("style");
     style.id = "egdms-dots-styles";
     style.textContent =
-      ".egdms-dots{position:absolute;inset:0;width:100%;height:100%;z-index:5;pointer-events:none}" +
-      ".egdms-dots-toggle{background:transparent;border:1px solid #cbd5e1;border-radius:9999px;padding:7px 14px;" +
-      "font:700 12px system-ui,sans-serif;color:#475569;cursor:pointer;display:inline-flex;align-items:center;gap:6px}" +
-      ".egdms-dots-toggle[aria-pressed=true]{background:#dc2626;border-color:#dc2626;color:#fff}" +
-      ".egdms-dots-toggle::before{content:'';width:8px;height:8px;border-radius:50%;background:currentColor}";
+      ".egdms-dots{position:absolute;inset:0;width:100%;height:100%;z-index:5;pointer-events:none}";
     document.head.appendChild(style);
   }
 
@@ -261,14 +256,14 @@
 
   // Keeps every camera's dots current.
   //   container(id)  -> the camera's player container element
-  //   wanted(cam)    -> dots should be visible now (counting, active, on screen)
+  //   wanted(cam)    -> dots should be visible now (Counting mode, counted, on screen)
   //   clock(id)      -> epoch ms of the frame being shown, or null if unknown
+  // The camera's heads_sync_offset_ms (dots-to-video alignment) is applied here.
   D.Manager = class {
     constructor(options) {
       this.getContainer = options.container;
       this.wanted = options.wanted;
       this.clock = options.clock || (() => null);
-      this.enabled = options.enabled !== false;
       this.cameras = new Map();
       this.timer = null;
     }
@@ -276,40 +271,58 @@
     state(id) {
       let entry = this.cameras.get(id);
       if (!entry) {
-        entry = { layer: null, seq: null, inflight: false, controller: null };
+        entry = { layer: null, seq: null, inflight: false, controller: null, offsetMs: 700 };
         this.cameras.set(id, entry);
       }
       return entry;
     }
 
-    setEnabled(on) {
-      this.enabled = Boolean(on);
-      D.writeEnabled(this.enabled);
-      if (!this.enabled) this.cameras.forEach(entry => { if (entry.layer) entry.layer.clear(); entry.seq = null; });
+    frameTime(id, entry) {
+      const shown = this.clock(id);
+      return shown == null ? null : shown - entry.offsetMs;
     }
 
-    // Match every layer to its player's current frame, ~4 times a second.
+    // Match every layer to its player's current frame, ~4 times a second, and
+    // only while some layer has results to match.
     startTicking() {
       if (this.timer) return;
       this.timer = setInterval(() => {
         if (document.hidden) return;
+        let live = false;
         this.cameras.forEach((entry, id) => {
-          if (entry.layer && entry.layer.records.length) entry.layer.refresh(this.clock(id));
+          if (!entry.layer) return;
+          live = true;
+          if (entry.layer.records.length) entry.layer.refresh(this.frameTime(id, entry));
         });
+        if (!live) this.stopTicking();
       }, 250);
     }
 
-    // Call on every camera poll (cheap unless a new result arrived).
+    stopTicking() {
+      clearInterval(this.timer);
+      this.timer = null;
+    }
+
+    // Removes a camera's dots and frees its canvas, observer and request.
+    hide(entry) {
+      if (entry.controller) { try { entry.controller.abort(); } catch (e) { /* done */ } }
+      entry.controller = null;
+      if (entry.layer) entry.layer.destroy();
+      entry.layer = null;
+      entry.seq = null;
+    }
+
+    // Call on every camera poll and on every mode change (cheap unless a new
+    // result arrived).
     sync(cam) {
       const entry = this.state(cam.id);
       const container = this.getContainer(cam.id);
-      const show = this.enabled && container && Number(cam.heads_count) > 0 && this.wanted(cam);
+      const show = Boolean(container) && Number(cam.heads_count) > 0 && this.wanted(cam);
       if (!show) {
-        if (entry.layer) entry.layer.clear();
-        entry.seq = null;
-        if (entry.controller) { try { entry.controller.abort(); } catch (e) { /* done */ } }
+        if (entry.layer || entry.controller) this.hide(entry);
         return;
       }
+      if (cam.heads_sync_offset_ms != null) entry.offsetMs = Number(cam.heads_sync_offset_ms) || 0;
       if (!entry.layer || entry.layer.container !== container) {
         if (entry.layer) entry.layer.destroy();
         entry.layer = new Layer(container);
@@ -325,12 +338,13 @@
 
     fetchHeads(id, entry) {
       entry.inflight = true;
-      entry.controller = typeof AbortController === "undefined" ? null : new AbortController();
+      const controller = typeof AbortController === "undefined" ? null : new AbortController();
+      entry.controller = controller;
       const since = entry.seq == null ? "" : `?since=${entry.seq}`;
       fetch(`/cameras/${encodeURIComponent(id)}/heads${since}`, {
         cache: "no-store",
         credentials: "same-origin",
-        signal: entry.controller ? entry.controller.signal : undefined
+        signal: controller ? controller.signal : undefined
       }).then(response => {
         if (response.status === 204) return { empty: true };
         if (response.status === 304) return { unchanged: true };
@@ -344,35 +358,19 @@
         if (!records || !records.length) return;
         entry.layer.addRecords(records);
         entry.seq = records[records.length - 1].seq;
-        entry.layer.refresh(this.clock(id));
+        entry.layer.refresh(this.frameTime(id, entry));
       }).catch(() => { /* try again on the next poll */ }).finally(() => {
         entry.inflight = false;
+        if (entry.controller === controller) entry.controller = null;
       });
     }
 
     forget(id) {
       const entry = this.cameras.get(id);
       if (!entry) return;
-      if (entry.controller) { try { entry.controller.abort(); } catch (e) { /* done */ } }
-      if (entry.layer) entry.layer.destroy();
+      this.hide(entry);
       this.cameras.delete(id);
     }
-  };
-
-  // The header toggle button (optional element with this id).
-  D.bindToggle = function (button, manager, onChange) {
-    if (!button) return;
-    ensureStyles();
-    const paint = () => {
-      button.setAttribute("aria-pressed", manager.enabled ? "true" : "false");
-      button.title = manager.enabled ? "Hide the dot on every counted person" : "Show a dot on every counted person";
-    };
-    button.addEventListener("click", () => {
-      manager.setEnabled(!manager.enabled);
-      paint();
-      if (typeof onChange === "function") onChange(manager.enabled);
-    });
-    paint();
   };
 
   window.EGDMSDots = D;

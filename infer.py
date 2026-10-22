@@ -252,40 +252,6 @@ def _preprocess(bgr):
     tensor_np = torch.from_numpy(rgb).permute(2, 0, 1).float().unsqueeze(0).to(device) / 255.0
     return (tensor_np - _NORMALIZE_MEAN) / _NORMALIZE_STD
 
-# Startup Verification of Preprocessing Pipeline
-if os.environ.get("VERIFY_PREPROCESS", "1") in ("1", "true", "yes", "on"):
-    try:
-        # Create a dummy frame (height, width, channels) in BGR
-        dummy_bgr = np.random.randint(0, 256, (720, 1280, 3), dtype=np.uint8)
-        
-        # 1. Run New Path calculation (which does suppress overlays inside _preprocess)
-        new_val = _preprocess(dummy_bgr.copy())
-        
-        # 2. Run Old Path calculation with the exact same overlay suppression
-        dummy_bgr_suppressed = dummy_bgr.copy()
-        if getattr(config, "CLEAN_INPUT_OVERLAYS", True):
-            dummy_bgr_suppressed = density_filter.suppress_broadcast_overlays(dummy_bgr_suppressed)
-        dummy_small = cv2.resize(dummy_bgr_suppressed, (config.INFER_WIDTH, config.INFER_HEIGHT),
-                                 interpolation=cv2.INTER_AREA)
-        dummy_rgb = cv2.cvtColor(dummy_small, cv2.COLOR_BGR2RGB)
-        old_array = (
-            torch.from_numpy(dummy_rgb)
-            .permute(2, 0, 1)
-            .float()
-            .unsqueeze(0)
-            .to(device)
-            / 255.0
-        )
-        old_val = (old_array - _NORMALIZE_MEAN) / _NORMALIZE_STD
-        
-        diff = torch.max(torch.abs(old_val - new_val)).item()
-        if torch.allclose(old_val, new_val, atol=1e-5):
-            print(f"[PREPROCESS TEST] Numerical equivalence confirmed! Max absolute diff: {diff:.2e}")
-        else:
-            print(f"[PREPROCESS TEST] WARNING: Mismatch between PIL and direct tensor preprocessing! Max absolute diff: {diff:.2e}")
-    except Exception as e:
-        print(f"[PREPROCESS TEST] WARNING: Failed to run verification test: {e}")
-
 
 def _infer(tensor):
     with torch.inference_mode():
@@ -393,16 +359,21 @@ def _mode_sync_worker():
         print("[MODE SYNC] WARNING: 'requests' library not installed — mode sync disabled")
         return
 
+    # Every stats reply already carries the mode while counting, and the server
+    # stops live analyzers itself on a switch to Viewing (and ignores stats sent
+    # in Viewing mode), so this poll only has to catch the switch back. One
+    # kept-alive connection every 2 s instead of a new one every 0.5 s.
+    session = requests.Session()
     while not _stop.is_set():
         try:
-            response = requests.get(mode_url, timeout=2.0)
+            response = session.get(mode_url, timeout=2.0)
             response.raise_for_status()
             active = bool(response.json().get("counting_mode", True))
             with _lock:
                 _counting_mode_active = active
         except Exception:
             pass
-        _stop.wait(0.5)
+        _stop.wait(2.0)
 
 
 def _replace_latest(target_queue, item):

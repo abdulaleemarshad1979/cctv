@@ -125,6 +125,20 @@ def test_heads_are_hidden_when_counting_is_not_live(camera):
         lite_server.get_camera_heads("nope")
 
 
+def test_cameras_poll_carries_the_mode_so_every_dashboard_follows_a_switch(camera):
+    lite_server.set_mode(lite_server.ModeRequest(mode="counting"))
+    assert lite_server.get_cameras().headers["X-Counting-Mode"] == "1"
+    lite_server.update_stats(_stats(1, [[1, 1]], lite_server.time.time()))
+    assert camera["heads_count"] == 1
+
+    lite_server.set_mode(lite_server.ModeRequest(mode="viewing"))
+    assert lite_server.get_cameras().headers["X-Counting-Mode"] == "0"
+    # Viewing mode carries no dots at all: none listed, none served.
+    assert camera["heads_count"] == 0
+    assert lite_server.get_camera_heads("drone-1").status_code == 204
+    lite_server.set_mode(lite_server.ModeRequest(mode="counting"))
+
+
 def test_viewing_mode_and_reset_drop_the_dots(camera):
     lite_server.update_stats(_stats(1, [[1, 1]], lite_server.time.time()))
     assert camera["heads_count"] == 1
@@ -193,18 +207,38 @@ def test_dashboards_draw_dots_over_the_raw_video_and_explain_waiting_states():
     for page in PAGES:
         html = _text(page)
         assert "new EGDMSDots.Manager(" in html
-        assert 'id="btn-head-dots"' in html
         assert "headDots.sync(newCam)" in html
         # a player restart that holds the last frame must not delete the dots
         assert 'child.classList.contains("egdms-dots")' in html
         # dots are matched to the frame on screen, not to "now"
-        assert "player.playingDate" in html and "heads_sync_offset_ms" in html
+        assert "player.playingDate" in html
         # every analyzer state has its own wording; the reason is visible on the tile
         for state in ("queued", "restarting", "error", "stale"):
             assert f'case "{state}"' in html, (page, state)
         assert "Counting queued" in html and 'id="note-${cam.id}"' in html
         # unchanged tiles are not re-rendered on every one-second poll
         assert "oldCam.analytics_seq !== newCam.analytics_seq" in html
+
+
+def test_dots_belong_to_counting_mode_and_have_no_switch():
+    for page in PAGES:
+        html = _text(page)
+        assert "btn-head-dots" not in html and "bindToggle" not in html and "readEnabled" not in html, page
+        assert 'wanted: cam => globalMode === "counting"' in html, page
+        # a mode switch shows/drops the dots at once, not on the next poll
+        apply = html[html.index("function applyGlobalMode(mode)"):]
+        apply = apply[:apply.index("\n    }\n")]
+        assert "headDots.sync(cam)" in apply, page
+        # a switch made on another screen is followed from the regular poll,
+        # but a poll sent before this screen's own switch cannot undo it
+        assert 'res.headers.get("X-Counting-Mode")' in html, page
+        assert "pollStartedAt > modeChangedAt" in html, page
+    js = _text("static/monitor/js/egdms-dots.js")
+    assert "egdms-dots-toggle" not in js and "bindToggle" not in js and "setEnabled" not in js
+    assert 'localStorage.removeItem("egdms.headDots")' in js      # an old "off" choice cannot hide them
+    # hidden dots free their canvas, observer and request; the timer stops when idle
+    assert "hide(entry)" in js and "entry.layer.destroy()" in js and "this.stopTicking()" in js
+    assert "heads_sync_offset_ms" in js
 
 
 def test_dots_script_matches_dots_to_frames_and_handles_object_fit():

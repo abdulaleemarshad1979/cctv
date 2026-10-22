@@ -1243,7 +1243,6 @@ def start_stream(camera, source_url):
     env["DJANGO_UPDATE_URL"] = f"{config.BACKEND_URL}/cameras/update_stats"
     env["MODE_STATUS_URL"] = f"{config.BACKEND_URL}/get_mode"
     env["COUNTING_MODE_ACTIVE"] = "1" if global_counting_mode else "0"
-    env["VERIFY_PREPROCESS"] = "0"  # Skip startup self-test in headless workers
     env["PYTHONUNBUFFERED"] = "1"
     env["DISPLAY_WIDTH"] = str(config.WEB_STREAM_WIDTH)
     env["DISPLAY_HEIGHT"] = str(config.WEB_STREAM_HEIGHT)
@@ -2224,11 +2223,16 @@ def get_cameras():
     # Every viewer polls this each second. The forecast (about 3.5 KB per
     # camera) is only shown for cameras with a live count, so offline and
     # waiting cameras send none: the payload scales with cameras counted, not
-    # with cameras configured.
-    return FastJSONResponse(content=[
-        camera if camera.get("analytics_status") == "active" else {**camera, "forecast": None}
-        for camera in cameras_db
-    ])
+    # with cameras configured. The mode rides along in a header so every open
+    # dashboard follows a Viewing/Counting switch (and shows or drops the head
+    # dots) on its next poll, without an extra request.
+    return FastJSONResponse(
+        content=[
+            camera if camera.get("analytics_status") == "active" else {**camera, "forecast": None}
+            for camera in cameras_db
+        ],
+        headers={"X-Counting-Mode": "1" if global_counting_mode else "0"},
+    )
 
 @app.post("/cameras/state")
 def update_camera_state(req: StateRequest):

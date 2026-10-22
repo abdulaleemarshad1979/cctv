@@ -14,6 +14,9 @@
  * - attachQualityMenu(): Auto / per-level selector for adaptive HLS; also
  *   remembers the measured bandwidth so the next player starts at the right
  *   quality instead of ramping up from a 1 Mbit/s guess.
+ * - QualityGovernor: splits the measured network between all players on the
+ *   page (full view first) so together they never ask for more than it
+ *   carries, and tiles get a sharper picture when it does.
  * - report(): batched, best-effort diagnostics sent to /api/stream-events.
  */
 (function () {
@@ -42,6 +45,9 @@
   P.hlsConfig = function (options) {
     const target = Math.max(2, Number((options && options.targetLatency) || 5));
     const abr = Boolean(options && options.abr);
+    // A QualityGovernor sets each player's cap itself (box size and network
+    // share); hls.js's own size cap would undo it every second.
+    const governed = Boolean(options && options.governed);
     return {
       enableWorker: true,
       // Regular (not partial-segment) HLS is far more tolerant of lossy
@@ -60,7 +66,7 @@
       startPosition: -1,
       // Adaptive bitrate: start conservatively, upgrade only on clear headroom.
       startLevel: -1,
-      capLevelToPlayerSize: true,
+      capLevelToPlayerSize: !governed,
       abrEwmaDefaultEstimate: startingBandwidth(),
       // React to a worsening network within a few seconds (a stall is worse
       // than a softer picture); upgrades stay cautious via abrBandWidthUpFactor.
@@ -360,6 +366,122 @@
     const saved = readPref(camId);
     apply(saved && Array.from(select.options).some(o => o.value === saved) ? saved : "auto", false);
     return select;
+  };
+
+  // Bitrate a level needs while it plays (hls.js measures the real one once
+  // segments arrive; the playlist's average before that).
+  function levelRate(level) {
+    return level ? (level.averageBitrate || level.bitrate || 0) : 0;
+  }
+
+  // Highest level a tile may use. Like hls.js's player-size cap, the smallest
+  // level that covers the box (in device pixels, at most 2x), plus one step
+  // when the tile's share of the network pays for it: a tile shows more
+  // detail than its pixel count suggests once the bitrate stops being the
+  // limit (360p at 450 kbit/s is blocky even on a small tile). Never above
+  // the share; never below the lowest level. With no measured share (null),
+  // the box size alone, exactly as hls.js would.
+  P.tileLevelCap = function (levels, boxWidth, boxHeight, share) {
+    if (!levels || !levels.length) return -1;
+    const square = Math.max(boxWidth || 0, boxHeight || 0);
+    let fit = levels.length - 1;
+    for (let i = 0; i < levels.length; i++) {
+      if ((levels[i].width || 0) >= square || (levels[i].height || 0) >= square) { fit = i; break; }
+    }
+    if (share == null) return fit;
+    let cap = Math.min(levels.length - 1, fit + 1);
+    while (cap > 0 && levelRate(levels[cap]) > share) cap--;
+    return cap;
+  };
+
+  // Network-aware quality for every live player on the page.
+  //
+  // hls.js measures each player on its own, so nine tiles each believe they
+  // own the whole link and together ask for nine times what it carries: on a
+  // weak network every tile stalls. Every 2 s (and at once when the full view
+  // opens or closes, or the connection changes) the governor splits the
+  // measured link instead:
+  //  - the full-view player comes first and is never capped;
+  //  - while a full view is open the tiles behind its backdrop drop to their
+  //    lowest level, so the full view gets the bandwidth;
+  //  - otherwise the tiles share what is left equally (see tileLevelCap);
+  //  - one-quality (direct) streams and manual choices only use up budget.
+  // hls.js still picks below each cap from its own measurements. The cap is
+  // set while the manifest is parsed, before the first segment is chosen, so
+  // a tile never starts above its share. Cost: O(players) every 2 s.
+  P.QualityGovernor = class {
+    constructor(options) {
+      this.isFocused = (options && options.isFocused) || (() => false);
+      this.headroom = 0.85;          // leave room for polls, dots and bursts
+      this.players = new Map();      // camera id -> { hls, container }
+      this.timer = null;
+      const connection = typeof navigator !== "undefined" && navigator.connection;
+      if (connection && typeof connection.addEventListener === "function") {
+        connection.addEventListener("change", () => this.apply());
+      }
+    }
+
+    add(id, hls, container) {
+      this.players.set(id, { hls, container });
+      this.apply();
+      if (!this.timer) this.timer = setInterval(() => { if (!document.hidden) this.apply(); }, 2000);
+    }
+
+    remove(id) {
+      this.players.delete(id);
+      if (!this.players.size && this.timer) {
+        clearInterval(this.timer);
+        this.timer = null;
+      }
+    }
+
+    // What the link carries: the best rate any player measured recently (a
+    // player downloading alone sees the whole link). Null until this page has
+    // measured anything in the last two minutes.
+    linkEstimate() {
+      if (!(P.bandwidthMeasuredAt > 0) || Date.now() - P.bandwidthMeasuredAt > 120000) return null;
+      let best = P.bandwidthEstimate > 0 ? P.bandwidthEstimate : 0;
+      this.players.forEach(({ hls }) => {
+        const measured = Number(hls.bandwidthEstimate);
+        if (isFinite(measured) && measured > best) best = measured;
+      });
+      return best > 0 ? best : null;
+    }
+
+    apply() {
+      if (!this.players.size) return;
+      const link = this.linkEstimate();
+      const dpr = Math.min((typeof window !== "undefined" && window.devicePixelRatio) || 1, 2);
+      let focusOpen = false;
+      let used = 0;
+      const tiles = [];
+      this.players.forEach(({ hls, container }, id) => {
+        let levels;
+        try { levels = hls.levels; } catch (e) { levels = null; }   // destroyed player
+        if (!levels || !levels.length) return;
+        if (this.isFocused(id)) {
+          focusOpen = true;
+          if (hls.autoLevelCapping !== -1) hls.autoLevelCapping = -1;
+          used += levelRate(levels[Math.max(0, hls.loadLevel)]);
+          return;
+        }
+        if (levels.length < 2 || !hls.autoLevelEnabled) {
+          used += levelRate(levels[Math.max(0, hls.loadLevel)]);
+          return;
+        }
+        tiles.push({ hls, container });
+      });
+      const share = link == null ? null : Math.max(0, link * this.headroom - used) / Math.max(1, tiles.length);
+      tiles.forEach(({ hls, container }) => {
+        const cap = focusOpen ? 0 : P.tileLevelCap(
+          hls.levels,
+          (container && container.clientWidth || 0) * dpr,
+          (container && container.clientHeight || 0) * dpr,
+          share
+        );
+        if (hls.autoLevelCapping !== cap) hls.autoLevelCapping = cap;
+      });
+    }
   };
 
   P.removeQualityMenu = function (container) {

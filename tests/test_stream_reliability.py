@@ -315,6 +315,22 @@ def test_ffmpeg_command_aligns_variants_and_never_touches_audio_or_recordings():
     assert "/recordings" not in joined
 
 
+def test_ffmpeg_command_decodes_once_and_scales_each_rung_from_the_one_above():
+    cmd = build_ffmpeg_command("ffmpeg", "rtsp://mediamtx:8554/live/drone1", "/tmp/abr/drone-1", build_ladder(1080))
+    graph = cmd[cmd.index("-filter_complex") + 1]
+    assert graph == (
+        "[0:v]select='if(isnan(prev_selected_n),key,1)',scale=-2:720,format=yuv420p,split=2[out0][down0];"
+        "[down0]scale=-2:480,format=yuv420p,split=2[out1][down1];"
+        "[down1]scale=-2:360,format=yuv420p,null[out2]"
+    )
+    assert [cmd[i + 1] for i, arg in enumerate(cmd) if arg == "-map"] == ["0:v:0", "[out0]", "[out1]", "[out2]"]
+    assert not any(arg.startswith("-filter:v:") for arg in cmd)
+    # a 720p source: two rungs, still one chain
+    cmd = build_ffmpeg_command("ffmpeg", "rtsp://x/y", "/tmp/abr/d", build_ladder(720))
+    assert cmd[cmd.index("-filter_complex") + 1].count("scale=") == 2
+    assert [cmd[i + 1] for i, arg in enumerate(cmd) if arg == "-map"] == ["0:v:0", "[out0]", "[out1]"]
+
+
 class FakeProcess:
     def __init__(self, *args, **kwargs):
         self.returncode = None
