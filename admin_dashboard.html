@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Admin Drone Feed Manager - East Godavari Police EGDMS</title>
+  <title>Admin Drone Feed Manager - Drone Monitoring Portal</title>
   <link rel="icon" href="data:,">
   <style>
     :root {
@@ -2240,6 +2240,22 @@
     .flying-badge[hidden] {
       display: none;
     }
+    .tile__analytics-note {
+      position: absolute;
+      left: 8px;
+      right: 8px;
+      bottom: 8px;
+      z-index: 6;
+      padding: 5px 8px;
+      border-radius: 6px;
+      background: rgba(15, 23, 42, 0.82);
+      color: #fde68a;
+      font: 600 11px/1.35 system-ui, sans-serif;
+      pointer-events: none;
+    }
+    .tile__analytics-note.hidden {
+      display: none;
+    }
   </style>
 </head>
 
@@ -2255,7 +2271,7 @@
         </a>
         <div>
           <h1 class="brand-title">Andhra Pradesh Police Department</h1>
-          <div class="brand-subtitle">East Godavari Drone Monitoring System</div>
+          <div class="brand-subtitle">Drone Monitoring Portal</div>
         </div>
       </div>
 
@@ -2329,6 +2345,8 @@
         </a>
 
         <!-- Viewing / Counting Mode Toggle for Admin -->
+        <button id="btn-head-dots" class="egdms-dots-toggle" type="button" aria-pressed="true">Dots</button>
+
         <div class="mode-toggle-group">
           <button id="btn-mode-viewing" class="mode-pill" onclick="changeGlobalMode('viewing')">
             Viewing
@@ -2605,7 +2623,8 @@
   <script src="https://cdn.jsdelivr.net/npm/hls.js@1.7.1"></script>
   <!-- ?v= is the script's content hash (tests enforce it): a new URL on every
        change, so the CDN and browsers can never serve an older copy. -->
-  <script src="/static/monitor/js/egdms-player.js?v=958c3a8c05"></script>
+  <script src="/static/monitor/js/egdms-player.js?v=8814b33103"></script>
+  <script src="/static/monitor/js/egdms-dots.js?v=67f61a98bc"></script>
 
   <!-- Core Dashboard & Admin Scripts -->
   <script>
@@ -2645,6 +2664,7 @@
     function resumeLiveTile(camId) {
       const cam = cameras.find(c => c.id === camId);
       if (cam && isCameraPlayable(cam) && !hlsPlayers[camId] && !playerRetryTimers[camId]) setupVideoFeed(cam);
+      if (cam) headDots.sync(cam);
     }
     function pauseLiveTile(camId) {
       if (hlsPlayers[camId] && !liveTileWanted(camId)) teardownVideoFeed(camId, false, true);
@@ -2654,6 +2674,29 @@
     const liveTileGate = EGDMSPlayer.LiveTileGate
       ? new EGDMSPlayer.LiveTileGate({ onShow: resumeLiveTile, onHide: pauseLiveTile })
       : { observe() {}, unobserve() {}, isVisible: () => true };
+
+    // A dot on every counted person, drawn over the raw video. Pages that still
+    // hold an older cached script just run without dots.
+    const headDots = typeof EGDMSDots !== "undefined"
+      ? new EGDMSDots.Manager({
+          enabled: EGDMSDots.readEnabled(),
+          container: id => document.getElementById(`player-container-${id}`),
+          wanted: cam => globalMode === "counting" && cam.analytics_status === "active" &&
+            isCameraPlayable(cam) && liveTileWanted(cam.id),
+          // The stream plays seconds behind live: draw the dots recorded for the
+          // frame on screen (hls.js exposes its program date-time).
+          clock: id => {
+            const player = hlsPlayers[id];
+            const shown = player && player.playingDate;
+            if (!(shown instanceof Date) || isNaN(shown)) return null;
+            const cam = cameras.find(c => c.id === id);
+            return shown.getTime() - (cam && cam.heads_sync_offset_ms != null ? cam.heads_sync_offset_ms : 700);
+          }
+        })
+      : { enabled: false, sync() {}, forget() {}, setEnabled() {} };
+    if (typeof EGDMSDots !== "undefined") {
+      EGDMSDots.bindToggle(document.getElementById("btn-head-dots"), headDots, () => cameras.forEach(cam => headDots.sync(cam)));
+    }
     const urlParams = new URLSearchParams(window.location.search);
     // HLS (adaptive when available) is the default: it buffers through
     // packet loss and supports quality switching. ?transport=webrtc opts in
@@ -2820,6 +2863,13 @@
         fullViewBody.appendChild(container);
         fullViewModal.classList.remove("hidden");
         activeFullViewCamId = camId;
+        // A tile that fell back to the direct stream (every transcoder slot was
+        // busy) gets the adaptive stream now: this view is where quality matters.
+        const current = hlsPlayers[camId];
+        if (cam.abr_available && current && current._egdmsAbr === false) {
+          delete abrFallbackUntil[camId];
+          teardownVideoFeed(camId, false, true);
+        }
         const video = container.querySelector("video");
         if (video && !video._userPaused) safePlay(video);
         else if (!video) resumeLiveTile(camId);
@@ -2879,13 +2929,29 @@
       }
     }
 
+
+    // Text for a tile whose count is not live yet, by analyzer state.
+    function analyticsStatusText(cam) {
+      switch (cam.analytics_status) {
+        case "stale": return "Waiting for new count…";
+        case "queued": return "Counting queued";
+        case "restarting": return "Counting restarting…";
+        case "error": return "Counting unavailable";
+        default: return "Analysis starting…";
+      }
+    }
+    // Why counting is not live (queued / restarting / unavailable), shown on the tile.
+    function analyticsNoteText(cam) {
+      return ["queued", "restarting", "error"].includes(cam.analytics_status)
+        ? (cam.connection_message || "").replace(/^Live video connected\.\s*/, "")
+        : "";
+    }
+
     function createTileCard(cam) {
       const isOnline = isCameraPlayable(cam);
       const analyticsReady = isOnline && globalMode === 'counting' && cam.analytics_status === 'active';
       const analyticsStarting = isOnline && globalMode === 'counting' && !analyticsReady;
-      const analyticsMessage = cam.analytics_status === 'stale'
-        ? 'Waiting for new count…'
-        : (cam.analytics_status === 'error' ? 'Counting unavailable' : 'Analysis starting…');
+      const analyticsMessage = analyticsStatusText(cam);
 
       const card = document.createElement("div");
       card.className = `tile ${isOnline && globalMode === 'counting' ? 'tile--counting' : ''}`;
@@ -2977,6 +3043,8 @@
             </div>
           </div>
 
+          <div class="tile__analytics-note ${analyticsNoteText(cam) && globalMode === 'counting' ? '' : 'hidden'}" id="note-${cam.id}" role="status">${escapeHtml(analyticsNoteText(cam))}</div>
+
           <div class="tile__warning-overlay hidden" id="warning-overlay-${cam.id}">
             <span id="warning-text-${cam.id}">WARNING: HIGH RISK</span>
           </div>
@@ -3026,6 +3094,7 @@
           if (activeFullViewCamId === id) closeFullViewModal();
           liveTileGate.unobserve(card);
           card.remove();
+          headDots.forget(id);
           teardownVideoFeed(id);
         }
       });
@@ -3288,7 +3357,7 @@
         if (keepFrame) {
           EGDMSPlayer.removeQualityMenu(container);
           Array.from(container.children).forEach(child => {
-            if (!child.classList.contains("egdms-freeze") && !child.classList.contains("egdms-overlay")) child.remove();
+            if (!child.classList.contains("egdms-freeze") && !child.classList.contains("egdms-overlay") && !child.classList.contains("egdms-dots")) child.remove();
           });
         } else {
           container.innerHTML = showSwitchingState
@@ -3458,7 +3527,12 @@ function setupHlsPlayback(cam, video, playbackPath, getMediaRecoveries) {
         hls._mediaRecoveries = 0;
         hlsPlayers[cam.id] = hls;
 
-        hls.loadSource(useAbr ? `${window.location.origin}/abr/${encodeURIComponent(cam.id)}/master.m3u8` : directUrl);
+        hls._egdmsAbr = useAbr;
+        // The full-screen view is where adaptive quality matters: it may take
+        // a transcoder slot from a grid tile when all slots are busy.
+        hls.loadSource(useAbr
+          ? `${window.location.origin}/abr/${encodeURIComponent(cam.id)}/master.m3u8${activeFullViewCamId === cam.id ? "?priority=1" : ""}`
+          : directUrl);
         hls.attachMedia(video);
 
         hls.on(Hls.Events.MEDIA_ATTACHED, () => {
@@ -3776,7 +3850,15 @@ function setupHlsPlayback(cam, video, playbackPath, getMediaRecoveries) {
                 updateCameraConnectionState(newCam);
               }
             } else if (isCameraPlayable(newCam)) {
-              updateLiveStats(newCam);
+              // A new result bumps analytics_seq; unchanged tiles are skipped.
+              if (
+                oldCam.analytics_seq !== newCam.analytics_seq ||
+                oldCam.analytics_status !== newCam.analytics_status ||
+                oldCam.comp_zone !== newCam.comp_zone ||
+                oldCam.people_count !== newCam.people_count
+              ) {
+                updateLiveStats(newCam);
+              }
 
               // Ponytail: Reconcile desired playback path against active player path:
               // After a failed probe, metadata became unchanged, so subsequent polls
@@ -3792,6 +3874,7 @@ function setupHlsPlayback(cam, video, playbackPath, getMediaRecoveries) {
         });
 
         cameras = newCameras;
+        newCameras.forEach(newCam => headDots.sync(newCam));
         updateFlyingCount();
         if (needsRerender) {
           renderGrid();
@@ -3812,15 +3895,21 @@ function setupHlsPlayback(cam, video, playbackPath, getMediaRecoveries) {
       if (countEl) {
         countEl.textContent = analyticsReady
           ? `${cam.people_count || 0} pax`
-          : (cam.analytics_status === "stale"
-            ? "Waiting for new count…"
-            : (cam.analytics_status === "error" ? "Counting unavailable" : "Analysis starting…"));
+          : analyticsStatusText(cam);
         countEl.title = cam.connection_message || "";
         if (globalMode === "counting") {
           countEl.classList.remove("hidden");
         } else {
           countEl.classList.add("hidden");
         }
+      }
+
+      // Reason counting is not live (queued / restarting / unavailable)
+      const noteEl = document.getElementById(`note-${cam.id}`);
+      if (noteEl) {
+        const noteText = globalMode === "counting" ? analyticsNoteText(cam) : "";
+        if (noteEl.textContent !== noteText) noteEl.textContent = noteText;
+        noteEl.classList.toggle("hidden", !noteText);
       }
 
       // 2. Header zone badge

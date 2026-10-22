@@ -238,3 +238,24 @@ def test_tile_gate_fails_open_without_visibility_reports():
     player = _read("static/monitor/js/egdms-player.js")
     assert "this.failOpen = true;" in player
     assert "return !this.observer || this.failOpen || this.visible.has(id);" in player
+
+
+def test_player_seeds_adaptive_quality_from_recent_measurements_and_reacts_quickly():
+    player = _read("static/monitor/js/egdms-player.js")
+    for needle in (
+        "abrEwmaDefaultEstimate: startingBandwidth()",   # not a fixed 1 Mbit/s guess
+        "navigator.connection",                          # the browser's own estimate
+        "Date.now() - P.bandwidthMeasuredAt < 120000",   # a collapsed network is not trusted for long
+        "P.bandwidthEstimate = measured;",               # remembered for the next player
+        "abrEwmaFastLive: 2",
+        "abrEwmaSlowLive: 6",
+    ):
+        assert needle in player, needle
+
+
+def test_full_screen_view_requests_a_priority_adaptive_stream():
+    for name in ["admin_dashboard.html", "lite_dashboard.html"]:
+        content = _read(name)
+        assert '?priority=1' in content and "activeFullViewCamId === cam.id" in content, name
+        # a tile that fell back to the direct stream is upgraded when opened full-screen
+        assert "current._egdmsAbr === false" in content, name

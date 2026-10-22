@@ -156,3 +156,39 @@ def test_abr_requires_login_and_falls_back_when_source_offline():
     assert response.status_code == 503
     assert response.json()["fallback"] == "/hls/live/drone1/index.m3u8"
     assert viewer.get("/abr/drone-1/480p/..%2f..%2fetc%2fpasswd").status_code == 404
+
+
+def test_master_playlist_passes_the_full_screen_priority_flag_and_runs_off_the_event_loop(monkeypatch, tmp_path):
+    playlist = tmp_path / "master.m3u8"
+    playlist.write_text("#EXTM3U\n")
+    calls = []
+
+    class FakeAbr:
+        enabled = True
+
+        def ensure(self, camera_id, source_path, height, bitrate, priority=False):
+            import asyncio
+            try:
+                asyncio.get_running_loop()      # only succeeds on the event-loop thread
+                on_loop = True
+            except RuntimeError:
+                on_loop = False
+            calls.append((camera_id, priority, on_loop))
+
+        def is_ready(self, camera_id):
+            return True
+
+        def touch(self, camera_id):
+            pass
+
+        def resolve_file(self, camera_id, parts):
+            return str(playlist)
+
+    monkeypatch.setattr(lite_server, "abr_manager", FakeAbr())
+    _state("live/drone1", "online")
+    viewer = _client(VIEWER)
+
+    assert viewer.get("/abr/drone-1/master.m3u8").status_code == 200
+    assert viewer.get("/abr/drone-1/master.m3u8?priority=1").status_code == 200
+    assert [c[1] for c in calls] == [False, True]
+    assert not any(c[2] for c in calls), "ensure() must not block the event-loop thread"

@@ -92,7 +92,7 @@ def test_viewer_can_access_viewing_dashboard_and_reports():
     # Can access viewing dashboard
     res_dash = viewer_client.get("/")
     assert res_dash.status_code == 200
-    assert "East Godavari Drone Monitoring System" in res_dash.text
+    assert "Drone Monitoring Portal" in res_dash.text
     # Viewer dashboard has mode toggle but cannot access admin console
     assert "Admin Console" not in res_dash.text
     assert "changeGlobalMode" in res_dash.text

@@ -74,12 +74,12 @@ def test_navbar_scrolls_up_naturally():
 
 
 def test_dashboard_header_unification():
-    """Verify both dashboards have the unified AP Police Department and East Godavari Drone Monitoring System header with dignitary portraits."""
+    """Verify both dashboards have the unified AP Police Department and Drone Monitoring Portal header with dignitary portraits."""
     for dash in ["lite_dashboard.html", "admin_dashboard.html"]:
         html_path = Path(dash)
         content = html_path.read_text(encoding="utf-8")
         assert "Andhra Pradesh Police Department" in content
-        assert "East Godavari Drone Monitoring System" in content
+        assert "Drone Monitoring Portal" in content
         assert "ap_police_logo.png" in content
         assert "cm.png" in content
         assert "dgp.png" in content

@@ -1,6 +1,9 @@
 import os
 import sys
 import asyncio
+import base64
+import binascii
+import struct
 import json
 import socket
 import time
@@ -12,6 +15,7 @@ import hashlib
 import hmac
 import math
 import re
+from collections import deque
 from datetime import datetime, timezone
 from functools import lru_cache
 from contextlib import asynccontextmanager
@@ -39,6 +43,13 @@ from src.stream_telemetry import StreamTelemetry
 from src.recording_continuity import RecordingContinuity
 from src.recording_flights import FlightPlayback, flight_summary, group_flights
 from src.abr_transcoder import AbrManager, AbrUnavailable
+from src.analysis_scheduler import (
+    AnalysisScheduler,
+    BACKOFF,
+    BLOCKED,
+    EXIT_MODEL_UNAVAILABLE,
+    QUEUED,
+)
 
 def _sanitize_for_json(obj):
     if isinstance(obj, dict):
@@ -118,7 +129,7 @@ async def lifespan(app: FastAPI):
                 _close_process_log(p)
         running_processes.clear()
 
-app = FastAPI(title="East Godavari Drone Monitoring System (EGDMS)", lifespan=lifespan)
+app = FastAPI(title="Drone Monitoring Portal", lifespan=lifespan)
 
 
 class TextGZipMiddleware:
@@ -215,6 +226,16 @@ CONTINUITY_SCAN_SECONDS = max(10.0, _env_float("CONTINUITY_SCAN_SECONDS", 30))
 ABR_STARTUP_TIMEOUT_SECONDS = max(2.0, _env_float("ABR_STARTUP_TIMEOUT_SECONDS", 12))
 RECORDINGS_DIR = os.getenv("RECORDINGS_DIR", "recordings")
 
+# Counting workers each hold a model copy and busy CPU threads, so only this
+# many run at once; other online cameras wait in a queue (see
+# src/analysis_scheduler.py). README_DEPLOYMENT.md documents 4 for CPU servers.
+MAX_CONCURRENT_AI_FEEDS = max(1, int(_env_float("MAX_CONCURRENT_AI_FEEDS", 4)))
+# A worker that shows no first result this long after starting is restarted.
+ANALYTICS_START_TIMEOUT_SECONDS = max(30.0, _env_float("ANALYTICS_START_TIMEOUT_SECONDS", 150))
+# A worker whose results stopped this long ago (frozen) is restarted.
+ANALYTICS_RESTART_AFTER_STALE_SECONDS = max(30.0, _env_float("ANALYTICS_RESTART_AFTER_STALE_SECONDS", 120))
+ANALYSIS_TICK_SECONDS = 2.0
+
 stream_events = StreamEventLog(
     os.getenv("STREAM_EVENT_LOG", os.path.join("logs", "stream_events.jsonl")),
     max_bytes=int(_env_float("STREAM_EVENT_LOG_MAX_MB", 20) * 1024 * 1024),
@@ -259,20 +280,25 @@ _health_watch_stop = threading.Event()
 def _health_watch_loop():
     """Background checks that must run whether or not anyone is viewing."""
     next_scan = 0.0
+    next_health = 0.0
     while not _health_watch_stop.is_set():
         try:
-            abr_manager.reap()
-            expire_stream_grace()
             now = time.time()
+            # Cheap and latency-sensitive: restart/queue analyzers promptly.
+            run_analysis_scheduler()
+            if now >= next_health:
+                abr_manager.reap()
+                expire_stream_grace()
+                for camera in list(cameras_db):
+                    recording_continuity.check_recorder(camera["id"], bool(camera.get("source_online")))
+                next_health = now + HEALTH_WATCH_SECONDS
             if now >= next_scan:
                 recording_continuity.scan()
                 recording_continuity.check_disk()
                 next_scan = now + CONTINUITY_SCAN_SECONDS
-            for camera in list(cameras_db):
-                recording_continuity.check_recorder(camera["id"], bool(camera.get("source_online")))
         except Exception as exc:  # keep the watchdog alive
             print(f"[STREAM HEALTH] check failed: {type(exc).__name__}: {exc}")
-        _health_watch_stop.wait(HEALTH_WATCH_SECONDS)
+        _health_watch_stop.wait(ANALYSIS_TICK_SECONDS)
 
 ANALYTICS_STALE_AFTER_SECONDS = float(
     os.getenv("ANALYTICS_STALE_AFTER_SECONDS", "20")
@@ -545,11 +571,61 @@ class StatsUpdate(BaseModel):
     zone_scores: Optional[list] = None
     analytics_active: Optional[bool] = True
     analytics_seq: Optional[int] = None
+    # Head positions: base64 of little-endian uint16 (x, y) pairs, 0..65535
+    # across the frame width/height (see src.counting_accuracy.pack_head_points).
+    heads_b64: Optional[str] = None
+    heads_n: Optional[int] = None
+    heads_ts: Optional[float] = None   # wall-clock capture time of the counted frame
+
+
+# Recent head positions per camera, kept out of cameras_db so /cameras (polled
+# by every viewer every second) stays small. Viewers play the stream several
+# seconds behind live, so a short history is kept and each viewer draws the dots
+# recorded for the frame it is actually showing.
+# camera id -> deque[(seq, capture_epoch_seconds, payload bytes)], oldest first.
+MAX_HEAD_PAYLOAD_BYTES = 4 * 8000
+HEAD_HISTORY_SECONDS = max(10.0, _env_float("HEAD_HISTORY_SECONDS", 30))
+HEAD_HISTORY_MAX_RECORDS = 24
+# The adaptive-quality transcoder stamps HLS program date-times when it starts
+# a segment, up to one keyframe interval after the frame was captured. The
+# browser subtracts this from the player's clock when matching dots to frames.
+HEAD_SYNC_OFFSET_MS = int(_env_float("HEAD_SYNC_OFFSET_MS", 700))
+_head_store = {}
+_HEAD_RECORD = struct.Struct("<IId")   # seq, count, capture epoch seconds
+
+
+def store_head_positions(camera, data):
+    """Keep the worker's head dots; drop anything malformed. O(payload)."""
+    camera_id = camera["id"]
+    payload = data.heads_b64
+    if not payload:
+        _head_store.pop(camera_id, None)
+        camera["heads_seq"] = -1
+        camera["heads_count"] = 0
+        return
+    try:
+        raw = base64.b64decode(payload, validate=True)
+    except (binascii.Error, ValueError):
+        return
+    if len(raw) % 4 or len(raw) > MAX_HEAD_PAYLOAD_BYTES:
+        return
+    now = time.time()
+    seq = int(data.analytics_seq if data.analytics_seq is not None else camera.get("heads_seq", -1) + 1)
+    captured = float(data.heads_ts) if data.heads_ts and abs(now - data.heads_ts) < 3600 else now
+    history = _head_store.setdefault(camera_id, deque(maxlen=HEAD_HISTORY_MAX_RECORDS))
+    history.append((seq, captured, raw))
+    while len(history) > 1 and now - history[0][1] > HEAD_HISTORY_SECONDS:
+        history.popleft()
+    camera["heads_seq"] = seq
+    camera["heads_count"] = len(raw) // 4
 
 
 def reset_camera_analytics(camera):
     """Clear every field that belongs exclusively to Counting Mode."""
+    _head_store.pop(camera["id"], None)
     camera.update({
+        "heads_seq": -1,
+        "heads_count": 0,
         "people_count": 0,
         "comp_zone": "SAFE",
         "pressure": 0.0,
@@ -626,6 +702,32 @@ def get_worker_dependency_error():
     )
 
 
+class AnalysisUnavailable(RuntimeError):
+    """Counting cannot run on this server until someone fixes the install."""
+
+
+def get_model_files_error(category="DRONE"):
+    """Return a clear message when the counting weights are not installed.
+
+    The weights are not part of the repository (``*.pth`` is git-ignored) and
+    are mounted from ``dm_count/pretrained_models``. Without them every
+    analyzer would load, fail, and leave the tile on "Analysis starting".
+    """
+    if str(category).upper() == "CCTV":
+        return None  # YOLO weights are fetched on first use
+    model = (getattr(config, "DRONE_MODEL", "dm_count") or "dm_count").lower()
+    if model == "csrnet" and os.path.exists(getattr(config, "CSRNET_WEIGHTS_PATH", "")):
+        return None
+    path = config.WEIGHTS_PATH
+    if os.path.exists(path):
+        return None
+    shown = os.path.relpath(path, config.BASE_DIR)
+    return (
+        f"Model file '{shown}' is missing on the server. "
+        "Copy the DM-Count weights there and counting will start by itself."
+    )
+
+
 def update_camera_playback_path(camera):
     """Prefer raw video while analysis is disabled, unavailable, or starting."""
     if PLAYBACK_PREFER_RAW:
@@ -656,7 +758,7 @@ def _worker_exit_message(process):
     if log_path:
         try:
             with open(log_path, "r", encoding="utf-8", errors="replace") as log_file:
-                for line in reversed(log_file.readlines()[-40:]):
+                for line in reversed(log_file.readlines()[-60:]):
                     marker = "ModuleNotFoundError: No module named "
                     if marker in line:
                         package = line.split(marker, 1)[1].strip().strip("'\"")
@@ -664,12 +766,164 @@ def _worker_exit_message(process):
                             f"Video processor stopped because Python package '{package}' "
                             "is missing. Restart with run_lite.bat after installing requirements.txt."
                         )
+                    if line.startswith("[FATAL] "):
+                        detail = line[len("[FATAL] "):].strip()
+                        if detail.startswith("model_unavailable:"):
+                            return (
+                                "Counting model could not be loaded"
+                                f" ({detail.split(':', 1)[1].strip()[:160]}). "
+                                "Check dm_count/pretrained_models/model_nwpu.pth on the server."
+                            )
+                        return detail[:200]
         except OSError:
             pass
-    return (
-        f"Video processor stopped (exit code {process.returncode}). "
-        "See the camera log in outputs/logs."
-    )
+    code = process.returncode
+    if code in (-9, 137):
+        return "Video processor was killed (exit -9), usually because the server ran out of memory."
+    if code in (-11, 139):
+        return f"Video processor crashed (exit {code}, segmentation fault) while reading the stream."
+    return f"Video processor stopped (exit code {code}). See the camera log in outputs/logs."
+
+
+analysis_scheduler = AnalysisScheduler(MAX_CONCURRENT_AI_FEEDS)
+_analysis_lock = threading.RLock()
+
+
+def _active_analyzer_ids():
+    """Cameras whose analyzer process is alive right now."""
+    return [
+        camera_id for camera_id in list(running_processes)
+        if camera_id in _cameras_by_id and is_stream_running(camera_id)
+    ]
+
+
+def _describe_wait(camera, entry):
+    """Set the tile status and message for a camera that has no analyzer yet."""
+    if entry.state == QUEUED:
+        active = _active_analyzer_ids()
+        position = analysis_scheduler.queue_position(camera["id"], active) or 1
+        camera["analytics_status"] = "queued"
+        camera["error_type"] = None
+        camera["connection_message"] = (
+            f"Live video connected. Counting is waiting for a free analysis slot "
+            f"({len(active)} of {analysis_scheduler.max_active} in use, you are #{position})."
+        )
+    elif entry.state == BACKOFF:
+        wait = max(0, int(round(entry.next_attempt_at - time.time())))
+        camera["analytics_status"] = "restarting"
+        camera["error_type"] = None
+        camera["connection_message"] = (
+            f"Live video connected. Counting stopped ({entry.last_reason}); restarting in {wait}s."
+        )
+    elif entry.state == BLOCKED:
+        camera["analytics_status"] = "error"
+        camera["error_type"] = "analysis unavailable"
+        camera["connection_message"] = (
+            f"Live video connected. Counting unavailable: {entry.blocked_reason}"
+        )
+
+
+def reap_exited_workers():
+    """Notice analyzers that ended and hand them to the scheduler for restart."""
+    for camera_id, process in list(running_processes.items()):
+        camera = _cameras_by_id.get(camera_id)
+        if camera is None or process.poll() is None:
+            continue
+        running_processes.pop(camera_id, None)
+        _close_process_log(process)
+        camera["output_online"] = False
+        reason = _worker_exit_message(process)
+        stream_events.record(camera_id, stream_ev.ANALYZER, "worker_exited", reason,
+                             exit_code=process.returncode)
+        if camera.get("source_online") and camera.get("enabled", True):
+            camera["status"] = "online"
+        else:
+            camera["status"] = "offline"
+        reset_camera_analytics(camera)
+        if analysis_scheduler.entry(camera_id) is not None and global_counting_mode:
+            entry = analysis_scheduler.exited(camera_id, process.returncode, reason)
+            if entry.state == BLOCKED:
+                stream_events.record(camera_id, stream_ev.ANALYZER, "worker_blocked", reason)
+            _describe_wait(camera, entry)
+        else:
+            camera["analytics_status"] = "error"
+            camera["error_type"] = "video processor stopped"
+            camera["connection_message"] = f"Live video connected. {reason}"
+        update_camera_playback_path(camera)
+
+
+def _watch_running_workers(now):
+    """Restart workers that are alive but never produce (or stopped producing) counts."""
+    for camera_id, process in list(running_processes.items()):
+        camera = _cameras_by_id.get(camera_id)
+        if camera is None or process.poll() is not None:
+            continue
+        status = camera.get("analytics_status")
+        started_at = getattr(process, "_started_at", now)
+        hung = None
+        if status == "starting" and now - started_at > ANALYTICS_START_TIMEOUT_SECONDS:
+            hung = f"no count within {int(ANALYTICS_START_TIMEOUT_SECONDS)}s of starting"
+        elif status == "stale":
+            updated = camera.get("stats_updated_at") or started_at
+            if now - updated > ANALYTICS_RESTART_AFTER_STALE_SECONDS:
+                hung = f"no new count for {int(now - updated)}s"
+        if hung is None:
+            continue
+        stop_stream(camera_id, keep_demand=True)
+        entry = analysis_scheduler.exited(camera_id, None, hung)
+        stream_events.record(camera_id, stream_ev.ANALYZER, "worker_hung", hung)
+        reset_camera_analytics(camera)
+        _describe_wait(camera, entry)
+
+
+def run_analysis_scheduler(raise_for=None):
+    """Reap, restart and start analyzers. Safe and cheap to call often."""
+    started_pid = None
+    with _analysis_lock:
+        reap_exited_workers()
+        _watch_running_workers(time.time())
+        for entry in analysis_scheduler.due(_active_analyzer_ids()):
+            camera = _cameras_by_id.get(entry.camera_id)
+            if (
+                camera is None or not entry.source_url
+                or not camera.get("enabled", True) or not global_counting_mode
+            ):
+                analysis_scheduler.drop(entry.camera_id)
+                continue
+            try:
+                pid = start_stream(camera, entry.source_url)
+            except Exception as exc:
+                permanent = isinstance(exc, AnalysisUnavailable)
+                failed = analysis_scheduler.exited(
+                    entry.camera_id, EXIT_MODEL_UNAVAILABLE if permanent else None, str(exc)
+                )
+                print(f"[LITE SERVER] Analysis could not start for {entry.camera_id}: {exc}")
+                _describe_wait(camera, failed)
+                update_camera_playback_path(camera)
+                if raise_for == entry.camera_id:
+                    raise
+                continue
+            analysis_scheduler.started(entry.camera_id)
+            camera["analytics_status"] = "starting"
+            camera["error_type"] = None
+            camera["connection_message"] = "Live video connected. Counting is starting..."
+            if entry.camera_id == raise_for:
+                started_pid = pid
+        # Cameras still waiting (no slot, backoff, blocked) show why.
+        active = set(_active_analyzer_ids())
+        for camera_id in list(analysis_scheduler.snapshot()):
+            entry = analysis_scheduler.entry(camera_id)
+            camera = _cameras_by_id.get(camera_id)
+            if entry is not None and camera is not None and camera_id not in active:
+                _describe_wait(camera, entry)
+    return started_pid
+
+
+def request_analysis(camera, source_url, raise_errors=False):
+    """Analyze this camera now if a slot is free, otherwise queue it."""
+    with _analysis_lock:
+        analysis_scheduler.want(camera["id"], source_url)
+        return run_analysis_scheduler(raise_for=camera["id"] if raise_errors else None)
 
 
 def start_live_analysis(camera):
@@ -704,9 +958,11 @@ def start_live_analysis(camera):
     camera["connection_message"] = "Live video connected. Counting is starting..."
     reset_camera_analytics(camera)
     source_url = f"rtsp://{MEDIAMTX_HOST}:{MEDIAMTX_RTSP_PORT}/{source_path.strip('/')}"
-    print(f"[LITE SERVER] Starting analysis for {camera['id']} from {source_path}")
+    print(f"[LITE SERVER] Analysis requested for {camera['id']} from {source_path}")
     try:
-        return start_stream(camera, source_url)
+        # Failures (missing weights, crashes) are handled and explained by the
+        # scheduler; the tile shows the reason and retries by itself.
+        return request_analysis(camera, source_url)
     except Exception as exc:
         camera["analytics_status"] = "error"
         camera["error_type"] = "analysis failed to start"
@@ -743,25 +999,9 @@ def refresh_camera_health():
     """Detect worker exits and never present an old inference result as live."""
     now = time.time()
     expire_stream_grace()
+    with _analysis_lock:
+        reap_exited_workers()
     for camera in cameras_db:
-        process = running_processes.get(camera["id"])
-        if process and process.poll() is not None:
-            running_processes.pop(camera["id"], None)
-            _close_process_log(process)
-            camera["output_online"] = False
-            camera["analytics_status"] = "error"
-            camera["error_type"] = "video processor stopped"
-            crash_message = _worker_exit_message(process)
-            stream_events.record(camera["id"], stream_ev.ANALYZER, "worker_exited", crash_message,
-                                 exit_code=process.returncode)
-            if camera.get("source_online") and camera.get("enabled", True):
-                camera["status"] = "online"
-                camera["connection_message"] = f"Live video connected. {crash_message}"
-            else:
-                camera["status"] = "offline"
-                camera["connection_message"] = crash_message
-            update_camera_playback_path(camera)
-
         updated_at = camera.get("stats_updated_at")
         camera["analytics_age_seconds"] = (
             round(max(0.0, now - updated_at), 1) if updated_at else None
@@ -851,6 +1091,14 @@ paths:
         f.write(config_content.strip())
 
 def cleanup_and_start_mediamtx():
+    # A MediaMTX container/host elsewhere (MEDIAMTX_HOST=mediamtx in
+    # docker-compose) already serves every stream. Starting a second copy here
+    # downloaded a binary at import time, rewrote mediamtx.yml and ran a
+    # process nobody connects to.
+    if MEDIAMTX_HOST not in ("127.0.0.1", "localhost", "::1", ""):
+        print(f"[LITE SERVER] Using external MediaMTX at {MEDIAMTX_HOST}; not starting a local one.")
+        return
+
     # ponytail: generate dynamic config file to align backend ports
     generate_mediamtx_config(config.BACKEND_PORT)
 
@@ -944,13 +1192,23 @@ def get_analyzed_publish_target(camera):
     return f"rtmp://{MEDIAMTX_HOST}:{MEDIAMTX_RTMP_PORT}/{camera['stream_path']}"
 
 
+# Cores are shared between the analyzers that can run together; AI_TORCH_THREADS
+# overrides (e.g. 2 when MAX_CONCURRENT_AI_FEEDS is lowered on a small box).
+AI_TORCH_THREADS = max(1, int(_env_float(
+    "AI_TORCH_THREADS", max(1, (os.cpu_count() or 4) // MAX_CONCURRENT_AI_FEEDS)
+)))
+
+
 def start_stream(camera, source_url):
     drone_id = camera["id"]
-    dependency_error = get_worker_dependency_error()
+    dependency_error = (
+        get_worker_dependency_error()
+        or get_model_files_error(camera.get("category", "DRONE"))
+    )
     if dependency_error:
-        raise RuntimeError(dependency_error)
+        raise AnalysisUnavailable(dependency_error)
 
-    stop_stream(drone_id)
+    stop_stream(drone_id, keep_demand=True)
     reset_camera_analytics(camera)
     reset_analytics_freshness(camera)
     camera["forecast"] = crowd_forecaster.reset(
@@ -993,6 +1251,10 @@ def start_stream(camera, source_url):
     # The browser already renders the detailed count/risk HUD. Keeping the
     # encoded video clean removes dozens of text draws from every video frame.
     env["RENDER_VIDEO_OVERLAYS"] = "0"
+    # Viewers watch the raw feed (PLAYBACK_PREFER_RAW), so re-encoding the
+    # analyzed copy would only burn an ffmpeg process and CPU per camera.
+    env["STREAM_OUTPUT_ENABLED"] = "0" if PLAYBACK_PREFER_RAW else "1"
+    env["TORCH_NUM_THREADS"] = str(AI_TORCH_THREADS)
 
     # Log subprocess output to files for debugging (instead of silently discarding)
     log_dir = os.path.join(os.getcwd(), "outputs", "logs")
@@ -1015,12 +1277,17 @@ def start_stream(camera, source_url):
     # Attach the log file handle so we can close it on stop
     p._log_file = log_file
     p._log_path = log_path
+    p._started_at = time.time()
     running_processes[drone_id] = p
     print(f"[LITE SERVER] Started {drone_id} (pid={p.pid}), log: {log_path}")
     return p.pid
 
 
-def stop_stream(drone_id):
+def stop_stream(drone_id, keep_demand=False):
+    """Stop a camera's analyzer. ``keep_demand`` keeps it wanted (restarts)."""
+    if not keep_demand:
+        with _analysis_lock:
+            analysis_scheduler.drop(drone_id)
     p = running_processes.pop(drone_id, None)
     if not p:
         return False
@@ -1656,16 +1923,22 @@ def _abr_unavailable(camera, reason, detail):
 
 
 @app.get("/abr/{camera_id}/master.m3u8")
-async def abr_master_playlist(camera_id: str):
+async def abr_master_playlist(camera_id: str, priority: int = 0):
     camera = find_camera_by_id(camera_id)
     if camera is None:
         raise HTTPException(status_code=404, detail="Unknown camera")
     if not camera.get("source_online"):
         return _abr_unavailable(camera, "source_offline", "The camera is not publishing")
     try:
-        abr_manager.ensure(camera["id"], camera["source_stream_path"],
-                           stream_telemetry.source_height(camera["id"]),
-                           stream_telemetry.snapshot(camera["id"]).get("bitrate_kbps"))
+        # Off the event loop: starting a transcoder (or stopping the tile
+        # session it replaces) takes a lock, spawns/terminates ffmpeg and
+        # deletes files.
+        await asyncio.to_thread(
+            abr_manager.ensure, camera["id"], camera["source_stream_path"],
+            stream_telemetry.source_height(camera["id"]),
+            stream_telemetry.snapshot(camera["id"]).get("bitrate_kbps"),
+            priority=bool(priority),
+        )
     except AbrUnavailable as exc:
         return _abr_unavailable(camera, exc.reason, str(exc))
     deadline = time.time() + ABR_STARTUP_TIMEOUT_SECONDS
@@ -1945,9 +2218,17 @@ def get_cameras():
         )
         camera["stream_grace_seconds"] = STREAM_GRACE_SECONDS
         camera["player_latency_target_seconds"] = PLAYER_LATENCY_TARGET_SECONDS
+        camera["heads_sync_offset_ms"] = HEAD_SYNC_OFFSET_MS
         camera["abr_available"] = abr_available
         update_camera_playback_path(camera)
-    return FastJSONResponse(content=cameras_db)
+    # Every viewer polls this each second. The forecast (about 3.5 KB per
+    # camera) is only shown for cameras with a live count, so offline and
+    # waiting cameras send none: the payload scales with cameras counted, not
+    # with cameras configured.
+    return FastJSONResponse(content=[
+        camera if camera.get("analytics_status") == "active" else {**camera, "forecast": None}
+        for camera in cameras_db
+    ])
 
 @app.post("/cameras/state")
 def update_camera_state(req: StateRequest):
@@ -2105,7 +2386,7 @@ def start_camera(drone_id: str, req: StartRequest):
     update_camera_playback_path(matched_camera)
 
     try:
-        pid = start_stream(matched_camera, source_url)
+        pid = request_analysis(matched_camera, source_url, raise_errors=True)
     except Exception as exc:
         matched_camera["status"] = "offline"
         matched_camera["analytics_status"] = "error"
@@ -2140,6 +2421,41 @@ def stop_camera(drone_id: str):
     reset_analytics_freshness(matched_camera)
     update_camera_playback_path(matched_camera)
     return {"status": "stopped", "drone_id": drone_id}
+
+@app.get("/cameras/{drone_id}/heads")
+def get_camera_heads(drone_id: str, since: Optional[int] = None):
+    """Recent head dots for one camera as compact binary.
+
+    Body: one record per result newer than ``since`` (all of them without it),
+    oldest first. Record: ``uint32 seq, uint32 count, float64 capture epoch
+    seconds`` (16 bytes, little endian) then ``count`` ``uint16`` ``(x, y)``
+    pairs spanning the video frame (0..65535). 204 when the camera has no
+    current dots; 304 when ``since`` is already the newest result.
+    """
+    camera = find_camera_by_id(drone_id)
+    if camera is None:
+        raise HTTPException(status_code=404, detail="Camera not found")
+    history = _head_store.get(camera["id"])
+    if (
+        not history
+        or not global_counting_mode
+        or camera.get("analytics_status") != "active"
+    ):
+        return Response(status_code=204, headers={"Cache-Control": "no-store"})
+    records = list(history)
+    newest = records[-1][0]
+    headers = {"Cache-Control": "no-store", "X-Heads-Seq": str(newest)}
+    if since is not None:
+        if since == newest:
+            return Response(status_code=304, headers=headers)
+        if since < newest:  # a smaller seq means the analyzer restarted: send everything
+            records = [r for r in records if r[0] > since] or records
+    body = b"".join(
+        _HEAD_RECORD.pack(seq, len(payload) // 4, captured) + payload
+        for seq, captured, payload in records
+    )
+    return Response(content=body, media_type="application/octet-stream", headers=headers)
+
 
 @app.post("/cameras/update_stats")
 def update_stats(data: StatsUpdate):
@@ -2180,6 +2496,8 @@ def update_stats(data: StatsUpdate):
     matched_camera["analytics_status"] = "active"
     matched_camera["connection_message"] = "Live video and counting connected."
     matched_camera["stats_updated_at"] = time.time()
+    analysis_scheduler.healthy(matched_camera["id"])
+    store_head_positions(matched_camera, data)
     matched_camera["people_count"] = max(0, int(round(data.density_score)))
     matched_camera["forecast"] = crowd_forecaster.record(
         drone_id, matched_camera["people_count"]
@@ -2307,7 +2625,7 @@ def set_mode(req: ModeRequest):
     else:
         raise HTTPException(status_code=400, detail="Invalid mode. Must be 'counting' or 'viewing'.")
     print(f"[LITE SERVER] Global mode set to: {'counting' if global_counting_mode else 'viewing'}")
-    dependency_error = get_worker_dependency_error()
+    dependency_error = get_worker_dependency_error() or get_model_files_error()
     return {
         "status": "success",
         "counting_mode": global_counting_mode,

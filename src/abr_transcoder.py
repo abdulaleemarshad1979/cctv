@@ -84,6 +84,10 @@ def build_ffmpeg_command(ffmpeg: str, source_url: str, out_dir: str, ladder: Lis
                 f"-preset:{spec}", "veryfast",
                 f"-tune:{spec}", "zerolatency",
                 f"-profile:{spec}", "main",
+                # Bounded threads: with several sessions (and the analyzers)
+                # on one box, x264's default (1.5 x cores per encode) only
+                # makes them fight for the same cores.
+                f"-x264-params:{spec}", "threads=2",
                 f"-b:{spec}", f"{rate}k",
                 f"-maxrate:{spec}", f"{int(rate * 1.1)}k",
                 f"-bufsize:{spec}", f"{rate * 2}k",
@@ -107,6 +111,14 @@ def build_ffmpeg_command(ffmpeg: str, source_url: str, out_dir: str, ladder: Lis
         os.path.join(out_dir, "%v", "index.m3u8"),
     ]
     return cmd
+
+
+def _lower_priority() -> None:
+    """Run transcoders at lower priority than the API and the analyzers."""
+    try:
+        os.nice(5)
+    except (AttributeError, OSError):
+        pass
 
 
 class AbrManager:
@@ -157,7 +169,8 @@ class AbrManager:
         cmd = build_ffmpeg_command(self.ffmpeg, f"{self.rtsp_base}/{source_path.strip('/')}", directory, ladder)
         log = open(os.path.join(directory, "ffmpeg.log"), "wb")
         try:
-            process = self._popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=log)
+            extra = {"preexec_fn": _lower_priority} if os.name == "posix" else {}
+            process = self._popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=log, **extra)
         finally:
             log.close()
         previous = self._sessions.get(camera_id, {})
@@ -172,6 +185,7 @@ class AbrManager:
             "last_request_at": now,
             "restarts": previous.get("restarts", []),
             "next_restart_at": None,
+            "priority": bool(previous.get("priority", False)),
         }
         self._sessions[camera_id] = session
         if self._events is not None:
@@ -181,7 +195,14 @@ class AbrManager:
         return session
 
     def ensure(self, camera_id: str, source_path: str, source_height: Optional[int],
-               source_bitrate_k: Optional[float] = None) -> dict:
+               source_bitrate_k: Optional[float] = None, priority: bool = False) -> dict:
+        """Start or reuse a camera's ladder.
+
+        ``priority`` marks a viewer who really needs adaptive quality (the
+        full-screen view): when every slot is taken it replaces the least
+        recently used grid-tile session instead of being refused, so slots end
+        up where the quality matters. Priority sessions are never evicted.
+        """
         if not self.enabled:
             raise AbrUnavailable("disabled", "Adaptive quality is disabled on this server")
         if source_height is not None and int(source_height) <= 360:
@@ -190,13 +211,22 @@ class AbrManager:
             session = self._sessions.get(camera_id)
             if self._running(session):
                 session["last_request_at"] = self._clock()
+                if priority:
+                    session["priority"] = True
                 return session
             if session and session.get("next_restart_at") and self._clock() < session["next_restart_at"]:
                 raise AbrUnavailable("restarting", "Transcoder is restarting")
-            active = sum(1 for s in self._sessions.values() if self._running(s))
-            if active >= self.max_sessions:
-                raise AbrUnavailable("capacity", f"All {self.max_sessions} adaptive-quality slots are in use")
-            return self._start_locked(camera_id, source_path, source_height, source_bitrate_k)
+            running = [s for s in self._sessions.values() if self._running(s)]
+            if len(running) >= self.max_sessions:
+                victims = [s for s in running if not s.get("priority")]
+                if not priority or not victims:
+                    raise AbrUnavailable("capacity", f"All {self.max_sessions} adaptive-quality slots are in use")
+                victim = min(victims, key=lambda s: s["last_request_at"])
+                self._stop_locked(victim["camera_id"], "slot given to the full-screen view")
+            started = self._start_locked(camera_id, source_path, source_height, source_bitrate_k)
+            if priority:
+                started["priority"] = True
+            return started
 
     def touch(self, camera_id: str) -> None:
         with self._lock:

@@ -153,6 +153,20 @@ INITIAL_INFERENCE_STRIDE = 12
 MIN_INFERENCE_STRIDE     = 6
 MAX_INFERENCE_STRIDE     = 24
 
+# ─── CPU duty cycle ───────────────────────────────────────────────────
+# After every counting pass the analyzer rests so that it keeps its CPU cores
+# busy only COUNT_MAX_DUTY of the time (0.5 = rest as long as the pass took).
+# A pass takes ~0.9 s on 2 CPU threads, so results arrive every ~1.8 s instead
+# of the camera pinning its cores at 100%, and several cameras can share a
+# server. GPUs wait on the device, not the CPU, so they run nearly flat out.
+COUNT_MAX_DUTY = min(1.0, max(0.05, float(os.environ.get(
+    "COUNT_MAX_DUTY", "0.9" if is_cuda_available() else "0.5"
+))))
+COUNT_MAX_REST_SECONDS = float(os.environ.get("COUNT_MAX_REST_SECONDS", "4.0"))
+# With no encoder or window attached, frames are converted to BGR this often
+# (seconds) instead of every frame; counting uses one frame per pass anyway.
+COUNT_CAPTURE_INTERVAL_SECONDS = float(os.environ.get("COUNT_CAPTURE_INTERVAL_SECONDS", "0.25"))
+
 # ─── Optical flow stride ──────────────────────────────────────────────
 # Stride for running optical flow in display loop (1 = every frame)
 OPTICAL_FLOW_STRIDE = int(os.environ.get("OPTICAL_FLOW_STRIDE", "4"))

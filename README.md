@@ -1,5 +1,7 @@
 # Pushkaralu Drone Crowd Monitor & Risk Engine
 
+The web site is the **Drone Monitoring Portal**: live drone tiles with a dot on every counted person, crowd count, risk and forecast per drone, and adaptive video quality. Operations notes for counting (queue, restarts, "Counting unavailable" causes) are in [docs/DEPLOY_COUNTING_AND_DOTS.md](docs/DEPLOY_COUNTING_AND_DOTS.md).
+
 An AI-powered CCTV and drone swarm monitoring system designed to estimate crowd density, track risk factors, predict stampedes, and dispatch geotagged alerts for large public gatherings. Powered by the **DM-Count** deep-learning model, this application processes RTSP video feeds from DJI, Autel, Parrot, or custom drones to provide real-time situational awareness.
 
 ---
@@ -296,6 +298,9 @@ You can customize the source and options without editing `config.py`:
 * **CPU_MAX_INFER_WIDTH / CPU_MAX_INFER_HEIGHT**: CPU inference ceiling, defaulting to `512x288`.
 * **COUNT_FLIP_TTA**: Runs a second mirrored density pass. It defaults off on CPU and on when CUDA is available.
 * **COUNT_TEMPORAL_WINDOW / COUNT_EMA_ALPHA**: Count smoothing. CPU defaults to `1`/`1.0` for current-frame results; CUDA defaults to `3`/`0.65` for extra stability.
+* **MAX_CONCURRENT_AI_FEEDS / AI_TORCH_THREADS**: Server only. How many counting workers run at once (default `4`; further drones queue) and how many CPU threads each gets (default: cores ÷ cap).
+* **COUNT_MAX_DUTY**: Share of time a worker may keep its CPU busy, defaulting to `0.5` on CPU (a result about every 2 s) and `0.9` with CUDA. Raise it for faster updates when cores are free.
+* **STREAM_OUTPUT_ENABLED**: Set to `0` by the server when viewers watch the raw feed, so no analyzed copy is re-encoded.
 * **WEB_STREAM_WIDTH / WEB_STREAM_HEIGHT**: Browser output size, defaulting to `640x360`.
 * **OUTPUT_STREAM_FPS**: Constant encoded output cadence, defaulting to `30` FPS.
 * **RENDER_VIDEO_OVERLAYS**: Draw OpenCV overlays into encoded video. Web workers disable this because the dashboard renders the detailed HUD more efficiently.

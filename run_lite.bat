@@ -1,6 +1,6 @@
 @echo off
 setlocal
-title East Godavari Drone Monitoring System - EGDMS (Unified Launcher)
+title Drone Monitoring Portal (Unified Launcher)
 cd /d "%~dp0"
 
 set "CCTV_PYTHON_CMD="

@@ -419,3 +419,52 @@ def test_source_rung_advertises_measured_or_estimated_bitrate():
     assert build_ladder(720)[0]["bitrate_k"] == 2500
     assert build_ladder(1080, source_bitrate_k=3100.4)[0]["bitrate_k"] == 3100
     assert build_ladder(1080, source_bitrate_k=0)[0]["bitrate_k"] == 4000
+
+
+def test_full_screen_viewer_takes_a_slot_from_a_grid_tile_but_never_from_another_full_screen(tmp_path):
+    clock = Clock()
+    manager, started = _manager(tmp_path, clock, max_sessions=2)
+    manager.ensure("drone-1", "live/drone1", 720)
+    clock.now += 5
+    manager.ensure("drone-2", "live/drone2", 720)
+    clock.now += 5
+
+    try:
+        manager.ensure("drone-3", "live/drone3", 720)
+    except AbrUnavailable as exc:
+        assert exc.reason == "capacity"
+    else:
+        raise AssertionError("a grid tile must not evict another tile")
+
+    manager.ensure("drone-3", "live/drone3", 720, priority=True)
+    assert sorted(manager.snapshot()["sessions"]) == ["drone-2", "drone-3"]   # oldest tile (drone-1) gave way
+    assert started[0].terminated and not started[1].terminated
+
+    clock.now += 5
+    manager.ensure("drone-4", "live/drone4", 720, priority=True)
+    assert sorted(manager.snapshot()["sessions"]) == ["drone-3", "drone-4"]   # drone-2 was the only tile
+    try:
+        manager.ensure("drone-5", "live/drone5", 720, priority=True)
+    except AbrUnavailable as exc:
+        assert exc.reason == "capacity"
+    else:
+        raise AssertionError("full-screen sessions must not evict each other")
+
+
+def test_transcoders_run_with_bounded_x264_threads_at_lower_priority(tmp_path):
+    import os
+
+    cmd = build_ffmpeg_command("ffmpeg", "rtsp://mediamtx:8554/live/drone1", "/tmp/abr/drone-1", build_ladder(1080))
+    assert " ".join(cmd).count("threads=2") == 3          # one per encoded rung, none for the copy
+
+    seen = {}
+
+    def popen(cmd, **kwargs):
+        seen.update(kwargs)
+        return FakeProcess()
+
+    manager = AbrManager("rtsp://mediamtx:8554", str(tmp_path / "abr"), clock=Clock(), popen=popen)
+    manager.ffmpeg = "sh"
+    manager.ensure("drone-1", "live/drone1", 720)
+    if os.name == "posix":
+        assert callable(seen.get("preexec_fn"))
