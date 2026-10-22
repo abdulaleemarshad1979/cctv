@@ -25,6 +25,11 @@ MIN_ACTIVE_RATIO   = 0.08      # 8% of cell pixels must be above noise floor
 # Lower = more smoothing (slower response), Higher = faster response
 MOTION_EMA_ALPHA   = 0.35
 
+# Flow magnitudes are pixels between the two analysed frames. Thresholds were
+# tuned for pairs about one second apart; when analysis is spaced further apart
+# (CPU duty-cycle rest) the flow is scaled back to that reference interval.
+FLOW_REFERENCE_INTERVAL_S = 1.0
+
 # Camera shake compensation: subtract global median flow vector to remove it.
 # This removes drone-drift motion that affects every cell equally
 COMPENSATE_SHAKE   = True
@@ -80,8 +85,11 @@ class CrowdMotionAnalyzer:
         if self.gpu_flow_obj is None:
             print(f"[OPTICAL FLOW] Using CPU path.")
 
-    def analyze_motion(self, frame_bgr: np.ndarray):
+    def analyze_motion(self, frame_bgr: np.ndarray, dt: float = None):
         """
+        ``dt`` is the seconds since the previous analysed frame; spacing beyond
+        FLOW_REFERENCE_INTERVAL_S is normalised back to it.
+
         Returns
         -------
         speed_grid   : np.ndarray (3,3) — EMA-smoothed MEDIAN speed per cell [px/frame]
@@ -121,6 +129,8 @@ class CrowdMotionAnalyzer:
                 0,
             )
         self.prev_gray = gray
+        if dt is not None and dt > FLOW_REFERENCE_INTERVAL_S:
+            flow *= FLOW_REFERENCE_INTERVAL_S / dt
 
         # ── Camera shake compensation ──────────────────────────────
         # ponytail: use native cv2.magnitude (C++/SIMD) and vectorized median subtraction

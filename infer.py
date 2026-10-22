@@ -15,8 +15,10 @@ import sys
 import cv2
 import time
 STARTUP_T0 = time.monotonic()
+import base64
 import queue
 import threading
+import traceback
 import numpy as np
 import torch
 
@@ -47,6 +49,7 @@ from src.counting_accuracy      import (
     box_head_points,
     detections_to_density_map,
     locate_heads,
+    pack_head_points,
     point_zone_counts,
 )
 from src.stream_output          import LatestFrameEncoder, resolve_ffmpeg_path
@@ -54,13 +57,30 @@ from src.stream_output          import LatestFrameEncoder, resolve_ffmpeg_path
 # ── model setup ───────────────────────────────────────────────────────
 from models.model_registry import load_counting_model
 
+# Exit codes lite_server.py understands (see AnalysisScheduler there).
+EXIT_MODEL_UNAVAILABLE = 3   # weights missing/unreadable: restarting cannot help
+EXIT_INFERENCE_CRASHED = 4   # repeated inference errors: a restart may help
+
+
+def _fatal(code, message):
+    """End the whole worker with a one-line reason the server can show."""
+    print(f"[FATAL] {message}", flush=True)
+    try:
+        sys.stdout.flush()
+    except Exception:
+        pass
+    os._exit(code)
+
+
 device     = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 AMP_ENABLED = device.type == "cuda"
 if AMP_ENABLED:
     torch.backends.cudnn.benchmark = True
 else:
-    # Limit CPU threads to prevent UI/capture starvation
-    torch.set_num_threads(max(1, min(2, (os.cpu_count() or 4) // 2)))
+    # lite_server divides the CPU cores between the analyzers it runs at once
+    # (TORCH_NUM_THREADS); standalone, leave cores for capture and the UI.
+    _threads = int(os.environ.get("TORCH_NUM_THREADS", "0") or 0)
+    torch.set_num_threads(_threads if _threads > 0 else max(1, min(2, (os.cpu_count() or 4) // 2)))
     print(f"[INFO] CPU Thread count set to {torch.get_num_threads()} to prevent core saturation.")
 print(f"[INFO] Device: {device}")
 
@@ -206,6 +226,7 @@ def async_load_model():
     except Exception as e:
         model_load_error = e
         print(f"[ERROR] Failed to load model asynchronously: {e}")
+        traceback.print_exc()
     finally:
         model_loaded.set()
 
@@ -330,6 +351,10 @@ _proc_fps      = 0.0
 _zone_scores   = None          # np (3,3)
 _is_live       = False
 _head_points   = np.empty((0, 2), dtype=np.float32)  # frame pixels
+_head_payload  = ""            # base64 uint16 x/y pairs, normalised to the frame
+_head_count    = 0
+_head_ts       = 0.0           # wall-clock seconds at which the counted frame was captured
+_analytics_event = threading.Event()   # set whenever a new result is published
 _is_simulation = False
 _counting_mode_active = os.environ.get("COUNTING_MODE_ACTIVE", "1").lower() in (
     "1", "true", "yes", "on"
@@ -435,9 +460,23 @@ def _clear_q(q):
         pass
 
 
+# ── output configuration ──────────────────────────────────────────────
+HEADLESS = os.environ.get("HEADLESS", "0") == "1"
+# lite_server turns the analyzed re-encode off when viewers watch the raw feed
+# (PLAYBACK_PREFER_RAW): the encoder is then pure overhead.
+STREAM_OUTPUT_ENABLED = os.environ.get("STREAM_OUTPUT_ENABLED", "1").lower() in (
+    "1", "true", "yes", "on"
+)
+
+
+def frames_needed_for_output():
+    """True when every captured frame is rendered somewhere (window/encoder)."""
+    return (not HEADLESS) or (STREAM_OUTPUT_ENABLED and bool(os.environ.get("RTMP_TARGET")))
+
+
 # ── producer ──────────────────────────────────────────────────────────
 def _producer():
-    global _frame_data, _stride
+    global _frame_data
     source = drone_stream.resolve_source(config.VIDEO_SOURCE)
     fallback_active = False
     
@@ -476,6 +515,12 @@ def _producer():
             time.sleep(3.0)
             continue
 
+        # With no encoder and no window, frames are needed only for counting,
+        # so the capture converts a handful per second instead of every frame
+        # (grab() still decodes, retrieve() is the costly BGR conversion).
+        if not frames_needed_for_output():
+            sh.min_frame_interval = float(getattr(config, "COUNT_CAPTURE_INTERVAL_SECONDS", 0.25))
+
         src_fps = sh.get_fps()
         src_w, src_h = sh.get_resolution()
         print(f"[INFO] Source FPS={src_fps:.1f}  live={sh.is_live}  resolution={src_w}x{src_h}")
@@ -512,7 +557,6 @@ def _producer():
                 last_health_check = now
             with _lock:
                 _frame_data = (frame, ts)
-                stride = _stride
                 global _health_stats
                 _health_stats = {
                     "reconnects": health["reconnects"],
@@ -520,11 +564,11 @@ def _producer():
                     "live_fps": health["live_fps"]
                 }
 
-            if idx % stride == 0:
-                # The capture frame is immutable after publication. Retaining
-                # its reference avoids a second multi-megabyte copy; the queue
-                # remains bounded to one latest inference candidate.
-                _replace_latest(_frame_q, (frame, ts))
+            # The capture frame is immutable after publication. Retaining its
+            # reference avoids a second multi-megabyte copy; the queue holds
+            # only the newest candidate, so the inference worker always picks
+            # up a fresh frame after its duty-cycle rest.
+            _replace_latest(_frame_q, (frame, ts))
 
             if not sh.is_live:
                 nft += 1.0 / src_fps
@@ -548,13 +592,23 @@ def _inference_worker():
     global _speed_grid, _motion_speed, _turbulence, _opp_result, _comp_risk
     global _comp_zone, _comp_color, _pressure_smooth, _sp_result, _hs_result, _analytics_ts
     global _analytics_seq
-    global _head_points
+    global _head_points, _head_payload, _head_count, _head_ts
 
     # Wait for the asynchronously loaded model to be ready
     model_loaded.wait()
     if model is None:
-        print(f"[ERROR] Inference disabled because model loading failed: {model_load_error}")
-        return
+        # Without a model this process can only play video. Exit with a
+        # distinct code so the server reports the real reason instead of
+        # showing "Analysis starting" forever.
+        reason = str(model_load_error) or type(model_load_error).__name__
+        _fatal(EXIT_MODEL_UNAVAILABLE, f"model_unavailable: {reason}")
+
+    # Rest between passes so one camera cannot hold its CPU cores at 100%.
+    # rest = elapsed * (1 / duty - 1): a pass that took 0.9 s at duty 0.5 is
+    # followed by 0.9 s of rest. The newest frame is always waiting afterwards.
+    duty = min(1.0, max(0.05, float(getattr(config, "COUNT_MAX_DUTY", 0.5))))
+    rest_factor = 1.0 / duty - 1.0
+    max_rest = float(getattr(config, "COUNT_MAX_REST_SECONDS", 4.0))
 
     last_t   = time.perf_counter()
     zm       = zone_monitor.ZoneMonitor()
@@ -574,10 +628,11 @@ def _inference_worker():
         calibration_bias=getattr(config, "COUNT_CALIBRATION_BIAS", 0.0),
     )
     first_result_pending = True
+    last_flow_t = None
 
     while not _stop.is_set():
         try:
-            frame, _ = _frame_q.get(timeout=0.25)
+            frame, frame_mono_ts = _frame_q.get(timeout=0.25)
         except queue.Empty:
             continue
 
@@ -664,8 +719,20 @@ def _inference_worker():
             scores = allocate_zone_counts(zone_headcounts, zone_headcounts, ds)
 
 
+        # Normalised 4-byte-per-head payload for the browser (it draws the
+        # dots over the raw video, so the encoded stream needs no overlay).
+        # The browser plays the stream a few seconds behind live and picks the
+        # dots recorded for the frame it is showing, so stamp the capture time.
+        frame_wall_ts = time.time() - max(0.0, time.monotonic() - frame_mono_ts)
+        head_bytes, head_count = pack_head_points(head_points, frame.shape[:2])
+        head_payload = base64.b64encode(head_bytes).decode("ascii") if head_bytes else ""
+
         # Run Motion and Flow analytics on the frame
-        speed_grid, motion_speed, turbulence = motion_anal.analyze_motion(frame)
+        flow_now = time.monotonic()
+        speed_grid, motion_speed, turbulence = motion_anal.analyze_motion(
+            frame, dt=None if last_flow_t is None else flow_now - last_flow_t
+        )
+        last_flow_t = flow_now
         crowd_present = ds >= risk_engine.MIN_CROWD_DENSITY
 
         # Zero out motion in cells with no detected people (water / noise filter)
@@ -807,17 +874,49 @@ def _inference_worker():
             _sp_result       = sp_result
             _hs_result       = hs_result
             _head_points     = head_points
+            _head_payload    = head_payload
+            _head_count      = head_count
+            _head_ts         = frame_wall_ts
             _analytics_ts    = time.monotonic()
             _analytics_seq  += 1
+        _analytics_event.set()
+
+        if rest_factor > 0.0:
+            _stop.wait(min(max_rest, elapsed * rest_factor))
 
 
 threading.Thread(target=_producer,          daemon=True, name="Producer").start()
-threading.Thread(target=_inference_worker,  daemon=True, name="Inference").start()
+
+
+def _inference_supervisor():
+    """Keep counting alive through a bad frame instead of dying silently.
+
+    An exception used to end the Inference thread while video kept playing, so
+    the dashboard showed "Analysis starting" for ever. Now the pass restarts
+    with fresh analytics state, and a crash loop ends the worker so the server
+    can restart it and show the reason.
+    """
+    crashes = []
+    while not _stop.is_set():
+        try:
+            _inference_worker()
+            return
+        except Exception as exc:
+            now = time.monotonic()
+            crashes = [t for t in crashes if now - t < 60.0] + [now]
+            print(f"[ERROR] Inference pass failed ({type(exc).__name__}: {exc})", flush=True)
+            traceback.print_exc()
+            if len(crashes) >= 5:
+                _fatal(EXIT_INFERENCE_CRASHED,
+                       f"inference_crashed: {type(exc).__name__}: {exc}")
+            _stop.wait(0.5)
+
+
+threading.Thread(target=_inference_supervisor, daemon=True, name="Inference").start()
 threading.Thread(target=_mode_sync_worker,   daemon=True, name="ModeSync").start()
 threading.Thread(target=_stats_poster_worker, daemon=True, name="StatsPoster").start()
 
 # ── display window ────────────────────────────────────────────────────
-HEADLESS = os.environ.get("HEADLESS", "0") == "1"
 RENDER_VIDEO_OVERLAYS = os.environ.get(
     "RENDER_VIDEO_OVERLAYS", "0" if HEADLESS else "1"
 ).lower() in ("1", "true", "yes", "on")
@@ -842,7 +941,7 @@ recording        = False
 head_dots   = overlay.HeadDotLayer()
 crowd_log   = logger.CrowdLogger(config.CSV_LOG_PATH, enabled=config.WRITE_CSV_LOG)
 video_writer = None
-rtmp_target = os.environ.get("RTMP_TARGET")
+rtmp_target = os.environ.get("RTMP_TARGET") if STREAM_OUTPUT_ENABLED else None
 stream_encoder = None
 stream_retry_after = 0.0
 alert_first_shown_times = {}
@@ -889,6 +988,9 @@ while not _stop.is_set():
         is_live_val   = _is_live
         is_simulation_val = _is_simulation
         head_points   = _head_points
+        head_payload  = _head_payload
+        head_count    = _head_count
+        head_ts       = _head_ts
         counting_mode_active = _counting_mode_active
         
         # Grab decoupled analytics state
@@ -904,6 +1006,11 @@ while not _stop.is_set():
         hs_result       = _hs_result.copy() if isinstance(_hs_result, dict) else _hs_result
         analytics_ts    = _analytics_ts
         analytics_seq   = _analytics_seq
+
+    if fd is None and HEADLESS:
+        # Nothing to draw or show for an offline source; just wait for it.
+        _stop.wait(0.25)
+        continue
 
     if fd is None:
         # Render a clean, animated "Connecting / Camera Offline" window instead of a frozen screen!
@@ -962,7 +1069,17 @@ while not _stop.is_set():
                 ),
                 "analytics_active": True,
                 "analytics_seq": int(analytics_seq),
+                "heads_b64": head_payload,
+                "heads_n": int(head_count),
+                "heads_ts": float(head_ts),
             })
+
+    if HEADLESS and not rtmp_target and not recording:
+        # No window, encoder or recording uses the frames: sleep until the
+        # inference thread publishes the next result (or the mode changes).
+        _analytics_event.wait(1.0)
+        _analytics_event.clear()
+        continue
 
     if cap_ts == last_cap_ts:
         time.sleep(0.005)

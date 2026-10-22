@@ -16,7 +16,8 @@ Ubuntu Server 26.04 LTS
 
 ### UI vs AI Hardware Capacity Strategy
 - **Website UI Capacity**: Displays up to **60 Drone Slots** (`MAX_DRONE_SLOTS=60`).
-- **CPU AI Hardware Cap**: Hardware caps simultaneous CPU AI inference workers to **4** (`MAX_CONCURRENT_AI_FEEDS=4`).
+- **CPU AI Hardware Cap**: At most **4** counting workers run at once (`MAX_CONCURRENT_AI_FEEDS=4`). This is enforced by the server (`src/analysis_scheduler.py`): further online drones show *Counting queued* and start automatically, oldest first, as soon as a slot frees up. The server splits its CPU cores between the running workers (`AI_TORCH_THREADS`), and each worker rests between passes (`COUNT_MAX_DUTY=0.5`) instead of holding its cores at 100%.
+- **Self-healing**: a worker that crashes or stops producing counts is restarted with 2, 4, 8 … 60 s back-off. A tile only says *Counting unavailable* when restarting cannot help (for example the model file is missing) and then shows the reason; it recovers by itself once the cause is fixed.
 - **Scalability**: Operators can switch AI counting on/off across any connected stream. Adding a GPU later only requires setting `MAX_CONCURRENT_AI_FEEDS=12` in `.env` — zero dashboard code changes required.
 
 ---

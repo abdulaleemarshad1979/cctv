@@ -217,14 +217,23 @@ class DroneStreamHandler:
         self._connect_ts  = None
         self._latest_ts   = 0.0
         self.loop_count   = 0
+        self._props       = (0, 0, 0.0)   # width, height, fps reported at open
 
         self.cap = self._open()
+        self._props = self._read_props(self.cap)
 
         # Threaded low-latency background frame grabber
         self.latest_frame = None
         self.latest_ret   = False
         self.running      = True
         self.frame_ready  = threading.Event()
+        # Set by release() so the grabber's reconnect waits end immediately.
+        self._stop_event  = threading.Event()
+        # Minimum seconds between frames converted for the reader. grab() still
+        # decodes every frame (the codec needs them); retrieve() is the costly
+        # BGR conversion, so counting-only readers can skip most of them.
+        self.min_frame_interval = 0.0
+        self._last_retrieve = 0.0
         self.bg_thread    = None
 
         if self.is_live and self.cap and self.cap.isOpened():
@@ -374,29 +383,46 @@ class DroneStreamHandler:
             return True, frame
 
     def _bg_update_loop(self):
-        while self.running:
-            with self._lock:
-                cap_opened = self.cap.isOpened()
-            if not cap_opened:
-                time.sleep(0.01)
-                continue
+        # This thread is the only one that grabs from, replaces or (once
+        # running is False) releases the capture. Releasing a VideoCapture
+        # from another thread while grab() is inside FFmpeg is a
+        # use-after-free: it crashed the whole analyzer with SIGSEGV after
+        # stream reconnects.
+        try:
+            while self.running:
+                with self._lock:
+                    cap = self.cap
+                if not cap.isOpened():
+                    self._stop_event.wait(0.01)
+                    continue
 
-            ret = self.cap.grab()
-            if ret:
-                ok, frame = self.cap.retrieve()
-                if ok and frame is not None:
-                    ts = time.monotonic()
-                    with self._lock:
-                        self.latest_frame = frame
-                        self.latest_ret   = True
-                        self._latest_ts   = ts
-                        self._frame_times.append(ts)
-                        self.frame_ready.set()
-                else:
+                if cap.grab():
+                    if (
+                        self.min_frame_interval > 0.0
+                        and time.monotonic() - self._last_retrieve < self.min_frame_interval
+                    ):
+                        continue
+                    ok, frame = cap.retrieve()
+                    if ok and frame is not None:
+                        ts = self._last_retrieve = time.monotonic()
+                        with self._lock:
+                            self.latest_frame = frame
+                            self.latest_ret   = True
+                            self._latest_ts   = ts
+                            self._frame_times.append(ts)
+                            self.frame_ready.set()
+                    elif self.running:
+                        self._handle_bg_reconnect()
+                elif self.running:
                     self._handle_bg_reconnect()
-            else:
-                self._handle_bg_reconnect()
-            time.sleep(0.001)
+        finally:
+            with self._lock:
+                cap = self.cap
+            if cap is not None:
+                try:
+                    cap.release()
+                except Exception:
+                    pass
 
     def _handle_bg_reconnect(self):
         with self._lock:
@@ -407,13 +433,17 @@ class DroneStreamHandler:
 
         backoff = BASE_BACKOFF_S
         for attempt in range(1, MAX_RECONNECT + 1):
+            if not self.running:
+                return
             self._drop_count += 1
             print(f"[STREAM] Reconnect {attempt}/{MAX_RECONNECT} (wait {backoff:.1f}s) ...")
             with self._lock:
-                self.cap.release()
-            time.sleep(backoff)
+                old_cap = self.cap
+            old_cap.release()
+            if self._stop_event.wait(backoff):
+                return
             backoff = min(backoff * 2, MAX_BACKOFF_S)
-            
+
             new_cap = self._open_rtsp()
             if new_cap.isOpened():
                 ok = new_cap.grab()
@@ -421,8 +451,10 @@ class DroneStreamHandler:
                     ok2, frame = new_cap.retrieve()
                     if ok2 and frame is not None:
                         ts = time.monotonic()
+                        props = self._read_props(new_cap)
                         with self._lock:
                             self.cap = new_cap
+                            self._props = props
                             self.latest_frame = frame
                             self.latest_ret   = True
                             self._latest_ts   = ts
@@ -430,8 +462,8 @@ class DroneStreamHandler:
                             self.frame_ready.set()
                         print(f"[STREAM] Reconnected after {attempt} attempt(s).")
                         return
-                new_cap.release()
-                
+            new_cap.release()
+
         print(f"[STREAM] FATAL: could not reconnect after {MAX_RECONNECT} tries.")
         with self._lock:
             self.running = False
@@ -439,6 +471,18 @@ class DroneStreamHandler:
             self.frame_ready.set()
 
     # ── info ─────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _read_props(cap):
+        """Width, height and fps of a capture (call only from its owner thread)."""
+        try:
+            return (
+                int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)),
+                int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)),
+                float(cap.get(cv2.CAP_PROP_FPS)),
+            )
+        except Exception:
+            return (0, 0, 0.0)
 
     @property
     def latest_frame_ts(self) -> float:
@@ -450,12 +494,13 @@ class DroneStreamHandler:
             span = self._frame_times[-1] - self._frame_times[0]
             if span > 0:
                 return (len(self._frame_times) - 1) / span
-        fps = self.cap.get(cv2.CAP_PROP_FPS)
+        fps = self._props[2]
         return fps if (fps and fps == fps and fps > 0) else 25.0
 
     def get_resolution(self):
-        return (int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)),
-                int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)))
+        # Cached: cv2.VideoCapture is not thread-safe, and the grabber thread
+        # may be inside grab() or replacing the capture when this is called.
+        return (self._props[0], self._props[1])
 
     def is_opened(self) -> bool:
         return self.cap.isOpened() if self.cap else False
@@ -488,8 +533,19 @@ class DroneStreamHandler:
             self.running = False
             self.latest_ret = False
             self.frame_ready.set()
-            if self.cap and self.cap.isOpened():
-                self.cap.release()
+        self._stop_event.set()
+        thread = self.bg_thread
+        if thread is not None and thread is not threading.current_thread():
+            # The grabber releases the capture itself when it exits. Never
+            # release it from here while grab() may still be running; the
+            # FFmpeg open/read timeouts are 3 s, so this wait is bounded.
+            thread.join(timeout=8.0)
+            if thread.is_alive():
+                print("[STREAM] Grabber still busy; it will release the capture on exit.")
+        else:
+            with self._lock:
+                if self.cap and self.cap.isOpened():
+                    self.cap.release()
         print("[STREAM] Released.")
 
 

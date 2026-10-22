@@ -204,7 +204,7 @@ def density_head_points(density_map, count, frame_shape, exclude_points=None,
         peaks = peaks[strongest[peaks.size - target:]]
 
     indices = peaks
-    offsets = np.full((peaks.size, 2), 0.5, dtype=np.float32)
+    offsets = _refine_peak_offsets(dmap, peaks)
 
     remaining = target - peaks.size
     if remaining > 0:
@@ -231,6 +231,38 @@ def density_head_points(density_map, count, frame_shape, exclude_points=None,
         (cols + offsets[:, 0]) * cell_w,
         (rows + offsets[:, 1]) * cell_h,
     )).astype(np.float32)
+
+
+def _refine_peak_offsets(dmap, peaks):
+    """Sub-cell ``(x, y)`` offsets (0..1) for density peaks.
+
+    The density map is 1/8 of the input resolution, so a bare cell centre can
+    be 4 input pixels off its head. The mass-weighted centroid of the 3x3
+    neighbourhood places the dot where the head actually is. The shift is
+    limited to 0.35 cell so a neighbouring person cannot drag it across.
+    Vectorised: O(peaks).
+    """
+    offsets = np.full((peaks.size, 2), 0.5, dtype=np.float32)
+    if peaks.size == 0:
+        return offsets
+    map_h, map_w = dmap.shape
+    rows, cols = np.divmod(peaks, map_w)
+    weight_sum = np.zeros(peaks.size, dtype=np.float32)
+    shift_x = np.zeros(peaks.size, dtype=np.float32)
+    shift_y = np.zeros(peaks.size, dtype=np.float32)
+    for dy in (-1, 0, 1):
+        for dx in (-1, 0, 1):
+            weight = dmap[
+                np.clip(rows + dy, 0, map_h - 1), np.clip(cols + dx, 0, map_w - 1)
+            ]
+            weight_sum += weight
+            shift_x += weight * dx
+            shift_y += weight * dy
+    valid = weight_sum > 0.0
+    safe_sum = np.where(valid, weight_sum, 1.0)
+    offsets[:, 0] += np.clip(np.where(valid, shift_x / safe_sum, 0.0), -0.35, 0.35)
+    offsets[:, 1] += np.clip(np.where(valid, shift_y / safe_sum, 0.0), -0.35, 0.35)
+    return offsets
 
 
 # Golden-angle spiral inside a unit cell: rank 0 is the centre and successive
@@ -362,3 +394,36 @@ def count_accuracy_percent(predicted_counts, actual_counts):
     if mape < 1e-10:
         return 100.0
     return float(np.clip(100.0 - mape, 0.0, 100.0))
+
+
+MAX_PUBLISHED_HEADS = 8000
+
+
+def pack_head_points(points, frame_shape, max_points=MAX_PUBLISHED_HEADS):
+    """Pack head points as little-endian ``uint16`` ``(x, y)`` pairs.
+
+    Coordinates are normalised to the frame (0..65535 = left..right and
+    top..bottom), so the browser can place a dot on any display size and the
+    payload is 4 bytes per head. More than ``max_points`` are thinned evenly
+    (O(points)). Returns ``(bytes, packed_count)``.
+    """
+    frame_h, frame_w = (int(frame_shape[0]), int(frame_shape[1]))
+    if frame_h <= 0 or frame_w <= 0:
+        raise ValueError("frame dimensions must be positive")
+    pts = np.asarray(points, dtype=np.float32).reshape(-1, 2)
+    if pts.shape[0] > max_points > 0:
+        pts = pts[np.linspace(0, pts.shape[0] - 1, max_points).astype(np.intp)]
+    if pts.shape[0] == 0:
+        return b"", 0
+    scaled = pts / np.array([frame_w, frame_h], dtype=np.float32)
+    packed = np.rint(np.clip(scaled, 0.0, 1.0) * 65535.0).astype("<u2")
+    return packed.tobytes(), int(packed.shape[0])
+
+
+def unpack_head_points(data):
+    """Inverse of :func:`pack_head_points`: ``(N, 2)`` floats in 0..1."""
+    if not data:
+        return np.empty((0, 2), dtype=np.float32)
+    if len(data) % 4:
+        raise ValueError("head payload must be a multiple of 4 bytes")
+    return np.frombuffer(data, dtype="<u2").reshape(-1, 2).astype(np.float32) / 65535.0

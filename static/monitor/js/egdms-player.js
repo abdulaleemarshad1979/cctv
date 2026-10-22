@@ -11,13 +11,33 @@
  *   stream reconnects, instead of a black tile.  Nothing is written to any
  *   recording; this is display only.
  * - setOverlay()/clearOverlay(): the "Reconnecting…" badge.
- * - attachQualityMenu(): Auto / per-level selector for adaptive HLS.
+ * - attachQualityMenu(): Auto / per-level selector for adaptive HLS; also
+ *   remembers the measured bandwidth so the next player starts at the right
+ *   quality instead of ramping up from a 1 Mbit/s guess.
  * - report(): batched, best-effort diagnostics sent to /api/stream-events.
  */
 (function () {
   "use strict";
 
   const P = {};
+
+  // Starting bandwidth guess (bit/s) for Auto quality, best source first:
+  // what this page measured on a stream in the last two minutes (capped by the
+  // browser's own, more current, downlink estimate when it has one), else the
+  // browser's estimate (discounted: it is an optimistic maximum), else
+  // 1 Mbit/s. A tile that scrolls back into view, a reconnect or a switch to
+  // full view then starts at a suitable level rather than at the bottom, and a
+  // network that has since collapsed is not trusted for long.
+  P.bandwidthEstimate = 0;
+  P.bandwidthMeasuredAt = 0;
+  function startingBandwidth() {
+    const connection = typeof navigator !== "undefined" && navigator.connection;
+    const downlink = connection && Number(connection.downlink);
+    const browser = downlink > 0 ? Math.min(8e6, Math.max(3e5, downlink * 1e6 * 0.6)) : 0;
+    const fresh = P.bandwidthEstimate > 0 && Date.now() - P.bandwidthMeasuredAt < 120000;
+    if (fresh) return browser ? Math.min(P.bandwidthEstimate, browser * 2) : P.bandwidthEstimate;
+    return browser || 1000000;
+  }
 
   P.hlsConfig = function (options) {
     const target = Math.max(2, Number((options && options.targetLatency) || 5));
@@ -41,7 +61,11 @@
       // Adaptive bitrate: start conservatively, upgrade only on clear headroom.
       startLevel: -1,
       capLevelToPlayerSize: true,
-      abrEwmaDefaultEstimate: 1000000,
+      abrEwmaDefaultEstimate: startingBandwidth(),
+      // React to a worsening network within a few seconds (a stall is worse
+      // than a softer picture); upgrades stay cautious via abrBandWidthUpFactor.
+      abrEwmaFastLive: 2,
+      abrEwmaSlowLive: 6,
       abrBandWidthFactor: 0.9,
       abrBandWidthUpFactor: 0.65,
       abrMaxWithRealBitrate: true,
@@ -324,6 +348,14 @@
       });
     }
     hls.on(Hls.Events.LEVEL_SWITCHED, refreshAutoLabel);
+    // Remember what the network can do for the next player (see hlsConfig).
+    hls.on(Hls.Events.FRAG_LOADED, () => {
+      const measured = hls.bandwidthEstimate;
+      if (measured > 0 && isFinite(measured)) {
+        P.bandwidthEstimate = measured;
+        P.bandwidthMeasuredAt = Date.now();
+      }
+    });
     container.appendChild(select);
     const saved = readPref(camId);
     apply(saved && Array.from(select.options).some(o => o.value === saved) ? saved : "auto", false);
