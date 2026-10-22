@@ -13,7 +13,7 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPTS = ["egdms-player.js", "egdms-dots.js"]
+SCRIPTS = ["egdms-player.js"]
 PAGES = ["lite_dashboard.html", "admin_dashboard.html"]
 
 

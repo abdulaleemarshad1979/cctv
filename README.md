@@ -1,6 +1,6 @@
 # Pushkaralu Drone Crowd Monitor & Risk Engine
 
-The web site is the **Drone Monitoring Portal**: live drone tiles with a dot on every counted person, crowd count, risk and forecast per drone, and adaptive video quality. Operations notes for counting (queue, restarts, "Counting unavailable" causes) are in [docs/DEPLOY_COUNTING_AND_DOTS.md](docs/DEPLOY_COUNTING_AND_DOTS.md).
+The web site is the **Drone Monitoring Portal**: live drone tiles with crowd count, risk and forecast per drone, and adaptive video quality. Operations notes for counting (queue, restarts, "Counting unavailable" causes) are in [docs/DEPLOY_COUNTING_AND_DOTS.md](docs/DEPLOY_COUNTING_AND_DOTS.md).
 
 An AI-powered CCTV and drone swarm monitoring system designed to estimate crowd density, track risk factors, predict stampedes, and dispatch geotagged alerts for large public gatherings. Powered by the **DM-Count** deep-learning model, this application processes RTSP video feeds from DJI, Autel, Parrot, or custom drones to provide real-time situational awareness.
 

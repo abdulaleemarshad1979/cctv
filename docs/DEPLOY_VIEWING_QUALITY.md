@@ -1,4 +1,4 @@
-# Dots only while counting, network-aware viewing quality (Stage D)
+# Head dots removed, network-aware viewing quality (Stage D)
 
 Changes only the **app container** and the dashboards. MediaMTX and nginx keep
 running; live ingest and recording are never touched. Viewers see
@@ -9,19 +9,32 @@ files listed below.
 
 ## What changed
 
-### Head dots belong to Counting mode
+### Head dots removed
 
-* The **Dots** button is gone from both dashboards. In **Counting** mode a dot
-  appears on every counted person by itself as soon as a camera is counted; in
-  **Viewing** mode there are never dots.
-* Switching mode removes or shows the dots at once (before, up to a second
-  later). A browser that had switched dots "off" with the old button shows them
-  again: that stored choice is deleted.
-* Every open dashboard follows a mode switch made on another screen on its next
-  1-second poll (`/cameras` now carries an `X-Counting-Mode` header), so dots
-  and counts appear or vanish everywhere, not only on the screen that clicked.
-* In Viewing mode, or for a tile that is off screen, the dots layer is freed
-  completely: no canvas, no observer, no timer, no `/heads` request.
+The dot on each counted person (Stage C) is gone everywhere: no Dots button,
+no dots on any tile or full view in either mode, and nothing behind them.
+
+* **Browser:** `static/monitor/js/egdms-dots.js` is deleted; the dashboards no
+  longer load it or fetch head positions.
+* **Server:** `GET /cameras/<id>/heads`, the per-camera head history and the
+  `heads_*` fields of each camera are removed. Head positions an older analyzer
+  still sends are accepted and ignored, so the app and analyzers can be updated
+  in any order.
+* **Analyzer (`infer.py`):** no head positions are located, packed or posted,
+  and the local debug window draws no dots (`HeadDotLayer` removed).
+* **Counts are unchanged.** The people count was never derived from the dots.
+  The 3x3 zone grid goes back to how it was computed before dots existed: the
+  density map's share of each zone, with every YOLO-detected person kept in
+  their zone, rounded to whole people that add up to the count
+  (`allocate_zone_counts`). `src/counting_accuracy.py` and `src/overlay.py` are
+  byte-identical to their pre-dots versions.
+* Settings `HEAD_SYNC_OFFSET_MS` and `HEAD_HISTORY_SECONDS` no longer exist; if
+  the server's `.env` sets them they are simply ignored.
+
+Every open dashboard follows a Viewing/Counting switch made on another screen
+on its next 1-second poll (`/cameras` carries an `X-Counting-Mode` header), so
+counts, the zone grid and risk appear or vanish everywhere, not only on the
+screen that clicked.
 
 ### Viewing quality follows the network
 
@@ -77,20 +90,22 @@ through, so reducing that needs a different capture layer; out of scope here.
 
 | File | Change |
 |---|---|
-| `lite_dashboard.html`, `admin_dashboard.html` | no Dots button; dots follow the mode; follow other screens' mode switches; quality governor; full view pauses the hidden grid |
-| `static/monitor/js/egdms-dots.js` | no switch; frees hidden layers; idle timer stops |
+| `lite_dashboard.html`, `admin_dashboard.html` | no dots; follow other screens' mode switches; quality governor; full view pauses the hidden grid |
+| `static/monitor/js/egdms-dots.js` | **deleted** |
 | `static/monitor/js/egdms-player.js` | `QualityGovernor`, `tileLevelCap`, `governed` hls.js config |
-| `lite_server.py` | `X-Counting-Mode` header on `/cameras` |
+| `lite_server.py` | heads endpoint and store removed; `X-Counting-Mode` header on `/cameras` |
+| `infer.py` | no head positions; mode-check interval and connection reuse; self-test removed |
+| `src/counting_accuracy.py`, `src/overlay.py` | dots helpers and `HeadDotLayer` removed |
 | `src/abr_transcoder.py` | cascaded scaling |
 | `src/density_filter.py` | band-only overlay cleaning |
-| `infer.py` | mode-check interval and connection reuse; self-test removed |
-| `tests/…` | updated and new tests |
+| `config.py`, `.env.example`, `README.md`, `tools/refresh_asset_versions.py` | dots wording and settings removed |
+| `tests/…` | dots tests removed; updated and new tests |
 
 ## Deploy
 
 ```bash
 cd /opt/pushkaralu/app && git checkout <branch>
-FILES="lite_dashboard.html admin_dashboard.html static/monitor/js/egdms-dots.js static/monitor/js/egdms-player.js lite_server.py src/abr_transcoder.py src/density_filter.py infer.py docs/DEPLOY_DOTS_AND_QUALITY.md"
+FILES="lite_dashboard.html admin_dashboard.html static/monitor/js/egdms-player.js lite_server.py infer.py config.py src/counting_accuracy.py src/overlay.py src/abr_transcoder.py src/density_filter.py docs/DEPLOY_VIEWING_QUALITY.md"
 tar -cf - $FILES | ssh -p 2222 drone@117.216.215.157 'mkdir -p /tmp/stage-d && tar -xf - -C /tmp/stage-d'
 ```
 
@@ -98,6 +113,7 @@ On the server (back up first, as in Stage A):
 
 ```bash
 cd /opt/pushkaralu/app && sudo cp -a /tmp/stage-d/. . && sudo chown root:root lite_dashboard.html admin_dashboard.html
+sudo rm -f static/monitor/js/egdms-dots.js
 docker compose -f docker-compose.yml -f docker-compose.override.yml build app
 docker compose -f docker-compose.yml -f docker-compose.override.yml up -d --no-deps app
 ```
@@ -114,10 +130,9 @@ docker logs --tail 40 pushkaralu-app | grep -E "Traceback|ERROR"
 In the browser (hard refresh; the dashboards load the new scripts by their
 new `?v=` hashes):
 
-* the header has no **Dots** button;
-* **Counting**: a red dot on each counted person; **Viewing**: none, and the
-  dots return by themselves when Counting is selected again — also on a second
-  screen that did not click;
+* no dots on any tile, in either mode, and no **Dots** button;
+* **Counting**: counts, zone grid and risk as before; switch to **Viewing** on
+  one screen and a second screen drops them within a second, without a reload;
 * the quality menu on a tile reads *Auto (480p)* on a good connection;
 * open a full view: it climbs to the source quality; after 10 s the grid behind
   it shows still frames; close it and the tiles play again within a few seconds.

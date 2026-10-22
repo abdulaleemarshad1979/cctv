@@ -412,7 +412,7 @@
   P.QualityGovernor = class {
     constructor(options) {
       this.isFocused = (options && options.isFocused) || (() => false);
-      this.headroom = 0.85;          // leave room for polls, dots and bursts
+      this.headroom = 0.85;          // leave room for polls and bursts
       this.players = new Map();      // camera id -> { hls, container }
       this.timer = null;
       const connection = typeof navigator !== "undefined" && navigator.connection;

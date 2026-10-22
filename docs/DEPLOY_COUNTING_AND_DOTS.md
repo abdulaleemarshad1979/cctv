@@ -1,5 +1,9 @@
 # Counting reliability, head dots, "Drone Monitoring Portal" (Stage C)
 
+> **Head dots were removed in Stage D** (see
+> [DEPLOY_VIEWING_QUALITY.md](DEPLOY_VIEWING_QUALITY.md)). The counting
+> reliability notes below still apply.
+
 Changes only the **app container**. MediaMTX and nginx keep running; live
 ingest and recording are never touched. Viewers see "Reconnecting…" while the
 app restarts (10–30 s).

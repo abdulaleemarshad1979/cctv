@@ -2344,7 +2344,7 @@
           CSV Report
         </a>
 
-        <!-- Viewing / Counting Mode Toggle for Admin (Counting shows a dot on every counted person) -->
+        <!-- Viewing / Counting Mode Toggle for Admin -->
         <div class="mode-toggle-group">
           <button id="btn-mode-viewing" class="mode-pill" onclick="changeGlobalMode('viewing')">
             Viewing
@@ -2621,8 +2621,7 @@
   <script src="https://cdn.jsdelivr.net/npm/hls.js@1.7.1"></script>
   <!-- ?v= is the script's content hash (tests enforce it): a new URL on every
        change, so the CDN and browsers can never serve an older copy. -->
-  <script src="/static/monitor/js/egdms-player.js?v=4d70995f5f"></script>
-  <script src="/static/monitor/js/egdms-dots.js?v=366a58cba9"></script>
+  <script src="/static/monitor/js/egdms-player.js?v=82e561db19"></script>
 
   <!-- Core Dashboard & Admin Scripts -->
   <script>
@@ -2670,7 +2669,6 @@
     function resumeLiveTile(camId) {
       const cam = cameras.find(c => c.id === camId);
       if (cam && isCameraPlayable(cam) && !hlsPlayers[camId] && !playerRetryTimers[camId]) setupVideoFeed(cam);
-      if (cam) headDots.sync(cam);
     }
     function pauseLiveTile(camId) {
       if (hlsPlayers[camId] && !liveTileWanted(camId)) teardownVideoFeed(camId, false, true);
@@ -2687,23 +2685,6 @@
       ? new EGDMSPlayer.QualityGovernor({ isFocused: id => activeFullViewCamId === id })
       : null;
 
-    // A dot on every counted person, drawn over the raw video, in Counting
-    // mode only (no switch: Viewing mode never shows or fetches dots). Pages
-    // that still hold an older cached script just run without dots.
-    const headDots = typeof EGDMSDots !== "undefined"
-      ? new EGDMSDots.Manager({
-          container: id => document.getElementById(`player-container-${id}`),
-          wanted: cam => globalMode === "counting" && cam.analytics_status === "active" &&
-            isCameraPlayable(cam) && liveTileWanted(cam.id),
-          // The stream plays seconds behind live: draw the dots recorded for the
-          // frame on screen (hls.js exposes its program date-time).
-          clock: id => {
-            const player = hlsPlayers[id];
-            const shown = player && player.playingDate;
-            return shown instanceof Date && !isNaN(shown) ? shown.getTime() : null;
-          }
-        })
-      : { sync() {}, forget() {} };
     const urlParams = new URLSearchParams(window.location.search);
     // HLS (adaptive when available) is the default: it buffers through
     // packet loss and supports quality switching. ?transport=webrtc opts in
@@ -2915,7 +2896,6 @@
         cameras.forEach(c => {
           if (c.id === camId || !liveTileWanted(c.id)) return;
           if (isCameraPlayable(c) && !hlsPlayers[c.id] && !playerRetryTimers[c.id]) setupVideoFeed(c);
-          headDots.sync(c);
         });
       }
       if (qualityGovernor) qualityGovernor.apply();
@@ -3120,7 +3100,6 @@
           if (activeFullViewCamId === id) closeFullViewModal();
           liveTileGate.unobserve(card);
           card.remove();
-          headDots.forget(id);
           teardownVideoFeed(id);
         }
       });
@@ -3384,7 +3363,7 @@
         if (keepFrame) {
           EGDMSPlayer.removeQualityMenu(container);
           Array.from(container.children).forEach(child => {
-            if (!child.classList.contains("egdms-freeze") && !child.classList.contains("egdms-overlay") && !child.classList.contains("egdms-dots")) child.remove();
+            if (!child.classList.contains("egdms-freeze") && !child.classList.contains("egdms-overlay")) child.remove();
           });
         } else {
           container.innerHTML = showSwitchingState
@@ -3906,11 +3885,10 @@ function setupHlsPlayback(cam, video, playbackPath, getMediaRecoveries) {
 
         cameras = newCameras;
         // Another operator may have switched Viewing/Counting: follow it on
-        // the next poll instead of after a reload (dots appear/vanish with it).
+        // the next poll instead of after a reload (counts appear/vanish with it).
         const serverMode = res.headers.get("X-Counting-Mode");
         const pendingMode = serverMode === "1" ? "counting" : serverMode === "0" ? "viewing" : null;
         if (pendingMode && pendingMode !== globalMode && pollStartedAt > modeChangedAt) applyGlobalMode(pendingMode);
-        newCameras.forEach(newCam => headDots.sync(newCam));
         updateFlyingCount();
         if (needsRerender) {
           renderGrid();
@@ -4115,7 +4093,6 @@ function setupHlsPlayback(cam, video, playbackPath, getMediaRecoveries) {
           }
         }
         updateCameraConnectionState(cam);
-        headDots.sync(cam);
       });
     }
 
