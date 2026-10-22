@@ -1,9 +1,6 @@
 import os
 import sys
 import asyncio
-import base64
-import binascii
-import struct
 import json
 import socket
 import time
@@ -15,7 +12,6 @@ import hashlib
 import hmac
 import math
 import re
-from collections import deque
 from datetime import datetime, timezone
 from functools import lru_cache
 from contextlib import asynccontextmanager
@@ -571,61 +567,11 @@ class StatsUpdate(BaseModel):
     zone_scores: Optional[list] = None
     analytics_active: Optional[bool] = True
     analytics_seq: Optional[int] = None
-    # Head positions: base64 of little-endian uint16 (x, y) pairs, 0..65535
-    # across the frame width/height (see src.counting_accuracy.pack_head_points).
-    heads_b64: Optional[str] = None
-    heads_n: Optional[int] = None
-    heads_ts: Optional[float] = None   # wall-clock capture time of the counted frame
-
-
-# Recent head positions per camera, kept out of cameras_db so /cameras (polled
-# by every viewer every second) stays small. Viewers play the stream several
-# seconds behind live, so a short history is kept and each viewer draws the dots
-# recorded for the frame it is actually showing.
-# camera id -> deque[(seq, capture_epoch_seconds, payload bytes)], oldest first.
-MAX_HEAD_PAYLOAD_BYTES = 4 * 8000
-HEAD_HISTORY_SECONDS = max(10.0, _env_float("HEAD_HISTORY_SECONDS", 30))
-HEAD_HISTORY_MAX_RECORDS = 24
-# The adaptive-quality transcoder stamps HLS program date-times when it starts
-# a segment, up to one keyframe interval after the frame was captured. The
-# browser subtracts this from the player's clock when matching dots to frames.
-HEAD_SYNC_OFFSET_MS = int(_env_float("HEAD_SYNC_OFFSET_MS", 700))
-_head_store = {}
-_HEAD_RECORD = struct.Struct("<IId")   # seq, count, capture epoch seconds
-
-
-def store_head_positions(camera, data):
-    """Keep the worker's head dots; drop anything malformed. O(payload)."""
-    camera_id = camera["id"]
-    payload = data.heads_b64
-    if not payload:
-        _head_store.pop(camera_id, None)
-        camera["heads_seq"] = -1
-        camera["heads_count"] = 0
-        return
-    try:
-        raw = base64.b64decode(payload, validate=True)
-    except (binascii.Error, ValueError):
-        return
-    if len(raw) % 4 or len(raw) > MAX_HEAD_PAYLOAD_BYTES:
-        return
-    now = time.time()
-    seq = int(data.analytics_seq if data.analytics_seq is not None else camera.get("heads_seq", -1) + 1)
-    captured = float(data.heads_ts) if data.heads_ts and abs(now - data.heads_ts) < 3600 else now
-    history = _head_store.setdefault(camera_id, deque(maxlen=HEAD_HISTORY_MAX_RECORDS))
-    history.append((seq, captured, raw))
-    while len(history) > 1 and now - history[0][1] > HEAD_HISTORY_SECONDS:
-        history.popleft()
-    camera["heads_seq"] = seq
-    camera["heads_count"] = len(raw) // 4
 
 
 def reset_camera_analytics(camera):
     """Clear every field that belongs exclusively to Counting Mode."""
-    _head_store.pop(camera["id"], None)
     camera.update({
-        "heads_seq": -1,
-        "heads_count": 0,
         "people_count": 0,
         "comp_zone": "SAFE",
         "pressure": 0.0,
@@ -1243,7 +1189,6 @@ def start_stream(camera, source_url):
     env["DJANGO_UPDATE_URL"] = f"{config.BACKEND_URL}/cameras/update_stats"
     env["MODE_STATUS_URL"] = f"{config.BACKEND_URL}/get_mode"
     env["COUNTING_MODE_ACTIVE"] = "1" if global_counting_mode else "0"
-    env["VERIFY_PREPROCESS"] = "0"  # Skip startup self-test in headless workers
     env["PYTHONUNBUFFERED"] = "1"
     env["DISPLAY_WIDTH"] = str(config.WEB_STREAM_WIDTH)
     env["DISPLAY_HEIGHT"] = str(config.WEB_STREAM_HEIGHT)
@@ -2218,17 +2163,21 @@ def get_cameras():
         )
         camera["stream_grace_seconds"] = STREAM_GRACE_SECONDS
         camera["player_latency_target_seconds"] = PLAYER_LATENCY_TARGET_SECONDS
-        camera["heads_sync_offset_ms"] = HEAD_SYNC_OFFSET_MS
         camera["abr_available"] = abr_available
         update_camera_playback_path(camera)
     # Every viewer polls this each second. The forecast (about 3.5 KB per
     # camera) is only shown for cameras with a live count, so offline and
     # waiting cameras send none: the payload scales with cameras counted, not
-    # with cameras configured.
-    return FastJSONResponse(content=[
-        camera if camera.get("analytics_status") == "active" else {**camera, "forecast": None}
-        for camera in cameras_db
-    ])
+    # with cameras configured. The mode rides along in a header so every open
+    # dashboard follows a Viewing/Counting switch (counts, zone grid and risk
+    # appear or vanish) on its next poll, without an extra request.
+    return FastJSONResponse(
+        content=[
+            camera if camera.get("analytics_status") == "active" else {**camera, "forecast": None}
+            for camera in cameras_db
+        ],
+        headers={"X-Counting-Mode": "1" if global_counting_mode else "0"},
+    )
 
 @app.post("/cameras/state")
 def update_camera_state(req: StateRequest):
@@ -2422,41 +2371,6 @@ def stop_camera(drone_id: str):
     update_camera_playback_path(matched_camera)
     return {"status": "stopped", "drone_id": drone_id}
 
-@app.get("/cameras/{drone_id}/heads")
-def get_camera_heads(drone_id: str, since: Optional[int] = None):
-    """Recent head dots for one camera as compact binary.
-
-    Body: one record per result newer than ``since`` (all of them without it),
-    oldest first. Record: ``uint32 seq, uint32 count, float64 capture epoch
-    seconds`` (16 bytes, little endian) then ``count`` ``uint16`` ``(x, y)``
-    pairs spanning the video frame (0..65535). 204 when the camera has no
-    current dots; 304 when ``since`` is already the newest result.
-    """
-    camera = find_camera_by_id(drone_id)
-    if camera is None:
-        raise HTTPException(status_code=404, detail="Camera not found")
-    history = _head_store.get(camera["id"])
-    if (
-        not history
-        or not global_counting_mode
-        or camera.get("analytics_status") != "active"
-    ):
-        return Response(status_code=204, headers={"Cache-Control": "no-store"})
-    records = list(history)
-    newest = records[-1][0]
-    headers = {"Cache-Control": "no-store", "X-Heads-Seq": str(newest)}
-    if since is not None:
-        if since == newest:
-            return Response(status_code=304, headers=headers)
-        if since < newest:  # a smaller seq means the analyzer restarted: send everything
-            records = [r for r in records if r[0] > since] or records
-    body = b"".join(
-        _HEAD_RECORD.pack(seq, len(payload) // 4, captured) + payload
-        for seq, captured, payload in records
-    )
-    return Response(content=body, media_type="application/octet-stream", headers=headers)
-
-
 @app.post("/cameras/update_stats")
 def update_stats(data: StatsUpdate):
     drone_id = normalize_camera_id(data.drone_id)
@@ -2497,7 +2411,6 @@ def update_stats(data: StatsUpdate):
     matched_camera["connection_message"] = "Live video and counting connected."
     matched_camera["stats_updated_at"] = time.time()
     analysis_scheduler.healthy(matched_camera["id"])
-    store_head_positions(matched_camera, data)
     matched_camera["people_count"] = max(0, int(round(data.density_score)))
     matched_camera["forecast"] = crowd_forecaster.record(
         drone_id, matched_camera["people_count"]

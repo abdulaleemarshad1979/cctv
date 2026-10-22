@@ -259,3 +259,42 @@ def test_full_screen_view_requests_a_priority_adaptive_stream():
         assert '?priority=1' in content and "activeFullViewCamId === cam.id" in content, name
         # a tile that fell back to the direct stream is upgraded when opened full-screen
         assert "current._egdmsAbr === false" in content, name
+
+
+def test_players_share_one_network_budget_with_the_full_view_first():
+    player = _read("static/monitor/js/egdms-player.js")
+    for needle in (
+        "P.QualityGovernor = class",
+        "P.tileLevelCap = function (levels, boxWidth, boxHeight, share)",
+        "capLevelToPlayerSize: !governed",
+        # the full view is never capped; tiles behind it drop to the lowest level
+        "hls.autoLevelCapping = -1",
+        "const cap = focusOpen ? 0 : P.tileLevelCap(",
+        # one step above the box size only when the share pays for it
+        "let cap = Math.min(levels.length - 1, fit + 1);",
+        "while (cap > 0 && levelRate(levels[cap]) > share) cap--;",
+        # no fresh measurement: box size only, as hls.js would
+        "if (share == null) return fit;",
+        'connection.addEventListener("change"',
+    ):
+        assert needle in player, needle
+    for name in ["admin_dashboard.html", "lite_dashboard.html"]:
+        content = _read(name)
+        assert "new EGDMSPlayer.QualityGovernor({ isFocused: id => activeFullViewCamId === id })" in content, name
+        assert "governed: Boolean(qualityGovernor)" in content, name
+        # capped while the manifest is parsed, before the first segment is chosen
+        parsed = content[content.index("hls.on(Hls.Events.MANIFEST_PARSED, () => {"):]
+        assert parsed.index("qualityGovernor.add(cam.id, hls, container)") < parsed.index("safePlay(video)"), name
+        assert "if (qualityGovernor) qualityGovernor.remove(id);" in content, name
+        assert content.count("if (qualityGovernor) qualityGovernor.apply();") >= 2, name   # open + close
+
+
+def test_tiles_behind_a_full_view_that_stays_open_stop_and_resume_on_close():
+    for name in ["admin_dashboard.html", "lite_dashboard.html"]:
+        content = _read(name)
+        assert "const FULL_VIEW_GRID_PAUSE_MS = 10000;" in content, name
+        assert "if (activeFullViewCamId && gridPausedForFullView) return false;" in content, name
+        assert "Object.keys(hlsPlayers).forEach(pauseLiveTile);" in content, name
+        close = content[content.index("window.closeFullViewModal = function() {"):]
+        close = close[:close.index("\n    };\n")]
+        assert "clearTimeout(gridPauseTimer);" in close and "if (resumeGrid) {" in close, name

@@ -15,7 +15,6 @@ import sys
 import cv2
 import time
 STARTUP_T0 = time.monotonic()
-import base64
 import queue
 import threading
 import traceback
@@ -46,11 +45,8 @@ from src.crowd_risk_estimator   import CrowdRiskEstimator
 from src.counting_accuracy      import (
     TemporalCountStabilizer,
     allocate_zone_counts,
-    box_head_points,
+    detection_zone_counts,
     detections_to_density_map,
-    locate_heads,
-    pack_head_points,
-    point_zone_counts,
 )
 from src.stream_output          import LatestFrameEncoder, resolve_ffmpeg_path
 
@@ -252,40 +248,6 @@ def _preprocess(bgr):
     tensor_np = torch.from_numpy(rgb).permute(2, 0, 1).float().unsqueeze(0).to(device) / 255.0
     return (tensor_np - _NORMALIZE_MEAN) / _NORMALIZE_STD
 
-# Startup Verification of Preprocessing Pipeline
-if os.environ.get("VERIFY_PREPROCESS", "1") in ("1", "true", "yes", "on"):
-    try:
-        # Create a dummy frame (height, width, channels) in BGR
-        dummy_bgr = np.random.randint(0, 256, (720, 1280, 3), dtype=np.uint8)
-        
-        # 1. Run New Path calculation (which does suppress overlays inside _preprocess)
-        new_val = _preprocess(dummy_bgr.copy())
-        
-        # 2. Run Old Path calculation with the exact same overlay suppression
-        dummy_bgr_suppressed = dummy_bgr.copy()
-        if getattr(config, "CLEAN_INPUT_OVERLAYS", True):
-            dummy_bgr_suppressed = density_filter.suppress_broadcast_overlays(dummy_bgr_suppressed)
-        dummy_small = cv2.resize(dummy_bgr_suppressed, (config.INFER_WIDTH, config.INFER_HEIGHT),
-                                 interpolation=cv2.INTER_AREA)
-        dummy_rgb = cv2.cvtColor(dummy_small, cv2.COLOR_BGR2RGB)
-        old_array = (
-            torch.from_numpy(dummy_rgb)
-            .permute(2, 0, 1)
-            .float()
-            .unsqueeze(0)
-            .to(device)
-            / 255.0
-        )
-        old_val = (old_array - _NORMALIZE_MEAN) / _NORMALIZE_STD
-        
-        diff = torch.max(torch.abs(old_val - new_val)).item()
-        if torch.allclose(old_val, new_val, atol=1e-5):
-            print(f"[PREPROCESS TEST] Numerical equivalence confirmed! Max absolute diff: {diff:.2e}")
-        else:
-            print(f"[PREPROCESS TEST] WARNING: Mismatch between PIL and direct tensor preprocessing! Max absolute diff: {diff:.2e}")
-    except Exception as e:
-        print(f"[PREPROCESS TEST] WARNING: Failed to run verification test: {e}")
-
 
 def _infer(tensor):
     with torch.inference_mode():
@@ -350,10 +312,6 @@ _stride        = config.INITIAL_INFERENCE_STRIDE
 _proc_fps      = 0.0
 _zone_scores   = None          # np (3,3)
 _is_live       = False
-_head_points   = np.empty((0, 2), dtype=np.float32)  # frame pixels
-_head_payload  = ""            # base64 uint16 x/y pairs, normalised to the frame
-_head_count    = 0
-_head_ts       = 0.0           # wall-clock seconds at which the counted frame was captured
 _analytics_event = threading.Event()   # set whenever a new result is published
 _is_simulation = False
 _counting_mode_active = os.environ.get("COUNTING_MODE_ACTIVE", "1").lower() in (
@@ -393,16 +351,21 @@ def _mode_sync_worker():
         print("[MODE SYNC] WARNING: 'requests' library not installed — mode sync disabled")
         return
 
+    # Every stats reply already carries the mode while counting, and the server
+    # stops live analyzers itself on a switch to Viewing (and ignores stats sent
+    # in Viewing mode), so this poll only has to catch the switch back. One
+    # kept-alive connection every 2 s instead of a new one every 0.5 s.
+    session = requests.Session()
     while not _stop.is_set():
         try:
-            response = requests.get(mode_url, timeout=2.0)
+            response = session.get(mode_url, timeout=2.0)
             response.raise_for_status()
             active = bool(response.json().get("counting_mode", True))
             with _lock:
                 _counting_mode_active = active
         except Exception:
             pass
-        _stop.wait(0.5)
+        _stop.wait(2.0)
 
 
 def _replace_latest(target_queue, item):
@@ -592,7 +555,6 @@ def _inference_worker():
     global _speed_grid, _motion_speed, _turbulence, _opp_result, _comp_risk
     global _comp_zone, _comp_color, _pressure_smooth, _sp_result, _hs_result, _analytics_ts
     global _analytics_seq
-    global _head_points, _head_payload, _head_count, _head_ts
 
     # Wait for the asynchronously loaded model to be ready
     model_loaded.wait()
@@ -632,7 +594,7 @@ def _inference_worker():
 
     while not _stop.is_set():
         try:
-            frame, frame_mono_ts = _frame_q.get(timeout=0.25)
+            frame, _ = _frame_q.get(timeout=0.25)
         except queue.Empty:
             continue
 
@@ -654,7 +616,7 @@ def _inference_worker():
                 frame.shape[:2],
             )
         else:
-            # 1) Density map: its integral is the count, its peaks are heads.
+            # 1) Density map: its integral is the count.
             dmap_np = _infer_density_map(frame)
             dmap_np  = density_filter.clean_density_map(
                 dmap_np,
@@ -664,15 +626,15 @@ def _inference_worker():
                 speckle_ratio=getattr(config, "DENSITY_SPECKLE_RATIO", 0.015),
             )
 
-            # 2) YOLOv11 person boxes (GPU / hybrid only) give exact head
-            #    positions and a hard floor for the count.
+            # 2) YOLOv11 person boxes (GPU / hybrid only) give a hard floor
+            #    for the count and for each zone.
             count_boxes_val = (
                 _detect_people(frame) if model["yolo"] is not None
                 else np.empty((0, 4), dtype=np.float32)
             )
 
-        detected_heads = box_head_points(count_boxes_val)
-        people_count = float(detected_heads.shape[0])
+        people_count = float(count_boxes_val.shape[0])
+        zone_detections = detection_zone_counts(count_boxes_val, frame.shape[:2])
 
         with _lock:
             is_live_val = _is_live
@@ -699,33 +661,13 @@ def _inference_worker():
         # hard detected-person floor. Stabilization removes one-frame spikes.
         if not is_yolo_mode:
             ds = count_stabilizer.update(float(ds_metrics), people_count)
-            # One dot per counted person: detected heads first, then density
-            # peaks for everyone YOLO could not see. len(head_points) equals
-            # round(ds), so the dots, the zone grid and the count all agree.
-            head_points = locate_heads(
-                dmap_np, ds, frame.shape[:2], detected_heads=detected_heads
-            )
-            if head_points.shape[0] == int(round(ds)):
-                scores = point_zone_counts(head_points, frame.shape[:2])
-            else:
-                # Calibration bias can ask for people on an empty map.
-                scores = allocate_zone_counts(
-                    scores, point_zone_counts(detected_heads, frame.shape[:2]), ds
-                )
+            # Integer zone counts that add up to the count: every detected
+            # person stays in their zone, the density map places the rest.
+            scores = allocate_zone_counts(scores, zone_detections, ds)
         else:
             ds = count_stabilizer.update(people_count, people_count)
-            head_points = detected_heads
-            zone_headcounts = point_zone_counts(detected_heads, frame.shape[:2])
-            scores = allocate_zone_counts(zone_headcounts, zone_headcounts, ds)
+            scores = allocate_zone_counts(zone_detections, zone_detections, ds)
 
-
-        # Normalised 4-byte-per-head payload for the browser (it draws the
-        # dots over the raw video, so the encoded stream needs no overlay).
-        # The browser plays the stream a few seconds behind live and picks the
-        # dots recorded for the frame it is showing, so stamp the capture time.
-        frame_wall_ts = time.time() - max(0.0, time.monotonic() - frame_mono_ts)
-        head_bytes, head_count = pack_head_points(head_points, frame.shape[:2])
-        head_payload = base64.b64encode(head_bytes).decode("ascii") if head_bytes else ""
 
         # Run Motion and Flow analytics on the frame
         flow_now = time.monotonic()
@@ -873,10 +815,6 @@ def _inference_worker():
             _pressure_smooth = pressure_smooth
             _sp_result       = sp_result
             _hs_result       = hs_result
-            _head_points     = head_points
-            _head_payload    = head_payload
-            _head_count      = head_count
-            _head_ts         = frame_wall_ts
             _analytics_ts    = time.monotonic()
             _analytics_seq  += 1
         _analytics_event.set()
@@ -938,7 +876,6 @@ show_grid        = True
 show_heatmap     = False
 recording        = False
 
-head_dots   = overlay.HeadDotLayer()
 crowd_log   = logger.CrowdLogger(config.CSV_LOG_PATH, enabled=config.WRITE_CSV_LOG)
 video_writer = None
 rtmp_target = os.environ.get("RTMP_TARGET") if STREAM_OUTPUT_ENABLED else None
@@ -987,10 +924,6 @@ while not _stop.is_set():
         health_stats  = _health_stats
         is_live_val   = _is_live
         is_simulation_val = _is_simulation
-        head_points   = _head_points
-        head_payload  = _head_payload
-        head_count    = _head_count
-        head_ts       = _head_ts
         counting_mode_active = _counting_mode_active
         
         # Grab decoupled analytics state
@@ -1069,9 +1002,6 @@ while not _stop.is_set():
                 ),
                 "analytics_active": True,
                 "analytics_seq": int(analytics_seq),
-                "heads_b64": head_payload,
-                "heads_n": int(head_count),
-                "heads_ts": float(head_ts),
             })
 
     if HEADLESS and not rtmp_target and not recording:
@@ -1100,10 +1030,6 @@ while not _stop.is_set():
     t_overlay_start = time.perf_counter()
     if counting_mode_active and RENDER_VIDEO_OVERLAYS:
         overlay.draw_top_banner(disp, comp_zone, comp_color, pressure_smooth)
-        
-        # ── one dot per counted head (rasterised once per result) ──
-        head_dots.update(head_points, frame.shape[:2], disp.shape[:2], analytics_seq)
-        head_dots.draw(disp)
 
         # Draw model indicator below banner
         counter_label = model.get("counter_label", "Density Counter") if isinstance(model, dict) else "Density Counter"

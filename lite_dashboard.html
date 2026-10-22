@@ -1335,8 +1335,6 @@
         </a>
 
         <!-- Viewing / Counting Mode Toggle -->
-        <button id="btn-head-dots" class="egdms-dots-toggle" type="button" aria-pressed="true">Dots</button>
-
         <div class="mode-toggle-group">
           <button id="btn-mode-viewing" class="mode-pill" onclick="changeGlobalMode('viewing')">
             Viewing
@@ -1375,13 +1373,13 @@
   <script src="https://cdn.jsdelivr.net/npm/hls.js@1.7.1"></script>
   <!-- ?v= is the script's content hash (tests enforce it): a new URL on every
        change, so the CDN and browsers can never serve an older copy. -->
-  <script src="/static/monitor/js/egdms-player.js?v=8814b33103"></script>
-  <script src="/static/monitor/js/egdms-dots.js?v=67f61a98bc"></script>
+  <script src="/static/monitor/js/egdms-player.js?v=82e561db19"></script>
 
   <script>
     let cameras = [];
     let activeFilter = "All";
     let globalMode = "counting"; // ponytail: dynamic global mode state
+    let modeChangedAt = 0;       // polls sent before a local switch carry the old mode
     const hlsPlayers = {};
     const playerRetryTimers = {};
     const playerWatchdogTimers = {};
@@ -1511,13 +1509,20 @@
     // Lazy live playback: a stream runs only while its tile is on screen (or
     // open in full view).  Off-screen players stop and keep their last frame,
     // which frees bandwidth for the streams being watched.
+    // Tiles behind a full view that stays open are hidden by its backdrop:
+    // after a short look they stop (keeping their last frame) so the full view
+    // gets the network and the CPU, and restart when it closes.
+    const FULL_VIEW_GRID_PAUSE_MS = 10000;
+    let gridPausedForFullView = false;
+    let gridPauseTimer = null;
     function liveTileWanted(camId) {
-      return activeFullViewCamId === camId || liveTileGate.isVisible(camId);
+      if (activeFullViewCamId === camId) return true;
+      if (activeFullViewCamId && gridPausedForFullView) return false;
+      return liveTileGate.isVisible(camId);
     }
     function resumeLiveTile(camId) {
       const cam = cameras.find(c => c.id === camId);
       if (cam && isCameraPlayable(cam) && !hlsPlayers[camId] && !playerRetryTimers[camId]) setupVideoFeed(cam);
-      if (cam) headDots.sync(cam);
     }
     function pauseLiveTile(camId) {
       if (hlsPlayers[camId] && !liveTileWanted(camId)) teardownVideoFeed(camId, false, true);
@@ -1528,28 +1533,11 @@
       ? new EGDMSPlayer.LiveTileGate({ onShow: resumeLiveTile, onHide: pauseLiveTile })
       : { observe() {}, unobserve() {}, isVisible: () => true };
 
-    // A dot on every counted person, drawn over the raw video. Pages that still
-    // hold an older cached script just run without dots.
-    const headDots = typeof EGDMSDots !== "undefined"
-      ? new EGDMSDots.Manager({
-          enabled: EGDMSDots.readEnabled(),
-          container: id => document.getElementById(`player-container-${id}`),
-          wanted: cam => globalMode === "counting" && cam.analytics_status === "active" &&
-            isCameraPlayable(cam) && liveTileWanted(cam.id),
-          // The stream plays seconds behind live: draw the dots recorded for the
-          // frame on screen (hls.js exposes its program date-time).
-          clock: id => {
-            const player = hlsPlayers[id];
-            const shown = player && player.playingDate;
-            if (!(shown instanceof Date) || isNaN(shown)) return null;
-            const cam = cameras.find(c => c.id === id);
-            return shown.getTime() - (cam && cam.heads_sync_offset_ms != null ? cam.heads_sync_offset_ms : 700);
-          }
-        })
-      : { enabled: false, sync() {}, forget() {}, setEnabled() {} };
-    if (typeof EGDMSDots !== "undefined") {
-      EGDMSDots.bindToggle(document.getElementById("btn-head-dots"), headDots, () => cameras.forEach(cam => headDots.sync(cam)));
-    }
+    // One network budget for every player on the page: the full view first,
+    // tiles share the rest (older cached player scripts: hls.js size cap only).
+    const qualityGovernor = EGDMSPlayer.QualityGovernor
+      ? new EGDMSPlayer.QualityGovernor({ isFocused: id => activeFullViewCamId === id })
+      : null;
 
     window.openFullViewModal = function(camId) {
       const cam = cameras.find(c => c.id === camId);
@@ -1565,6 +1553,14 @@
         fullViewBody.appendChild(container);
         fullViewModal.classList.remove("hidden");
         activeFullViewCamId = camId;
+        gridPausedForFullView = false;
+        clearTimeout(gridPauseTimer);
+        gridPauseTimer = setTimeout(() => {
+          if (activeFullViewCamId !== camId) return;
+          gridPausedForFullView = true;
+          Object.keys(hlsPlayers).forEach(pauseLiveTile);
+        }, FULL_VIEW_GRID_PAUSE_MS);
+        if (qualityGovernor) qualityGovernor.apply();
         // A tile that fell back to the direct stream (every transcoder slot was
         // busy) gets the adaptive stream now: this view is where quality matters.
         const current = hlsPlayers[camId];
@@ -1592,9 +1588,19 @@
         fullViewModal.classList.add("hidden");
       }
       activeFullViewCamId = null;
+      clearTimeout(gridPauseTimer);
+      const resumeGrid = gridPausedForFullView;
+      gridPausedForFullView = false;
       const video = container?.querySelector("video");
       if (video && !video._userPaused) safePlay(video);
       if (!liveTileWanted(camId)) pauseLiveTile(camId);
+      if (resumeGrid) {
+        cameras.forEach(c => {
+          if (c.id === camId || !liveTileWanted(c.id)) return;
+          if (isCameraPlayable(c) && !hlsPlayers[c.id] && !playerRetryTimers[c.id]) setupVideoFeed(c);
+        });
+      }
+      if (qualityGovernor) qualityGovernor.apply();
     };
 
     window.toggleNativeFullscreen = function() {
@@ -1758,7 +1764,6 @@
           if (activeFullViewCamId === id) closeFullViewModal();
           liveTileGate.unobserve(card);
           card.remove();
-          headDots.forget(id);
           teardownVideoFeed(id);
         }
       });
@@ -1969,6 +1974,7 @@
         delete probesInFlight[id];
       }
       const player = hlsPlayers[id];
+      if (qualityGovernor) qualityGovernor.remove(id);
       if (player) {
         try {
           player._destroyed = true;
@@ -1995,7 +2001,7 @@
         if (keepFrame) {
           EGDMSPlayer.removeQualityMenu(container);
           Array.from(container.children).forEach(child => {
-            if (!child.classList.contains("egdms-freeze") && !child.classList.contains("egdms-overlay") && !child.classList.contains("egdms-dots")) child.remove();
+            if (!child.classList.contains("egdms-freeze") && !child.classList.contains("egdms-overlay")) child.remove();
           });
         } else {
           container.innerHTML = showSwitchingState
@@ -2157,7 +2163,8 @@ function setupHlsPlayback(cam, video, playbackPath, getMediaRecoveries) {
       if (typeof Hls !== "undefined" && Hls.isSupported()) {
         const hls = new Hls(EGDMSPlayer.hlsConfig({
           targetLatency: cam.player_latency_target_seconds || 5,
-          abr: useAbr
+          abr: useAbr,
+          governed: Boolean(qualityGovernor)
         }));
 
         hls._egdmsPath = playbackPath;
@@ -2178,6 +2185,8 @@ function setupHlsPlayback(cam, video, playbackPath, getMediaRecoveries) {
         });
 
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
+          // Cap before hls.js picks the first segment's quality.
+          if (qualityGovernor) qualityGovernor.add(cam.id, hls, container);
           safePlay(video);
           EGDMSPlayer.attachQualityMenu(container, hls, cam.id, value => {
             EGDMSPlayer.report(cam.id, "quality_switch", { detail: `viewer selected ${value}`, transport });
@@ -2435,9 +2444,14 @@ function setupHlsPlayback(cam, video, playbackPath, getMediaRecoveries) {
       if (document.hidden && Date.now() - lastCameraPollAt < 5000) return;
       lastCameraPollAt = Date.now();
       cameraPollInFlight = true;
+      const pollStartedAt = Date.now();
       try {
         const res = await fetch("/cameras", { cache: "no-store" });
         const newCameras = await res.json();
+        // Another operator may have switched Viewing/Counting: follow it on
+        // the next poll instead of after a reload (counts appear/vanish with it).
+        const serverMode = res.headers.get("X-Counting-Mode");
+        const pendingMode = serverMode === "1" ? "counting" : serverMode === "0" ? "viewing" : null;
 
         let needsRerender = false;
         const oldById = new Map(cameras.map(camera => [camera.id, camera]));
@@ -2505,7 +2519,7 @@ function setupHlsPlayback(cam, video, playbackPath, getMediaRecoveries) {
         });
 
         cameras = newCameras;
-        newCameras.forEach(newCam => headDots.sync(newCam));
+        if (pendingMode && pendingMode !== globalMode && pollStartedAt > modeChangedAt) applyGlobalMode(pendingMode);
         updateFlyingCount();
         if (needsRerender) {
           renderGrid();
@@ -2688,6 +2702,7 @@ function setupHlsPlayback(cam, video, playbackPath, getMediaRecoveries) {
     }
 
     async function changeGlobalMode(mode) {
+      modeChangedAt = Date.now();
       try {
         const res = await fetch("/set_mode", {
           method: "POST",
@@ -2695,6 +2710,7 @@ function setupHlsPlayback(cam, video, playbackPath, getMediaRecoveries) {
           body: JSON.stringify({ mode: mode })
         });
         if (res.ok) {
+          modeChangedAt = Date.now();
           applyGlobalMode(mode);
         }
       } catch (e) {
